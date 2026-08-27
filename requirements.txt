@@ -1,0 +1,23 @@
+# TOUPAC — Python dependencies
+django>=5.0,<6.0
+djangorestframework>=3.15
+djangorestframework-simplejwt>=5.3
+django-cors-headers>=4.3
+django-filter>=24.0
+drf-spectacular>=0.27
+django-guardian>=2.4
+django-unfold>=0.30
+psycopg2-binary>=2.9
+celery>=5.4
+redis>=5.0
+channels>=4.0
+channels-redis>=4.2
+pyjwt>=2.8
+cryptography>=42.0
+gunicorn>=22.0
+uvicorn>=0.30
+daphne>=4.1
+# Dev / test
+pytest>=8.0
+pytest-django>=4.8
+ruff>=0.4

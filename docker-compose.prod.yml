@@ -1,0 +1,143 @@
+# TOUPAC — Docker Compose (production)
+services:
+
+  caddy:
+    image: caddy:2-alpine
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+      - static_files:/srv/static:ro
+      - media_files:/srv/media:ro
+    depends_on:
+      - web
+    restart: always
+
+  web:
+    image: toupac/app:${TAG:-latest}
+    build: .
+    command: >
+      gunicorn config.wsgi:application
+      --bind 0.0.0.0:8000
+      --workers ${WEB_WORKERS:-4}
+      --worker-class uvicorn.workers.UvicornWorker
+      --timeout 30
+      --access-logfile -
+      --error-logfile -
+    env_file: .env.prod
+    environment:
+      - DJANGO_SETTINGS_MODULE=config.settings.prod
+    volumes:
+      - static_files:/app/staticfiles
+      - media_files:/app/media
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    restart: always
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health/')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+
+  worker:
+    image: toupac/app:${TAG:-latest}
+    build: .
+    command: >
+      celery -A config worker
+      --loglevel=info
+      --concurrency=${CELERY_CONCURRENCY:-4}
+      --max-tasks-per-child=1000
+    env_file: .env.prod
+    environment:
+      - DJANGO_SETTINGS_MODULE=config.settings.prod
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    restart: always
+    healthcheck:
+      # Le worker ne sert aucun port : on vérifie qu'il répond réellement au
+      # broker (round-trip Redis), pas juste que le process existe.
+      test: ["CMD-SHELL", "celery -A config inspect ping || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+
+  beat:
+    image: toupac/app:${TAG:-latest}
+    build: .
+    command: celery -A config beat --loglevel=info
+    env_file: .env.prod
+    environment:
+      - DJANGO_SETTINGS_MODULE=config.settings.prod
+    depends_on:
+      - worker
+    restart: always
+    healthcheck:
+      # Celery beat n'expose aucun ping applicatif (contrairement au worker) :
+      # c'est un scheduler, pas un consommateur de tâches. On se limite donc à
+      # une vérification de survie du process — plus faible qu'un vrai probe
+      # fonctionnel, mais honnête sur ce qui est réellement vérifiable ici.
+      test: ["CMD-SHELL", "pgrep -f 'celery.*beat' || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+
+  ws:
+    image: toupac/app:${TAG:-latest}
+    build: .
+    command: daphne -b 0.0.0.0 -p 8001 config.asgi:application
+    env_file: .env.prod
+    environment:
+      - DJANGO_SETTINGS_MODULE=config.settings.prod
+    depends_on:
+      - redis
+    restart: always
+    healthcheck:
+      # config.asgi:application sert encore l'app Django complète (pas de
+      # routing WebSocket séparé pour l'instant), donc /health/ y répond aussi.
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8001/health/')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+
+  postgres:
+    image: postgis/postgis:16-3.4-alpine
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    environment:
+      POSTGRES_DB: ${DB_NAME:-toupac}
+      POSTGRES_USER: ${DB_USER:-toupac}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    restart: always
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-toupac}"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru --appendonly yes
+    volumes:
+      - redis_data:/data
+    restart: always
+
+volumes:
+  pg_data:
+  redis_data:
+  caddy_data:
+  caddy_config:
+  static_files:
+  media_files:

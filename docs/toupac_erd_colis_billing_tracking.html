@@ -1,0 +1,275 @@
+<style>
+#erd2 svg { max-width: 100%; }
+#erd2 svg.erDiagram .divider path { stroke-opacity: 0.5; }
+#erd2 svg.erDiagram .row-rect-odd path,
+#erd2 svg.erDiagram .row-rect-odd rect,
+#erd2 svg.erDiagram .row-rect-even path,
+#erd2 svg.erDiagram .row-rect-even rect { stroke: none !important; }
+p{
+  color:black;
+}
+</style>
+<h2 class="sr-only">ERD TOUPAC — Modules Colis, Facturation, Tracking, Notifications (15 tables)</h2>
+<div id="erd2"></div>
+<script type="module">
+import mermaid from 'https://esm.sh/mermaid@11/dist/mermaid.esm.min.mjs';
+const themeMode = document.documentElement.dataset.mode;
+const dark = themeMode ? themeMode === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches;
+await document.fonts.ready;
+mermaid.initialize({
+  startOnLoad: false,
+  theme: 'base',
+  fontFamily: '"anthropic-sans", sans-serif',
+  themeVariables: {
+    darkMode: dark,
+    fontSize: '12px',
+    fontFamily: '"anthropic-sans", sans-serif',
+    lineColor: dark ? '#9c9a92' : '#73726c',
+    textColor: dark ? '#c2c0b6' : '#3d3d3a',
+  },
+});
+const { svg } = await mermaid.render('erd2-svg', `erDiagram
+
+  tenants {
+    uuid id PK
+    varchar name
+    char currency
+  }
+
+  users {
+    uuid id PK
+    uuid tenant_id FK
+    varchar email
+    varchar role
+  }
+
+  vehicles {
+    uuid id PK
+    uuid tenant_id FK
+    varchar plate_number
+  }
+
+  drivers {
+    uuid id PK
+    uuid tenant_id FK
+    uuid user_id FK
+  }
+
+  places {
+    uuid id PK
+    uuid tenant_id FK
+    varchar name
+    geography location
+  }
+
+  zones {
+    uuid id PK
+    uuid tenant_id FK
+    varchar name
+    geography boundary
+  }
+
+  orders {
+    uuid id PK
+    uuid tenant_id FK
+    varchar internal_id UK
+    uuid customer_id FK
+    uuid pickup_place_id FK
+    uuid dropoff_place_id FK
+    varchar priority
+    varchar status
+    int total_amount_xof
+    varchar payment_status
+  }
+
+  parcels {
+    uuid id PK
+    uuid tenant_id FK
+    uuid order_id FK
+    varchar tracking_number UK
+    decimal weight_kg
+    varchar category
+    varchar status
+  }
+
+  delivery_tasks {
+    uuid id PK
+    uuid tenant_id FK
+    uuid order_id FK
+    uuid driver_id FK
+    uuid vehicle_id FK
+    varchar type
+    varchar status
+    int sequence_order
+    uuid place_id FK
+  }
+
+  proofs_of_delivery {
+    uuid id PK
+    uuid tenant_id FK
+    uuid delivery_task_id FK
+    varchar type
+    varchar recipient_name
+    geography gps_location
+  }
+
+  price_lists {
+    uuid id PK
+    uuid tenant_id FK
+    varchar name
+    varchar type
+    boolean is_active
+  }
+
+  price_rules {
+    uuid id PK
+    uuid price_list_id FK
+    uuid route_id FK
+    uuid origin_zone_id FK
+    uuid dest_zone_id FK
+    varchar calculation_method
+    int base_amount_xof
+  }
+
+  invoices {
+    uuid id PK
+    uuid tenant_id FK
+    varchar invoice_number UK
+    varchar customer_name
+    int total_xof
+    varchar status
+  }
+
+  invoice_lines {
+    uuid id PK
+    uuid invoice_id FK
+    varchar description
+    int quantity
+    int amount_xof
+  }
+
+  payments {
+    uuid id PK
+    uuid tenant_id FK
+    uuid invoice_id FK
+    uuid reservation_id FK
+    uuid order_id FK
+    varchar provider
+    varchar provider_tx_id
+    int amount_xof
+    varchar status
+  }
+
+  positions {
+    bigint id PK
+    uuid tenant_id FK
+    uuid vehicle_id FK
+    geography location
+    decimal speed_kmh
+    timestamptz recorded_at
+  }
+
+  geofences {
+    uuid id PK
+    uuid tenant_id FK
+    varchar name
+    varchar type
+    geography boundary
+  }
+
+  geofence_events {
+    uuid id PK
+    uuid tenant_id FK
+    uuid geofence_id FK
+    uuid vehicle_id FK
+    varchar event_type
+    timestamptz event_at
+  }
+
+  tracking_links {
+    uuid id PK
+    uuid tenant_id FK
+    varchar token UK
+    varchar resource_type
+    uuid resource_id
+  }
+
+  notification_templates {
+    uuid id PK
+    uuid tenant_id FK
+    varchar event_type
+    varchar channel
+    text template_body
+  }
+
+  notification_logs {
+    uuid id PK
+    uuid tenant_id FK
+    uuid user_id FK
+    varchar channel
+    varchar recipient
+    varchar status
+    varchar provider
+  }
+
+  user_devices {
+    uuid id PK
+    uuid user_id FK
+    varchar platform
+    varchar push_token
+  }
+
+  tenants ||--o{ orders : "receives"
+  tenants ||--o{ invoices : "issues"
+  tenants ||--o{ positions : "tracks"
+
+  users ||--o{ orders : "places"
+  users ||--o{ notification_logs : "receives"
+  users ||--o{ user_devices : "registers"
+
+  places ||--o{ orders : "pickup"
+  places ||--o{ delivery_tasks : "at"
+
+  orders ||--o{ parcels : "contains"
+  orders ||--o{ delivery_tasks : "fulfilled by"
+  orders ||--o{ payments : "paid via"
+
+  drivers ||--o{ delivery_tasks : "executes"
+  vehicles ||--o{ delivery_tasks : "uses"
+  vehicles ||--o{ positions : "emits"
+  vehicles ||--o{ geofence_events : "triggers"
+
+  delivery_tasks ||--o{ proofs_of_delivery : "proven by"
+
+  price_lists ||--o{ price_rules : "contains"
+  zones ||--o{ price_rules : "origin"
+
+  invoices ||--o{ invoice_lines : "itemizes"
+  invoices ||--o{ payments : "paid by"
+
+  geofences ||--o{ geofence_events : "triggers"
+`);
+document.getElementById('erd2').innerHTML = svg;
+document.querySelectorAll('#erd2 svg.erDiagram .node').forEach(node => {
+  const firstPath = node.querySelector('path[d]');
+  if (!firstPath) return;
+  const d = firstPath.getAttribute('d');
+  const nums = d.match(/-?[\d.]+/g)?.map(Number);
+  if (!nums || nums.length < 8) return;
+  const xs = [nums[0], nums[2], nums[4], nums[6]];
+  const ys = [nums[1], nums[3], nums[5], nums[7]];
+  const x = Math.min(...xs), y = Math.min(...ys);
+  const w = Math.max(...xs) - x, h = Math.max(...ys) - y;
+  const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+  rect.setAttribute('x', x); rect.setAttribute('y', y);
+  rect.setAttribute('width', w); rect.setAttribute('height', h);
+  rect.setAttribute('rx', '8');
+  for (const a of ['fill', 'stroke', 'stroke-width', 'class', 'style']) {
+    if (firstPath.hasAttribute(a)) rect.setAttribute(a, firstPath.getAttribute(a));
+  }
+  firstPath.replaceWith(rect);
+});
+document.querySelectorAll('#erd2 svg.erDiagram .row-rect-odd path, #erd2 svg.erDiagram .row-rect-even path').forEach(p => {
+  p.setAttribute('stroke', 'none');
+});
+</script>
