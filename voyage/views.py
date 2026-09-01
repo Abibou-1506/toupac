@@ -1,10 +1,11 @@
 """TOUPAC Voyage — ViewSets DRF."""
+import uuid
 from collections import Counter
 
 from django.db.models import Sum
 from django.utils import timezone
 from drf_spectacular.utils import extend_schema, extend_schema_view
-from rest_framework import viewsets, status
+from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -12,17 +13,36 @@ from rest_framework.views import APIView
 
 from billing.models import PriceList, PriceRule
 from colis.models import Order as ColisOrder
+
 from .models import (
-    Route, Schedule, Trip, TripStop, Passenger, Reservation, Controller,
-    ControlSession, CashEntry, PassengerAccessLog,
+    CashEntry,
+    Controller,
+    ControlSession,
+    Passenger,
+    PassengerAccessLog,
+    Reservation,
+    Route,
+    Schedule,
+    Trip,
 )
 from .serializers import (
-    RouteSerializer, ScheduleSerializer, TripListSerializer, TripDetailSerializer,
-    TripCreateSerializer, PassengerSerializer, ReservationSerializer,
-    ReservationCreateSerializer, ManifestSerializer, BoardingActionSerializer,
-    ControllerSerializer, ControlSessionSerializer, ControlOpenSerializer,
-    ControlCloseSerializer, ControlSessionConflictSerializer,
-    BatchRequestSerializer, BatchResponseSerializer,
+    BatchRequestSerializer,
+    BatchResponseSerializer,
+    BoardingActionSerializer,
+    ControlCloseSerializer,
+    ControllerSerializer,
+    ControlOpenSerializer,
+    ControlSessionConflictSerializer,
+    ControlSessionSerializer,
+    ManifestSerializer,
+    PassengerSerializer,
+    ReservationCreateSerializer,
+    ReservationSerializer,
+    RouteSerializer,
+    ScheduleSerializer,
+    TripCreateSerializer,
+    TripDetailSerializer,
+    TripListSerializer,
 )
 from .services.event_processor import BatchEventProcessor
 from .services.qr_jwt import qr_public_key_pem, sign_ticket_jwt
@@ -30,7 +50,10 @@ from .services.qr_jwt import qr_public_key_pem, sign_ticket_jwt
 MAX_BATCH_EVENTS = 100
 
 _TAG = extend_schema(tags=["Voyage"])
-_CRUD_TAGS = dict(list=_TAG, retrieve=_TAG, create=_TAG, update=_TAG, partial_update=_TAG, destroy=_TAG)
+_CRUD_TAGS = {
+    "list": _TAG, "retrieve": _TAG, "create": _TAG,
+    "update": _TAG, "partial_update": _TAG, "destroy": _TAG,
+}
 
 
 @extend_schema_view(**_CRUD_TAGS)
@@ -454,14 +477,9 @@ class ControlEventBatchView(APIView):
                 status=status.HTTP_403_FORBIDDEN,
             )
 
-        session = ControlSession.objects.filter(
-            controller=controller, closed_at__isnull=True
-        ).order_by("-opened_at").first()
-        if not session:
-            return Response(
-                {"detail": "Aucune session de contrôle active."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+        session, error = self._resolve_session(request, controller)
+        if error is not None:
+            return error
 
         # La session porte le tenant faisant autorité — le middleware peut ne
         # pas l'avoir résolu (super-admin sans tenant, par exemple).
@@ -475,3 +493,52 @@ class ControlEventBatchView(APIView):
             "processed": len(results),
             "results": results,
         })
+
+    @staticmethod
+    def _resolve_session(request, controller):
+        """
+        Détermine la session à laquelle rattacher le batch.
+
+        Retourne (session, None) ou (None, Response d'erreur).
+
+        Un `session_id` explicite est accepté même sur une session fermée :
+        c'est tout l'intérêt du champ. Sans lui, un contrôleur qui ferme la
+        session A, ouvre la B, puis resynchronise tardivement les events
+        accumulés dans A les verrait atterrir dans B.
+        """
+        raw_session_id = request.data.get("session_id")
+
+        if raw_session_id in (None, ""):
+            session = (
+                ControlSession.objects
+                .filter(controller=controller, closed_at__isnull=True)
+                .order_by("-opened_at")
+                .first()
+            )
+            if session is None:
+                return None, Response(
+                    {"detail": "Aucune session de contrôle active."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            return session, None
+
+        try:
+            session_id = uuid.UUID(str(raw_session_id))
+        except (TypeError, ValueError):
+            return None, Response(
+                {"detail": "session_id invalide (UUID attendu)."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        session = ControlSession.objects.filter(id=session_id).first()
+        if session is None:
+            return None, Response(
+                {"detail": "Session introuvable."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        if session.controller_id != controller.id:
+            return None, Response(
+                {"detail": "Cette session n'appartient pas au contrôleur authentifié."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        return session, None

@@ -4,6 +4,7 @@ import json
 from django.contrib.gis.geos import GEOSGeometry
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
+
 from .models import DeliveryTask, Order, Parcel, ProofOfDelivery
 
 

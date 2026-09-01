@@ -3,9 +3,19 @@ from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
 from colis.serializers import TripOrderSerializer
+
 from .models import (
-    LuggagePolicy, Route, RouteStop, Schedule, SeatMap, Trip, TripStop,
-    Passenger, Reservation, Controller, ControlSession,
+    Controller,
+    ControlSession,
+    LuggagePolicy,
+    Passenger,
+    Reservation,
+    Route,
+    RouteStop,
+    Schedule,
+    SeatMap,
+    Trip,
+    TripStop,
 )
 
 
@@ -282,6 +292,15 @@ class EventInputSerializer(serializers.Serializer):
 
 
 class BatchRequestSerializer(serializers.Serializer):
+    session_id = serializers.UUIDField(
+        required=False,
+        help_text=(
+            "UUID de la ControlSession à laquelle rattacher le batch. "
+            "Optionnel : si absent, le backend prend la session ouverte la "
+            "plus récente du contrôleur. Utile pour resynchroniser des "
+            "events accumulés dans une session déjà fermée."
+        ),
+    )
     events = EventInputSerializer(many=True)
 
 
