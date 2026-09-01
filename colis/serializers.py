@@ -2,6 +2,7 @@
 import json
 
 from django.contrib.gis.geos import GEOSGeometry
+from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 from .models import DeliveryTask, Order, Parcel, ProofOfDelivery
 
@@ -59,6 +60,7 @@ class OrderListSerializer(serializers.ModelSerializer):
             "created_at", "parcel_count",
         ]
 
+    @extend_schema_field(serializers.CharField(allow_blank=True))
     def get_customer_name(self, obj):
         if obj.customer_id:
             return obj.customer.full_name
@@ -82,10 +84,38 @@ class OrderCreateSerializer(serializers.ModelSerializer):
         model = Order
         fields = [
             "customer", "customer_name", "customer_phone", "pickup_place", "dropoff_place",
-            "pickup_window_start", "pickup_window_end", "delivery_window_start",
+            "trip", "pickup_window_start", "pickup_window_end", "delivery_window_start",
             "delivery_window_end", "priority", "instructions", "metadata",
         ]
-        extra_kwargs = {"customer": {"required": False, "allow_null": True}}
+        extra_kwargs = {
+            "customer": {"required": False, "allow_null": True},
+            "trip": {"required": False, "allow_null": True},
+        }
+
+
+class TripOrderSerializer(serializers.ModelSerializer):
+    """
+    Commande colis telle qu'exposée dans le manifest d'un voyage.
+
+    Le contrôleur a besoin d'identifier le colis et de joindre l'expéditeur —
+    pas de la logistique de tournée (delivery_tasks, fenêtres horaires).
+    """
+    order_id = serializers.UUIDField(source="id", read_only=True)
+    customer_name = serializers.SerializerMethodField()
+    parcels = ParcelSerializer(many=True, read_only=True)
+
+    class Meta:
+        model = Order
+        fields = [
+            "order_id", "internal_id", "customer_name", "customer_phone",
+            "status", "parcels",
+        ]
+
+    @extend_schema_field(serializers.CharField(allow_blank=True))
+    def get_customer_name(self, obj):
+        if obj.customer_id:
+            return obj.customer.full_name
+        return obj.customer_name
 
 
 class ProofOfDeliverySerializer(serializers.ModelSerializer):

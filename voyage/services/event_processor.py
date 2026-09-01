@@ -17,14 +17,10 @@ from django.utils.dateparse import parse_datetime
 from voyage.models import ControlEvent
 from voyage.services.exceptions import EventRejected
 from voyage.services.handlers import (
-    anomalies, boarding, incidents, sales, transitions,
+    anomalies, boarding, incidents, parcels, sales, transitions,
 )
 
 logger = logging.getLogger(__name__)
-
-# Les events colis arrivent déjà dans les batches Sprint 2 mais leur module
-# n'existe qu'au Sprint 3 : on les accepte et on les archive sans traitement.
-IGNORED_EVENT_TYPES = {"parcel_verify", "parcel_refuse"}
 
 EVENT_HANDLERS = {
     "reservation_board": boarding.handle_board,
@@ -35,6 +31,8 @@ EVENT_HANDLERS = {
     "anomaly_resolve": anomalies.handle_anomaly_resolve,
     "incident_create": incidents.handle_incident_create,
     "activity_transition": transitions.handle_activity_transition,
+    "parcel_verify": parcels.handle_parcel_verify,
+    "parcel_refuse": parcels.handle_parcel_refuse,
 }
 
 # Trie les events non horodatés en fin de batch plutôt que de planter.
@@ -155,12 +153,6 @@ class BatchEventProcessor:
 
     def _dispatch(self, event):
         """Route l'event vers son handler."""
-        if event.event_type in IGNORED_EVENT_TYPES:
-            return {
-                "status": "accepted",
-                "anomaly": None,
-                "detail": f"{event.event_type} archivé — module colis au Sprint 3.",
-            }
         handler = EVENT_HANDLERS.get(event.event_type)
         if handler is None:
             raise EventRejected(f"Type d'event inconnu : {event.event_type}")

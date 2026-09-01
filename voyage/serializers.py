@@ -1,5 +1,8 @@
 """TOUPAC Voyage — Serializers DRF."""
+from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
+
+from colis.serializers import TripOrderSerializer
 from .models import (
     LuggagePolicy, Route, RouteStop, Schedule, SeatMap, Trip, TripStop,
     Passenger, Reservation, Controller, ControlSession,
@@ -75,9 +78,11 @@ class TripListSerializer(serializers.ModelSerializer):
             "status", "total_seats", "booked_seats", "vehicle", "driver",
         ]
 
+    @extend_schema_field(serializers.CharField(allow_null=True))
     def get_vehicle(self, obj):
         return obj.vehicle.plate_number if obj.vehicle else None
 
+    @extend_schema_field(serializers.CharField(allow_null=True))
     def get_driver(self, obj):
         return obj.driver.user.full_name if obj.driver else None
 
@@ -153,12 +158,71 @@ class ReservationCreateSerializer(serializers.ModelSerializer):
         return attrs
 
 
+class ManifestTripSerializer(TripDetailSerializer):
+    """Voyage tel qu'exposé dans le manifest — seat_map nichée en entier.
+
+    L'app offline a besoin du layout complet pour dessiner le plan de sièges
+    sans requête supplémentaire : un simple UUID ne lui sert à rien.
+    """
+    seat_map = SeatMapSerializer(read_only=True)
+
+
+class SeatOccupationSerializer(serializers.Serializer):
+    """État d'un siège. `passenger_name`/`reservation_id` absents si libre."""
+    status = serializers.CharField(help_text="free, booked, checked_in, boarded, no_show")
+    passenger_name = serializers.CharField(required=False)
+    reservation_id = serializers.UUIDField(required=False)
+
+
+class ManifestPricingSerializer(serializers.Serializer):
+    default_price_xof = serializers.IntegerField()
+    currency = serializers.CharField()
+    luggage_policy = LuggagePolicySerializer(allow_null=True)
+
+
+class ManifestSessionSerializer(serializers.Serializer):
+    session_id = serializers.UUIDField()
+    controller_name = serializers.CharField()
+    device_id = serializers.CharField(allow_blank=True)
+
+
+class ManifestStatsSerializer(serializers.Serializer):
+    total_seats = serializers.IntegerField()
+    booked = serializers.IntegerField()
+    boarded = serializers.IntegerField()
+    no_show = serializers.IntegerField()
+    refused = serializers.IntegerField()
+    revenue_xof = serializers.IntegerField()
+    cash_xof = serializers.IntegerField()
+    parcels_count = serializers.IntegerField()
+
+
 class ManifestSerializer(serializers.Serializer):
-    """Serializer custom — données complètes d'un voyage pour l'app offline."""
-    trip = TripDetailSerializer()
+    """Serializer custom — données complètes d'un voyage pour l'app offline.
+
+    Tout ce dont le contrôleur a besoin pour travailler sans réseau doit tenir
+    dans cette réponse : c'est le seul appel qu'il fera avant de perdre la
+    connexion.
+    """
+    trip = ManifestTripSerializer()
     reservations = ReservationSerializer(many=True)
     passengers = PassengerSerializer(many=True)
-    stats = serializers.DictField()
+    seat_occupation = serializers.DictField(child=SeatOccupationSerializer())
+    parcels = TripOrderSerializer(many=True)
+    pricing = ManifestPricingSerializer()
+    active_session = ManifestSessionSerializer(allow_null=True)
+    stats = ManifestStatsSerializer()
+    qr_public_key = serializers.CharField(
+        allow_null=True,
+        help_text="Clé publique PEM pour vérifier les QR hors ligne (RS256). "
+                  "null tant que la signature est en HS256.",
+    )
+
+
+class ControlSessionConflictSerializer(serializers.Serializer):
+    """Réponse 409 de control/open — une session est déjà ouverte sur ce voyage."""
+    detail = serializers.CharField()
+    existing_session = serializers.DictField()
 
 
 class BoardingActionSerializer(serializers.Serializer):
@@ -188,3 +252,47 @@ class ControlOpenSerializer(serializers.Serializer):
 
 class ControlCloseSerializer(serializers.Serializer):
     close_summary = serializers.JSONField(required=True)
+
+
+# ─── Batch offline ───
+# Ces serializers documentent le contrat de /control-events/batch/ pour Swagger.
+# La validation réelle reste dans BatchEventProcessor : elle est par event (un
+# event invalide reçoit son propre verdict) et non par requête, ce qu'un
+# serializer DRF ne sait pas exprimer.
+
+class EventInputSerializer(serializers.Serializer):
+    """Format d'un event dans le batch."""
+    client_uuid = serializers.UUIDField(help_text="UUID généré côté mobile, clé d'idempotence")
+    event_type = serializers.ChoiceField(
+        choices=[
+            "reservation_board", "reservation_refuse", "reservation_special_case",
+            "onboard_sale", "anomaly_create", "anomaly_resolve",
+            "incident_create", "activity_transition", "parcel_verify", "parcel_refuse",
+        ],
+        help_text="Type d'événement",
+    )
+    target_type = serializers.CharField(required=False, allow_blank=True)
+    target_id = serializers.UUIDField(required=False, allow_null=True)
+    payload = serializers.JSONField(help_text="Données spécifiques au type d'event")
+    created_at_local = serializers.DateTimeField(
+        help_text="Horodatage côté device — détermine l'ordre de traitement du batch",
+    )
+    gps_location = serializers.JSONField(required=False, help_text='{"lat": 14.69, "lng": -17.44}')
+    gps_accuracy_m = serializers.IntegerField(required=False)
+
+
+class BatchRequestSerializer(serializers.Serializer):
+    events = EventInputSerializer(many=True)
+
+
+class EventResultSerializer(serializers.Serializer):
+    client_uuid = serializers.UUIDField()
+    status = serializers.ChoiceField(choices=["accepted", "rejected", "duplicate"])
+    rejection_reason = serializers.CharField(required=False, allow_blank=True)
+    anomaly = serializers.JSONField(required=False, allow_null=True)
+
+
+class BatchResponseSerializer(serializers.Serializer):
+    session_id = serializers.UUIDField()
+    processed = serializers.IntegerField()
+    results = EventResultSerializer(many=True)

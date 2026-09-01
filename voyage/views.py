@@ -1,24 +1,31 @@
 """TOUPAC Voyage — ViewSets DRF."""
+from collections import Counter
+
+from django.db.models import Sum
 from django.utils import timezone
-from drf_spectacular.utils import extend_schema, extend_schema_view, inline_serializer
-from rest_framework import serializers, viewsets, status
+from drf_spectacular.utils import extend_schema, extend_schema_view
+from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
+
+from billing.models import PriceList, PriceRule
+from colis.models import Order as ColisOrder
 from .models import (
     Route, Schedule, Trip, TripStop, Passenger, Reservation, Controller,
-    ControlSession, PassengerAccessLog,
+    ControlSession, CashEntry, PassengerAccessLog,
 )
 from .serializers import (
     RouteSerializer, ScheduleSerializer, TripListSerializer, TripDetailSerializer,
     TripCreateSerializer, PassengerSerializer, ReservationSerializer,
     ReservationCreateSerializer, ManifestSerializer, BoardingActionSerializer,
     ControllerSerializer, ControlSessionSerializer, ControlOpenSerializer,
-    ControlCloseSerializer,
+    ControlCloseSerializer, ControlSessionConflictSerializer,
+    BatchRequestSerializer, BatchResponseSerializer,
 )
 from .services.event_processor import BatchEventProcessor
-from .services.qr_jwt import sign_ticket_jwt
+from .services.qr_jwt import qr_public_key_pem, sign_ticket_jwt
 
 MAX_BATCH_EVENTS = 100
 
@@ -51,7 +58,7 @@ class ScheduleViewSet(viewsets.ModelViewSet):
         return Schedule.objects.filter(tenant=self.request.tenant).select_related("route", "default_vehicle_type")
 
 
-@extend_schema_view(**_CRUD_TAGS, manifest=_TAG, control_open=_TAG, control_close=_TAG)
+@extend_schema_view(**_CRUD_TAGS)
 class TripViewSet(viewsets.ModelViewSet):
     queryset = Trip.objects.none()
     filterset_fields = ["status", "route", "departure_date", "vehicle", "driver"]
@@ -62,7 +69,9 @@ class TripViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         return (
             Trip.objects.filter(tenant=self.request.tenant)
-            .select_related("route", "schedule", "vehicle", "driver", "seat_map")
+            .select_related(
+                "route", "route__luggage_policy", "schedule", "vehicle", "driver", "seat_map",
+            )
             .prefetch_related("stops")
         )
 
@@ -78,30 +87,163 @@ class TripViewSet(viewsets.ModelViewSet):
     def perform_create(self, serializer):
         serializer.save(tenant=self.request.tenant, created_by=self.request.user)
 
+    @extend_schema(request=None, responses={200: ManifestSerializer}, tags=["Voyage"])
     @action(detail=True, methods=["get"], url_path="manifest")
     def manifest(self, request, pk=None):
-        """GET /voyage/trips/{id}/manifest/ — données complètes pour l'app offline."""
+        """GET /voyage/trips/{id}/manifest/ — données complètes pour l'app offline.
+
+        Seul appel que le contrôleur fait avant de perdre le réseau : tout ce
+        dont il a besoin pour la durée du voyage doit tenir ici.
+        """
         trip = self.get_object()
-        reservations = trip.reservations.select_related("passenger").all()
-        passengers = [r.passenger for r in reservations]
+        reservations = list(trip.reservations.select_related("passenger").all())
+
+        # Un même passager peut porter plusieurs réservations sur un voyage.
+        passengers = list({r.passenger_id: r.passenger for r in reservations}.values())
+
+        trip_parcels = list(
+            ColisOrder.objects.filter(tenant=trip.tenant, trip=trip)
+            .exclude(status=ColisOrder.Status.CANCELLED)
+            .select_related("customer")
+            .prefetch_related("parcels")
+        )
+
+        cash_xof = CashEntry.objects.filter(
+            tenant=trip.tenant, session__trip=trip,
+        ).aggregate(total=Sum("amount_xof"))["total"] or 0
+
+        counts = Counter(r.status for r in reservations)
         stats = {
             "total_seats": trip.total_seats,
-            "booked": reservations.filter(status="booked").count(),
-            "boarded": reservations.filter(status="boarded").count(),
-            "no_show": reservations.filter(status="no_show").count(),
-            "revenue_xof": sum(r.amount_xof for r in reservations if r.status != "cancelled"),
+            "booked": counts.get(Reservation.Status.BOOKED, 0),
+            "boarded": counts.get(Reservation.Status.BOARDED, 0),
+            "no_show": counts.get(Reservation.Status.NO_SHOW, 0),
+            "refused": counts.get(Reservation.Status.REFUSED, 0),
+            "revenue_xof": sum(
+                r.amount_xof for r in reservations
+                if r.status != Reservation.Status.CANCELLED
+            ),
+            "cash_xof": cash_xof,
+            "parcels_count": len(trip_parcels),
         }
+
         data = ManifestSerializer({
             "trip": trip,
             "reservations": reservations,
             "passengers": passengers,
+            "seat_occupation": self._build_seat_occupation(trip, reservations),
+            "parcels": trip_parcels,
+            "pricing": self._build_pricing(trip),
+            "active_session": self._active_session_payload(trip),
             "stats": stats,
+            "qr_public_key": qr_public_key_pem(),
         }).data
         return Response(data)
 
+    # ─── Helpers du manifest ───
+
+    @staticmethod
+    def _build_seat_occupation(trip, reservations):
+        """Croise le layout du plan de sièges avec les réservations actives.
+
+        Un siège réservé absent du layout (plan modifié après coup, siège hors
+        plan) est ajouté quand même : le contrôleur doit le voir.
+        """
+        active = {
+            r.seat_label: r
+            for r in reservations
+            if r.status not in (Reservation.Status.CANCELLED, Reservation.Status.REFUSED)
+            and r.seat_label
+        }
+
+        layout = (trip.seat_map.layout if trip.seat_map else None) or {}
+        seats_in_layout = layout.get("seats") or []
+        if seats_in_layout:
+            labels = [
+                s["label"] for s in seats_in_layout
+                if isinstance(s, dict) and s.get("label")
+            ]
+        else:
+            rows = layout.get("rows") or 0
+            cols = layout.get("cols") or 0
+            labels = [
+                f"{chr(64 + c)}{r}"
+                for r in range(1, rows + 1)
+                for c in range(1, cols + 1)
+            ]
+
+        known = set(labels)
+        labels.extend(label for label in active if label not in known)
+
+        occupation = {}
+        for label in labels:
+            reservation = active.get(label)
+            if reservation is None:
+                occupation[label] = {"status": "free"}
+            else:
+                occupation[label] = {
+                    "status": reservation.status,
+                    "passenger_name": (
+                        reservation.passenger.full_name if reservation.passenger else ""
+                    ),
+                    "reservation_id": str(reservation.id),
+                }
+        return occupation
+
+    @staticmethod
+    def _build_pricing(trip):
+        """Tarif de référence pour les ventes à bord : PriceRule, sinon Schedule."""
+        rule = PriceRule.objects.filter(
+            price_list__tenant=trip.tenant,
+            price_list__type=PriceList.Type.VOYAGE,
+            price_list__is_active=True,
+            route=trip.route,
+        ).first()
+        if rule:
+            default_price = rule.base_amount_xof
+        elif trip.schedule:
+            default_price = trip.schedule.default_price_xof or 0
+        else:
+            default_price = 0
+
+        return {
+            "default_price_xof": default_price,
+            "currency": "XOF",
+            "luggage_policy": trip.route.luggage_policy if trip.route else None,
+        }
+
+    @staticmethod
+    def _active_session_payload(trip):
+        """Session de contrôle ouverte sur ce voyage, ou None."""
+        session = (
+            ControlSession.objects.filter(trip=trip, closed_at__isnull=True)
+            .select_related("controller__user")
+            .order_by("-opened_at")
+            .first()
+        )
+        if session is None:
+            return None
+        return {
+            "session_id": str(session.id),
+            "controller_name": session.controller.user.full_name,
+            "device_id": session.device_id,
+        }
+
+    @extend_schema(
+        request=ControlOpenSerializer,
+        responses={
+            201: ControlSessionSerializer,
+            409: ControlSessionConflictSerializer,
+        },
+        tags=["Voyage"],
+    )
     @action(detail=True, methods=["post"], url_path="control/open")
     def control_open(self, request, pk=None):
-        """POST /voyage/trips/{id}/control/open/ — ouvre une session de contrôle."""
+        """POST /voyage/trips/{id}/control/open/ — ouvre une session de contrôle.
+
+        Une seule session ouverte par voyage : deux contrôleurs qui synchronisent
+        en parallèle produiraient des comptages et des encaissements divergents.
+        """
         trip = self.get_object()
         serializer = ControlOpenSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -109,6 +251,24 @@ class TripViewSet(viewsets.ModelViewSet):
             controller = request.user.controller_profile
         except Controller.DoesNotExist:
             return Response({"detail": "L'utilisateur n'est pas un contrôleur."}, status=403)
+
+        existing_session = (
+            ControlSession.objects.filter(trip=trip, closed_at__isnull=True)
+            .select_related("controller__user")
+            .order_by("-opened_at")
+            .first()
+        )
+        if existing_session:
+            return Response({
+                "detail": "Une session de contrôle est déjà ouverte pour ce voyage.",
+                "existing_session": {
+                    "session_id": str(existing_session.id),
+                    "controller_name": existing_session.controller.user.full_name,
+                    "device_id": existing_session.device_id,
+                    "opened_at": existing_session.opened_at.isoformat(),
+                },
+            }, status=status.HTTP_409_CONFLICT)
+
         session = ControlSession.objects.create(
             tenant=request.tenant,
             trip=trip,
@@ -122,6 +282,11 @@ class TripViewSet(viewsets.ModelViewSet):
             trip.save(update_fields=["status", "updated_at"])
         return Response(ControlSessionSerializer(session).data, status=201)
 
+    @extend_schema(
+        request=ControlCloseSerializer,
+        responses={200: ControlSessionSerializer},
+        tags=["Voyage"],
+    )
     @action(detail=True, methods=["post"], url_path="control/close")
     def control_close(self, request, pk=None):
         """POST /voyage/trips/{id}/control/close/ — ferme la session de contrôle."""
@@ -144,7 +309,14 @@ class TripViewSet(viewsets.ModelViewSet):
         return Response(ControlSessionSerializer(session).data)
 
 
-@extend_schema_view(**_CRUD_TAGS, board=_TAG, refuse=_TAG, special_case=_TAG)
+_BOARDING_ACTION_SCHEMA = extend_schema(
+    request=BoardingActionSerializer,
+    responses={200: ReservationSerializer},
+    tags=["Voyage"],
+)
+
+
+@extend_schema_view(**_CRUD_TAGS)
 class ReservationViewSet(viewsets.ModelViewSet):
     queryset = Reservation.objects.none()
     filterset_fields = ["trip", "status", "passenger", "payment_method"]
@@ -165,6 +337,7 @@ class ReservationViewSet(viewsets.ModelViewSet):
         reservation.save(update_fields=["qr_code_jwt"])
         return Response(ReservationSerializer(reservation).data, status=status.HTTP_201_CREATED)
 
+    @_BOARDING_ACTION_SCHEMA
     @action(detail=True, methods=["post"])
     def board(self, request, pk=None):
         """POST /voyage/reservations/{id}/board/"""
@@ -183,6 +356,7 @@ class ReservationViewSet(viewsets.ModelViewSet):
             trip.save(update_fields=["status", "updated_at"])
         return Response(ReservationSerializer(reservation).data)
 
+    @_BOARDING_ACTION_SCHEMA
     @action(detail=True, methods=["post"])
     def refuse(self, request, pk=None):
         """POST /voyage/reservations/{id}/refuse/"""
@@ -194,6 +368,7 @@ class ReservationViewSet(viewsets.ModelViewSet):
         reservation.save(update_fields=["status", "refusal_reason", "updated_at"])
         return Response(ReservationSerializer(reservation).data)
 
+    @_BOARDING_ACTION_SCHEMA
     @action(detail=True, methods=["post"], url_path="special-case")
     def special_case(self, request, pk=None):
         """POST /voyage/reservations/{id}/special-case/"""
@@ -244,15 +419,8 @@ class ControllerViewSet(viewsets.ReadOnlyModelViewSet):
 
 @extend_schema(
     tags=["Voyage"],
-    request=inline_serializer("ControlEventBatchRequest", {
-        "events": serializers.ListField(child=serializers.DictField()),
-    }),
-    responses=inline_serializer("ControlEventBatchResponse", {
-        "session_id": serializers.CharField(required=False),
-        "processed": serializers.IntegerField(required=False),
-        "results": serializers.ListField(child=serializers.DictField(), required=False),
-        "detail": serializers.CharField(required=False),
-    }),
+    request=BatchRequestSerializer,
+    responses={200: BatchResponseSerializer},
 )
 class ControlEventBatchView(APIView):
     """

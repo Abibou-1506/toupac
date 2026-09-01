@@ -11,8 +11,8 @@ class ParcelInline(TabularInline):
 
 @admin.register(Order)
 class OrderAdmin(ModelAdmin):
-    list_display = ["internal_id", "customer_name", "status", "priority", "total_amount_xof", "payment_status", "created_at"]
-    list_filter = ["status", "priority", "tenant"]
+    list_display = ["internal_id", "customer_name", "status", "priority", "trip", "total_amount_xof", "payment_status", "created_at"]
+    list_filter = ["status", "priority", "trip", "tenant"]
     search_fields = ["internal_id", "customer_name", "customer_phone"]
     inlines = [ParcelInline]
 

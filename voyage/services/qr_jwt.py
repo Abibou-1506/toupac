@@ -49,6 +49,19 @@ def _verification_config():
     return settings.SECRET_KEY, "HS256"
 
 
+def qr_public_key_pem():
+    """
+    Clé publique PEM à embarquer dans le manifest, ou None.
+
+    En HS256 il n'y a rien à distribuer : la clé de vérification est aussi la
+    clé de signature, l'app ne doit surtout pas la recevoir.
+    """
+    key, algorithm = _verification_config()
+    if algorithm != "RS256":
+        return None
+    return key.decode() if isinstance(key, bytes) else key
+
+
 def _expiry_for(departure_date):
     """Fin du lendemain du départ — couvre les trajets de nuit qui arrivent au matin."""
     if departure_date is None:

@@ -37,6 +37,15 @@ class Order(TenantModel, SoftDeleteMixin):
     dropoff_place = models.ForeignKey(
         "geo.Place", on_delete=models.PROTECT, related_name="dropoff_orders", verbose_name="Lieu de livraison",
     )
+    trip = models.ForeignKey(
+        "voyage.Trip",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="colis_orders",
+        verbose_name="Voyage associé",
+        help_text="Si le colis voyage en soute d'un bus passagers",
+    )
     pickup_window_start = models.DateTimeField("Fenêtre enlèvement — début", null=True, blank=True)
     pickup_window_end = models.DateTimeField("Fenêtre enlèvement — fin", null=True, blank=True)
     delivery_window_start = models.DateTimeField("Fenêtre livraison — début", null=True, blank=True)
