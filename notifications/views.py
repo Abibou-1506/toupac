@@ -4,9 +4,12 @@ from drf_spectacular.utils import extend_schema, extend_schema_view, inline_seri
 from rest_framework import serializers, status, viewsets
 from rest_framework.response import Response
 from rest_framework.views import APIView
+
 from .models import NotificationLog, NotificationTemplate
 from .serializers import (
-    NotificationLogSerializer, NotificationTemplateSerializer, SendNotificationSerializer,
+    NotificationLogSerializer,
+    NotificationTemplateSerializer,
+    SendNotificationSerializer,
 )
 from .tasks import send_notification_async
 

@@ -1,8 +1,14 @@
 from django.urls import path
 from rest_framework.routers import DefaultRouter
+
 from .views import (
-    RouteViewSet, ScheduleViewSet, TripViewSet, ReservationViewSet,
-    PassengerViewSet, ControllerViewSet, ControlEventBatchView,
+    ControlEventBatchView,
+    ControllerViewSet,
+    PassengerViewSet,
+    ReservationViewSet,
+    RouteViewSet,
+    ScheduleViewSet,
+    TripViewSet,
 )
 
 router = DefaultRouter()
@@ -15,4 +21,5 @@ router.register("controllers", ControllerViewSet, basename="controller")
 
 urlpatterns = [
     path("control-events/batch/", ControlEventBatchView.as_view(), name="control-events-batch"),
-] + router.urls
+    *router.urls,
+]

@@ -1,6 +1,7 @@
 """TOUPAC Billing — Grilles tarifaires, factures et paiements mobile money."""
 from django.db import models
-from core.models import TenantModel, TenantManager, UUIDv7Field
+
+from core.models import TenantManager, TenantModel, UUIDv7Field
 
 
 class PriceList(TenantModel):

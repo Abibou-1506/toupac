@@ -1,6 +1,7 @@
 """TOUPAC Colis — Commandes de livraison, colis, tâches et preuves de livraison."""
 from django.contrib.gis.db import models
-from core.models import TenantModel, TenantManager, SoftDeleteMixin
+
+from core.models import SoftDeleteMixin, TenantManager, TenantModel
 
 
 class Order(TenantModel, SoftDeleteMixin):

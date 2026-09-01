@@ -1,6 +1,7 @@
 """TOUPAC Colis — Configuration Django Admin + unfold."""
 from django.contrib import admin
 from unfold.admin import ModelAdmin, TabularInline
+
 from .models import DeliveryTask, Order, Parcel, ProofOfDelivery
 
 

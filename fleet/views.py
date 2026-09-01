@@ -4,12 +4,20 @@ from drf_spectacular.utils import extend_schema, extend_schema_view
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
+
 from .models import Driver, Fleet, Vehicle, VehicleType
 from .serializers import (
-    DriverCreateSerializer, DriverDetailSerializer, DriverListSerializer,
-    FleetCreateSerializer, FleetSerializer, VehicleCreateSerializer,
-    VehicleDetailSerializer, VehicleDocumentCreateSerializer, VehicleDocumentSerializer,
-    VehicleListSerializer, VehicleTypeSerializer,
+    DriverCreateSerializer,
+    DriverDetailSerializer,
+    DriverListSerializer,
+    FleetCreateSerializer,
+    FleetSerializer,
+    VehicleCreateSerializer,
+    VehicleDetailSerializer,
+    VehicleDocumentCreateSerializer,
+    VehicleDocumentSerializer,
+    VehicleListSerializer,
+    VehicleTypeSerializer,
 )
 
 _TAG = extend_schema(tags=["Fleet"])

@@ -103,6 +103,7 @@ def verify_ticket_jwt(token):
     except jwt.PyJWTError as exc:
         logger.info("Billet QR rejeté : %s", exc)
         return None
-    except Exception:  # noqa: BLE001 — clé mal configurée, PEM illisible...
+    # Catch large volontaire : clé mal configurée, PEM illisible...
+    except Exception:
         logger.exception("Vérification du billet QR impossible")
         return None

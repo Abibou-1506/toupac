@@ -1,7 +1,11 @@
 from django.urls import path
 from rest_framework.routers import DefaultRouter
+
 from .views import (
-    InvoiceViewSet, PaymentInitiateView, PaymentWebhookView, PriceListViewSet,
+    InvoiceViewSet,
+    PaymentInitiateView,
+    PaymentWebhookView,
+    PriceListViewSet,
     PricingCalculateView,
 )
 
@@ -13,4 +17,5 @@ urlpatterns = [
     path("payments/initiate/", PaymentInitiateView.as_view(), name="payments-initiate"),
     path("payments/webhook/", PaymentWebhookView.as_view(), name="payments-webhook"),
     path("pricing/calculate/", PricingCalculateView.as_view(), name="pricing-calculate"),
-] + router.urls
+    *router.urls,
+]

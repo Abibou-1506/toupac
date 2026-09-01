@@ -8,6 +8,7 @@ from django import forms
 from django.contrib import admin
 from django.contrib.gis import forms as gis_forms
 from unfold.admin import ModelAdmin
+
 from .models import Geofence, GeofenceEvent, Position, TrackingLink
 
 

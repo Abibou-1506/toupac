@@ -7,7 +7,7 @@ de la connexion — d'où l'idempotence par client_uuid et le verdict par event.
 """
 import logging
 import uuid
-from datetime import datetime, timezone as dt_timezone
+from datetime import UTC, datetime
 
 from django.contrib.gis.geos import Point
 from django.db import IntegrityError, transaction
@@ -17,7 +17,12 @@ from django.utils.dateparse import parse_datetime
 from voyage.models import ControlEvent
 from voyage.services.exceptions import EventRejected
 from voyage.services.handlers import (
-    anomalies, boarding, incidents, parcels, sales, transitions,
+    anomalies,
+    boarding,
+    incidents,
+    parcels,
+    sales,
+    transitions,
 )
 
 logger = logging.getLogger(__name__)
@@ -36,7 +41,7 @@ EVENT_HANDLERS = {
 }
 
 # Trie les events non horodatés en fin de batch plutôt que de planter.
-_FAR_FUTURE = datetime.max.replace(tzinfo=dt_timezone.utc)
+_FAR_FUTURE = datetime.max.replace(tzinfo=UTC)
 
 
 class BatchEventProcessor:
@@ -125,7 +130,8 @@ class BatchEventProcessor:
                         result = self._dispatch(event)
                 except EventRejected as exc:
                     result = {"status": "rejected", "rejection_reason": str(exc)}
-                except Exception as exc:  # noqa: BLE001 — un event ne doit jamais tuer le batch
+                # Catch large volontaire : un event ne doit jamais tuer le batch.
+                except Exception as exc:
                     logger.exception(
                         "Échec du traitement de l'event %s (%s)", client_uuid, event_type,
                     )
@@ -140,7 +146,8 @@ class BatchEventProcessor:
         except IntegrityError:
             # Course entre deux batches concurrents sur le même client_uuid.
             return self._verdict(client_uuid, "duplicate")
-        except Exception as exc:  # noqa: BLE001 — archivage impossible, event perdu
+        # Catch large volontaire : archivage impossible, l'event est perdu.
+        except Exception as exc:
             logger.exception("Impossible d'archiver l'event %s (%s)", client_uuid, event_type)
             return self._verdict(client_uuid, "rejected", f"Event inexploitable : {exc}")
 

@@ -73,7 +73,8 @@ class OrderDetailSerializer(OrderListSerializer):
     delivery_tasks = DeliveryTaskSerializer(many=True, read_only=True)
 
     class Meta(OrderListSerializer.Meta):
-        fields = OrderListSerializer.Meta.fields + [
+        fields = [
+            *OrderListSerializer.Meta.fields,
             "customer", "customer_phone", "pickup_window_start", "pickup_window_end",
             "delivery_window_start", "delivery_window_end", "instructions", "metadata",
             "created_by", "updated_at", "parcels", "delivery_tasks",

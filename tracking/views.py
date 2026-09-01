@@ -1,15 +1,21 @@
 """TOUPAC Tracking — ViewSets et vues DRF."""
 from django.utils import timezone
 from drf_spectacular.utils import extend_schema, extend_schema_view
-from fleet.models import Vehicle
 from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.views import APIView
+
+from fleet.models import Vehicle
+
 from .models import Geofence, Position, TrackingLink
 from .serializers import (
-    GeofenceSerializer, PositionBatchSerializer, PositionCreateSerializer,
-    PositionSerializer, PublicTrackingSerializer, TrackingLinkCreateSerializer,
+    GeofenceSerializer,
+    PositionBatchSerializer,
+    PositionCreateSerializer,
+    PositionSerializer,
+    PublicTrackingSerializer,
+    TrackingLinkCreateSerializer,
     TrackingLinkSerializer,
 )
 

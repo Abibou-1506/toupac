@@ -1,6 +1,7 @@
 """TOUPAC Geo — Lieux et zones avec PostGIS."""
 from django.contrib.gis.db import models
-from core.models import TenantModel, TenantManager, UUIDv7Field
+
+from core.models import TenantManager, TenantModel
 
 
 class Place(TenantModel):

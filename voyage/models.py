@@ -4,7 +4,8 @@ réservations et contrôle à bord (port direct Sprint 2 + enrichissements).
 """
 from django.contrib.gis.db import models
 from django.contrib.postgres.fields import ArrayField
-from core.models import TenantModel, TenantManager, SoftDeleteMixin, UUIDv7Field
+
+from core.models import SoftDeleteMixin, TenantManager, TenantModel, UUIDv7Field
 
 
 class LuggagePolicy(TenantModel):

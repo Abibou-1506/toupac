@@ -2,7 +2,8 @@
 import secrets
 
 from django.contrib.gis.db import models
-from core.models import TenantModel, TenantManager
+
+from core.models import TenantManager, TenantModel
 
 
 class Position(models.Model):

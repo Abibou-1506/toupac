@@ -3,7 +3,9 @@ from django.db.models import F
 
 from voyage.models import Anomaly, Reservation, Trip
 from voyage.services.anomaly_detectors import (
-    detect_duplicate_scan, detect_seat_conflict, serialize_anomaly,
+    detect_duplicate_scan,
+    detect_seat_conflict,
+    serialize_anomaly,
 )
 from voyage.services.exceptions import EventRejected
 

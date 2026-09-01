@@ -1,5 +1,6 @@
 """Seed des templates de notification système (tenant=NULL)."""
 from django.core.management.base import BaseCommand
+
 from notifications.models import NotificationTemplate
 
 SYSTEM_TEMPLATES = [

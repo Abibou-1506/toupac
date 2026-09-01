@@ -1,6 +1,7 @@
 """Seed des 3 workflows système (tenant=NULL, is_system=True)."""
 from django.core.management.base import BaseCommand
 from django.db import transaction
+
 from workflow.models import WorkflowDefinition, WorkflowState, WorkflowTransition
 
 WORKFLOWS = {

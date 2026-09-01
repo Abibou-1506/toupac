@@ -3,7 +3,8 @@ TOUPAC Workflow — Machine à états configurable multi-tenant.
 Remplace le OrderConfig.flow JSONB de Fleetbase.
 """
 from django.db import models
-from core.models import UUIDv7Field, TimestampMixin
+
+from core.models import TimestampMixin, UUIDv7Field
 
 
 class WorkflowDefinition(TimestampMixin, models.Model):

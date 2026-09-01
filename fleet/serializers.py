@@ -1,7 +1,9 @@
 """TOUPAC Fleet — Serializers DRF."""
 from django.contrib.gis.geos import Point
-from iam.models import User
 from rest_framework import serializers
+
+from iam.models import User
+
 from .models import Driver, Fleet, FleetVehicle, Vehicle, VehicleDocument, VehicleType
 
 
@@ -57,7 +59,8 @@ class VehicleDetailSerializer(VehicleListSerializer):
     documents = VehicleDocumentSerializer(many=True, read_only=True)
 
     class Meta(VehicleListSerializer.Meta):
-        fields = VehicleListSerializer.Meta.fields + [
+        fields = [
+            *VehicleListSerializer.Meta.fields,
             "vin", "traccar_device_id", "metadata", "created_at", "updated_at", "documents",
         ]
 
@@ -88,7 +91,7 @@ class DriverDetailSerializer(DriverListSerializer):
     last_known_location = PointFieldSerializer(read_only=True)
 
     class Meta(DriverListSerializer.Meta):
-        fields = DriverListSerializer.Meta.fields + ["last_known_location", "created_at", "updated_at", "tenant"]
+        fields = [*DriverListSerializer.Meta.fields, "last_known_location", "created_at", "updated_at", "tenant"]
 
 
 class DriverCreateSerializer(serializers.ModelSerializer):

@@ -1,5 +1,6 @@
 """TOUPAC Billing — Serializers DRF."""
 from rest_framework import serializers
+
 from .models import Invoice, InvoiceLine, Payment, PriceList, PriceRule
 
 
@@ -33,7 +34,8 @@ class InvoiceDetailSerializer(InvoiceListSerializer):
     lines = InvoiceLineSerializer(many=True, read_only=True)
 
     class Meta(InvoiceListSerializer.Meta):
-        fields = InvoiceListSerializer.Meta.fields + [
+        fields = [
+            *InvoiceListSerializer.Meta.fields,
             "customer_id", "customer_type", "due_date", "subtotal_xof", "tax_xof",
             "currency", "metadata", "created_by", "created_at", "updated_at", "lines",
         ]

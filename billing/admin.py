@@ -1,6 +1,7 @@
 """TOUPAC Billing — Configuration Django Admin + unfold."""
 from django.contrib import admin
 from unfold.admin import ModelAdmin, TabularInline
+
 from .models import Invoice, InvoiceLine, Payment, PriceList, PriceRule
 
 

@@ -1,6 +1,8 @@
 """TOUPAC Workflow — Serializers DRF."""
-from iam.models import Tenant
 from rest_framework import serializers
+
+from iam.models import Tenant
+
 from .models import WorkflowDefinition, WorkflowHook, WorkflowState, WorkflowTransition
 
 
@@ -50,7 +52,7 @@ class WorkflowDefinitionDetailSerializer(WorkflowDefinitionListSerializer):
     transitions = WorkflowTransitionSerializer(many=True, read_only=True)
 
     class Meta(WorkflowDefinitionListSerializer.Meta):
-        fields = WorkflowDefinitionListSerializer.Meta.fields + ["description", "states", "transitions"]
+        fields = [*WorkflowDefinitionListSerializer.Meta.fields, "description", "states", "transitions"]
 
 
 class AvailableTransitionSerializer(serializers.Serializer):

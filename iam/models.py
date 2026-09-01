@@ -3,9 +3,8 @@ TOUPAC IAM — Tenants, Users, API credentials, Audit logs.
 """
 from django.contrib.auth.models import AbstractBaseUser, BaseUserManager, PermissionsMixin
 from django.contrib.gis.db import models
-from django.utils import timezone
-from core.models import UUIDv7Field, TimestampMixin, SoftDeleteMixin
 
+from core.models import SoftDeleteMixin, TimestampMixin, UUIDv7Field
 
 # ─── Tenant ───
 

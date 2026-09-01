@@ -4,8 +4,10 @@ from datetime import timedelta
 
 from django.contrib.gis.geos import GEOSGeometry, Point
 from django.utils import timezone
-from fleet.models import Vehicle
 from rest_framework import serializers
+
+from fleet.models import Vehicle
+
 from .models import Geofence, GeofenceEvent, Position, TrackingLink
 
 

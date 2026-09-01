@@ -3,6 +3,7 @@ import json
 
 from django.contrib.gis.geos import GEOSGeometry, Point
 from rest_framework import serializers
+
 from .models import Place, Zone
 
 
@@ -43,7 +44,7 @@ class PlaceListSerializer(serializers.ModelSerializer):
 
 class PlaceDetailSerializer(PlaceListSerializer):
     class Meta(PlaceListSerializer.Meta):
-        fields = PlaceListSerializer.Meta.fields + ["metadata", "tenant", "created_at"]
+        fields = [*PlaceListSerializer.Meta.fields, "metadata", "tenant", "created_at"]
 
 
 class PlaceCreateSerializer(serializers.ModelSerializer):
@@ -81,7 +82,7 @@ class NearbyPlaceSerializer(PlaceListSerializer):
     distance_km = serializers.SerializerMethodField()
 
     class Meta(PlaceListSerializer.Meta):
-        fields = PlaceListSerializer.Meta.fields + ["distance_km"]
+        fields = [*PlaceListSerializer.Meta.fields, "distance_km"]
 
     def get_distance_km(self, obj):
         distance = getattr(obj, "distance", None)

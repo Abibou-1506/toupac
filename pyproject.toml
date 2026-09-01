@@ -18,5 +18,8 @@ ignore = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
-"config/settings/*.py" = ["F401", "F403", "F405"]  # from base import *
+# Les settings Django se construisent par exécution séquentielle : `from base
+# import *`, puis surcharges, puis imports qui dépendent de ces surcharges.
+# L'ordre est structurel, pas stylistique.
+"config/settings/*.py" = ["F401", "F403", "F405", "E402"]
 "*/tests/*.py" = ["S101"]  # assert autorisé dans les tests

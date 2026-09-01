@@ -1,5 +1,6 @@
 """TOUPAC — Prod settings (cloud souverain SN)."""
 import os
+
 from .base import *
 
 DEBUG = False

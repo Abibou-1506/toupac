@@ -3,7 +3,7 @@ TOUPAC Core — Modèles de base et champs personnalisés.
 Tout modèle métier hérite de TenantModel.
 """
 import uuid
-from uuid import UUID
+
 from django.db import models
 from django.utils import timezone
 

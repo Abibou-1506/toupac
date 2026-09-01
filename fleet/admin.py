@@ -6,7 +6,9 @@ geo/admin.py pour le contexte (carte OpenLayers cassée dans l'admin unfold).
 from django import forms
 from django.contrib import admin
 from unfold.admin import ModelAdmin, TabularInline
-from .models import VehicleType, Vehicle, Driver, VehicleDocument, Fleet, FleetVehicle
+
+from .models import Driver, Fleet, Vehicle, VehicleDocument, VehicleType
+
 
 class VehicleDocumentInline(TabularInline):
     model = VehicleDocument

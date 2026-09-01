@@ -1,6 +1,7 @@
 """TOUPAC Notifications — Configuration Django Admin + unfold."""
 from django.contrib import admin
 from unfold.admin import ModelAdmin
+
 from .models import NotificationLog, NotificationTemplate
 
 

@@ -4,15 +4,22 @@ from drf_spectacular.utils import extend_schema, extend_schema_view, inline_seri
 from rest_framework import serializers, status, viewsets
 from rest_framework.response import Response
 from rest_framework.views import APIView
+
 from .models import Invoice, Payment, PriceList
 from .serializers import (
-    InvoiceDetailSerializer, InvoiceListSerializer, PaymentInitiateSerializer,
-    PriceListSerializer, PricingCalculateSerializer,
+    InvoiceDetailSerializer,
+    InvoiceListSerializer,
+    PaymentInitiateSerializer,
+    PriceListSerializer,
+    PricingCalculateSerializer,
 )
 from .services import PricingEngine
 
 _TAG = extend_schema(tags=["Billing"])
-_CRUD_TAGS = dict(list=_TAG, retrieve=_TAG, create=_TAG, update=_TAG, partial_update=_TAG, destroy=_TAG)
+_CRUD_TAGS = {
+    "list": _TAG, "retrieve": _TAG, "create": _TAG,
+    "update": _TAG, "partial_update": _TAG, "destroy": _TAG,
+}
 
 
 @extend_schema_view(**_CRUD_TAGS)

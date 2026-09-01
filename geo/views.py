@@ -7,10 +7,15 @@ from drf_spectacular.utils import extend_schema, extend_schema_view
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
+
 from .models import Place, Zone
 from .serializers import (
-    NearbyPlaceSerializer, PlaceCreateSerializer, PlaceDetailSerializer,
-    PlaceListSerializer, ZoneCreateSerializer, ZoneSerializer,
+    NearbyPlaceSerializer,
+    PlaceCreateSerializer,
+    PlaceDetailSerializer,
+    PlaceListSerializer,
+    ZoneCreateSerializer,
+    ZoneSerializer,
 )
 
 _TAG = extend_schema(tags=["Geo"])

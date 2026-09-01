@@ -1,6 +1,8 @@
 from django.contrib import admin
 from unfold.admin import ModelAdmin, TabularInline
-from .models import WorkflowDefinition, WorkflowState, WorkflowTransition, WorkflowHook
+
+from .models import WorkflowDefinition, WorkflowState, WorkflowTransition
+
 
 class WorkflowStateInline(TabularInline):
     model = WorkflowState

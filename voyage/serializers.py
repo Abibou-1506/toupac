@@ -101,7 +101,8 @@ class TripDetailSerializer(TripListSerializer):
     stops = TripStopSerializer(many=True, read_only=True)
 
     class Meta(TripListSerializer.Meta):
-        fields = TripListSerializer.Meta.fields + [
+        fields = [
+            *TripListSerializer.Meta.fields,
             "actual_departure_at", "actual_arrival_at", "seat_map",
             "summary", "created_at", "stops",
         ]

@@ -1,6 +1,7 @@
 """TOUPAC Notifications — Templates de messages et historique d'envoi."""
 from django.db import models
-from core.models import TenantModel, TenantManager
+
+from core.models import TenantManager, TenantModel
 
 
 class NotificationTemplate(TenantModel):

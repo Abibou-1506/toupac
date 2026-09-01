@@ -4,9 +4,11 @@ from drf_spectacular.utils import extend_schema, extend_schema_view, inline_seri
 from rest_framework import serializers, status, viewsets
 from rest_framework.response import Response
 from rest_framework.views import APIView
+
 from .models import WorkflowDefinition
 from .serializers import (
-    WorkflowCurrentStateSerializer, WorkflowDefinitionDetailSerializer,
+    WorkflowCurrentStateSerializer,
+    WorkflowDefinitionDetailSerializer,
     WorkflowDefinitionListSerializer,
 )
 

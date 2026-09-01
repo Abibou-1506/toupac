@@ -1,10 +1,24 @@
 """TOUPAC Voyage — Configuration Django Admin + unfold."""
 from django.contrib import admin
 from unfold.admin import ModelAdmin, TabularInline
+
 from .models import (
-    LuggagePolicy, Route, RouteStop, Schedule, SeatMap, Trip, TripStop,
-    Passenger, Reservation, Controller, ControlSession, ControlEvent,
-    Anomaly, Incident, CashEntry, PassengerAccessLog,
+    Anomaly,
+    CashEntry,
+    ControlEvent,
+    Controller,
+    ControlSession,
+    Incident,
+    LuggagePolicy,
+    Passenger,
+    PassengerAccessLog,
+    Reservation,
+    Route,
+    RouteStop,
+    Schedule,
+    SeatMap,
+    Trip,
+    TripStop,
 )
 
 
