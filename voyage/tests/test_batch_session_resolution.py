@@ -9,7 +9,6 @@ import uuid
 
 import pytest
 from django.contrib.gis.geos import Point
-from django.core.cache import cache
 from django.utils import timezone
 from rest_framework.test import APIClient
 
@@ -22,19 +21,7 @@ pytestmark = pytest.mark.django_db
 BATCH_URL = "/api/v1/voyage/control-events/batch/"
 
 
-@pytest.fixture(autouse=True)
-def _isolated_throttle_cache(settings):
-    """Isole le compteur de throttling du Redis de dev."""
-    settings.CACHES = {
-        "default": {
-            "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
-            "LOCATION": "toupac-tests",
-        }
-    }
-    cache.clear()
-    yield
-    cache.clear()
-
+# `_isolated_throttle_cache` vit désormais dans le conftest.py racine (autouse).
 
 # ─── Fabriques ───
 
