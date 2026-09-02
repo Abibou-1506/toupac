@@ -34,6 +34,16 @@ def handle_activity_transition(event, tenant, session):
     else:
         trip = session.trip
 
+    # Placé après le if/else — trivialement vrai dans la branche session.trip,
+    # mais le check ne doit pas dépendre de la façon dont le trip a été résolu.
+    # Sans lui, un contrôleur ouvert sur le voyage A peut faire transiter le
+    # voyage B de son tenant en forgeant payload.trip_id.
+    if trip.id != session.trip_id:
+        raise EventRejected(
+            f"Le trip cible ({trip.id}) ne correspond pas au trip "
+            f"de la session ({session.trip_id})."
+        )
+
     allowed = ALLOWED_TRANSITIONS.get(trip.status, set())
     if to_status not in allowed:
         raise EventRejected(f"Transition interdite : {trip.status} → {to_status}")

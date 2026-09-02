@@ -136,19 +136,10 @@ def test_initiate_payment_failure_records_failed_payment(authenticated_client, u
     assert "Insufficient funds" in payment.failure_reason
 
 
-def test_initiate_payment_scoped_to_current_tenant(
-    authenticated_client, user_admin_a, tenant_a, tenant_b,
+def test_initiate_payment_rejects_reservation_from_other_tenant(
+    authenticated_client, user_admin_a, tenant_b,
 ):
-    """
-    Comportement OBSERVÉ : fail-open sur reservation_id.
-
-    Le Payment est bien créé dans tenant_a (imposé par `request.tenant`), mais
-    `reservation_id` n'est validé contre aucun tenant — il pointe vers une
-    réservation de tenant_b, inaccessible à l'utilisateur. Un webhook ultérieur
-    marquerait donc cette réservation de tenant_b comme checked_in.
-    TODO : PaymentInitiateSerializer devrait valider reservation_id/order_id
-    contre `request.tenant`.
-    """
+    """Sans ce garde-fou, le webhook passerait la réservation d'un concurrent en checked_in."""
     reservation_b = make_reservation(tenant_b, seat_label="B1")
 
     with mock.patch(PROVIDER_PATH, return_value=provider_mock()):
@@ -156,10 +147,44 @@ def test_initiate_payment_scoped_to_current_tenant(
             INITIATE_URL, initiate_body(reservation_b.id), format="json",
         )
 
+    assert response.status_code == 400, response.data
+    assert "reservation_id" in response.data
+    assert Payment.objects.count() == 0
+
+
+def test_initiate_payment_rejects_order_from_other_tenant(
+    authenticated_client, user_admin_a, tenant_b,
+):
+    order_b = make_order(tenant_b, internal_id="CMD-B-001")
+    body = {
+        "provider": "wave",
+        "amount_xof": 8500,
+        "customer_phone": "+221771234567",
+        "order_id": str(order_b.id),
+    }
+
+    with mock.patch(PROVIDER_PATH, return_value=provider_mock()):
+        response = authenticated_client(user_admin_a).post(INITIATE_URL, body, format="json")
+
+    assert response.status_code == 400, response.data
+    assert "order_id" in response.data
+    assert Payment.objects.count() == 0
+
+
+def test_initiate_payment_accepts_reservation_from_current_tenant(
+    authenticated_client, user_admin_a, tenant_a,
+):
+    reservation_a = make_reservation(tenant_a, seat_label="A2")
+
+    with mock.patch(PROVIDER_PATH, return_value=provider_mock()):
+        response = authenticated_client(user_admin_a).post(
+            INITIATE_URL, initiate_body(reservation_a.id), format="json",
+        )
+
     assert response.status_code == 201, response.data
     payment = Payment.objects.get(id=response.data["payment_id"])
     assert payment.tenant_id == tenant_a.id
-    assert payment.reservation_id == reservation_b.id
+    assert payment.reservation_id == reservation_a.id
 
 
 def test_initiate_payment_requires_authentication(api_client, tenant_a):

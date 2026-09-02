@@ -48,12 +48,53 @@ class PaymentSerializer(serializers.ModelSerializer):
 
 
 class PaymentInitiateSerializer(serializers.Serializer):
+    """
+    Entrée de POST /billing/payments/initiate/.
+
+    Les validators de `reservation_id`/`order_id` sont la barrière d'isolation
+    multi-tenant : sans eux, un tenant peut créer un paiement pointant vers la
+    réservation d'un concurrent, que le webhook passerait ensuite en
+    checked_in. Ils exigent `context={"request": request}` à l'instanciation.
+    """
     provider = serializers.ChoiceField(choices=Payment.Provider.choices)
     amount_xof = serializers.IntegerField(min_value=1)
     reservation_id = serializers.UUIDField(required=False, allow_null=True)
     order_id = serializers.UUIDField(required=False, allow_null=True)
     customer_phone = serializers.CharField()
     description = serializers.CharField(required=False, allow_blank=True, default="")
+
+    def _current_tenant(self, error_message):
+        request = self.context.get("request")
+        tenant = getattr(request, "tenant", None) if request is not None else None
+        if tenant is None:
+            raise serializers.ValidationError(error_message)
+        return tenant
+
+    def validate_reservation_id(self, value):
+        if value is None:
+            return value
+        # Import local : voyage importe billing (manifest), l'inverse au niveau
+        # module créerait un cycle.
+        from voyage.models import Reservation
+
+        tenant = self._current_tenant(
+            "Contexte tenant absent, impossible de valider la réservation."
+        )
+        if not Reservation.objects.filter(id=value, tenant=tenant).exists():
+            raise serializers.ValidationError("Réservation introuvable dans ce tenant.")
+        return value
+
+    def validate_order_id(self, value):
+        if value is None:
+            return value
+        from colis.models import Order
+
+        tenant = self._current_tenant(
+            "Contexte tenant absent, impossible de valider la commande."
+        )
+        if not Order.objects.filter(id=value, tenant=tenant).exists():
+            raise serializers.ValidationError("Commande introuvable dans ce tenant.")
+        return value
 
     def validate(self, attrs):
         reservation_id = attrs.get("reservation_id")

@@ -64,7 +64,8 @@ class PaymentInitiateView(APIView):
     throttle_scope = "payment_initiate"
 
     def post(self, request):
-        serializer = PaymentInitiateSerializer(data=request.data)
+        # context obligatoire : les validators d'isolation lisent request.tenant.
+        serializer = PaymentInitiateSerializer(data=request.data, context={"request": request})
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
 

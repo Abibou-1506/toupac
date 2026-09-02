@@ -198,20 +198,30 @@ def test_transition_uses_session_trip_when_no_trip_id_in_payload(tenant_a, contr
     assert trip.status == Status.PREPARING
 
 
-def test_transition_with_explicit_trip_id_overrides_session_trip(tenant_a, controller_a):
-    # TODO sécurité — le handler devrait vérifier que trip.id matche
-    # session.trip.id, ou au moins que trip.tenant == session.tenant.
-    # En l'état, un contrôleur peut faire transiter n'importe quel voyage de
-    # son tenant depuis une session ouverte sur un autre voyage.
+def test_transition_rejects_trip_id_different_from_session_trip(tenant_a, controller_a):
+    """Un contrôleur ouvert sur le voyage A ne doit pas pouvoir faire transiter le voyage B."""
     session_trip = sample_trip(tenant_a, Status.SCHEDULED, code="SESS")
     other_trip = sample_trip(tenant_a, Status.SCHEDULED, code="OTHER")
     session = control_session(session_trip, controller_a)
     event = control_event(session, {"to_status": Status.PREPARING, "trip_id": str(other_trip.id)})
 
-    result = handle_activity_transition(event, tenant_a, session)
+    with pytest.raises(EventRejected, match="ne correspond pas au trip de la session"):
+        handle_activity_transition(event, tenant_a, session)
 
-    assert result["trip_id"] == str(other_trip.id)
     other_trip.refresh_from_db()
     session_trip.refresh_from_db()
-    assert other_trip.status == Status.PREPARING
+    assert other_trip.status == Status.SCHEDULED
     assert session_trip.status == Status.SCHEDULED
+
+
+def test_transition_with_explicit_trip_id_matching_session_trip_works(tenant_a, controller_a):
+    """Un trip_id explicite reste valide tant qu'il désigne le trip de la session."""
+    trip = sample_trip(tenant_a, Status.SCHEDULED, code="SAME")
+    session = control_session(trip, controller_a)
+    event = control_event(session, {"to_status": Status.PREPARING, "trip_id": str(trip.id)})
+
+    result = handle_activity_transition(event, tenant_a, session)
+
+    assert result["status"] == "accepted"
+    trip.refresh_from_db()
+    assert trip.status == Status.PREPARING
