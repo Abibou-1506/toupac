@@ -209,6 +209,14 @@ INTOUCH_LOGIN_AGENT = os.environ.get("INTOUCH_LOGIN_AGENT", "SANDBOX_LOGIN")
 INTOUCH_PASSWORD_AGENT = os.environ.get("INTOUCH_PASSWORD_AGENT", "SANDBOX_PASSWORD")
 INTOUCH_PARTNER_ID = os.environ.get("INTOUCH_PARTNER_ID", "SANDBOX_PARTNER")
 
+# ─── QR billets (voyage.services.qr_jwt) — RS256 ───
+# Clé privée : jamais de valeur par défaut. Vide ⇒ qr_jwt génère une keypair
+# éphémère en mémoire (dev uniquement, cf. le warning au premier appel).
+TOUPAC_QR_PRIVATE_KEY_PEM = os.environ.get("TOUPAC_QR_PRIVATE_KEY_PEM", "")
+# Clé publique : vide ⇒ qr_jwt retombe sur voyage/keys/qr_public.pem, puis
+# sur une clé dérivée de la privée, avant de renoncer (qr_public_key: null).
+TOUPAC_QR_PUBLIC_KEY_PEM = os.environ.get("TOUPAC_QR_PUBLIC_KEY_PEM", "")
+
 # ─── Celery ───
 from celery.schedules import crontab
 

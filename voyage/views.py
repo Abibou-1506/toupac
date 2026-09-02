@@ -36,6 +36,8 @@ from .serializers import (
     ControlSessionSerializer,
     ManifestSerializer,
     PassengerSerializer,
+    QrPublicKeySerializer,
+    QrPublicKeyUnavailableSerializer,
     ReservationCreateSerializer,
     ReservationSerializer,
     RouteSerializer,
@@ -542,3 +544,30 @@ class ControlEventBatchView(APIView):
                 status=status.HTTP_403_FORBIDDEN,
             )
         return session, None
+
+
+@extend_schema(
+    tags=["Voyage"],
+    request=None,
+    responses={200: QrPublicKeySerializer, 503: QrPublicKeyUnavailableSerializer},
+)
+class QrPublicKeyView(APIView):
+    """
+    GET /api/v1/voyage/qr-public-key/
+
+    Clé publique RS256 de vérification des QR de billets — pas un secret, donc
+    pas d'authentification. Endpoint dédié distinct du manifest pour que l'app
+    mobile puisse la refetch seule en cas de rotation, sans retélécharger un
+    manifest complet.
+    """
+    permission_classes = []
+    authentication_classes = []
+
+    def get(self, request):
+        public_key = qr_public_key_pem()
+        if public_key is None:
+            return Response(
+                {"detail": "QR key not configured"},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+        return Response({"public_key_pem": public_key})

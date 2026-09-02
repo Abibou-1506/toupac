@@ -7,3 +7,10 @@ staticfiles/
 media/
 .coverage
 htmlcov/
+
+# Clés QR RS256 — jamais la clé privée. La clé publique de dev committée
+# (voyage/keys/qr_public.pem) est réautorisée explicitement : elle n'est
+# pas un secret par définition.
+secrets/
+*.pem
+!voyage/keys/qr_public.pem

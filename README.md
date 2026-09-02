@@ -24,6 +24,11 @@ docker compose exec web python manage.py seed_workflows
 docker compose exec web python manage.py seed_notification_templates
 docker compose exec web python manage.py createsuperuser
 
+# Optionnel : générer une keypair QR persistante (sinon éphémère par run)
+python scripts/generate_qr_keypair.py --out-dir ./secrets/
+# Puis reporter le contenu de secrets/qr_private.pem dans .env sous
+# TOUPAC_QR_PRIVATE_KEY_PEM
+
 # Accès :
 # Admin     → http://localhost:8000/admin/
 # API docs  → http://localhost:8000/api/docs/

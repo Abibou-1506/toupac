@@ -5,6 +5,7 @@ from .views import (
     ControlEventBatchView,
     ControllerViewSet,
     PassengerViewSet,
+    QrPublicKeyView,
     ReservationViewSet,
     RouteViewSet,
     ScheduleViewSet,
@@ -21,5 +22,6 @@ router.register("controllers", ControllerViewSet, basename="controller")
 
 urlpatterns = [
     path("control-events/batch/", ControlEventBatchView.as_view(), name="control-events-batch"),
+    path("qr-public-key/", QrPublicKeyView.as_view(), name="qr-public-key"),
     *router.urls,
 ]

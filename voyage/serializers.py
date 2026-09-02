@@ -316,3 +316,11 @@ class BatchResponseSerializer(serializers.Serializer):
     session_id = serializers.UUIDField()
     processed = serializers.IntegerField()
     results = EventResultSerializer(many=True)
+
+
+class QrPublicKeySerializer(serializers.Serializer):
+    public_key_pem = serializers.CharField(help_text="Clé publique RS256 au format PEM.")
+
+
+class QrPublicKeyUnavailableSerializer(serializers.Serializer):
+    detail = serializers.CharField()
