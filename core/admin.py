@@ -129,7 +129,7 @@ class TenantAdminMixin:
     @staticmethod
     def _scoped_related_queryset(related, tenant):
         """Queryset du modèle lié restreint au tenant, ou None s'il n'est pas concerné."""
-        from iam.models import Tenant
+        from iam.models import Tenant, User
 
         if related is Tenant:
             return Tenant.objects.filter(pk=tenant.pk)
@@ -138,10 +138,19 @@ class TenantAdminMixin:
         except FieldDoesNotExist:
             return None
         queryset = related._default_manager.all()
+
+        # tenant NULL n'a pas le même sens selon le modèle. Sur une Place ou un
+        # NotificationTemplate il veut dire « partagé entre compagnies » ; sur
+        # un User il veut dire « personnel interne TOUPAC ». Aucun flux métier
+        # ne demande à un admin de compagnie de désigner un salarié TOUPAC, et
+        # les lister exposerait leurs noms — on les exclut.
+        if related is User:
+            return queryset.filter(tenant=tenant)
+
         if field.null:
-            # tenant NULL = objet partagé (place publique, template système) :
-            # il doit rester sélectionnable, sinon on ne peut plus créer une
-            # Route, dont les lieux d'origine et de destination sont publics.
+            # Objet partagé : il doit rester sélectionnable, sinon on ne peut
+            # plus créer une Route, dont les lieux d'origine et de destination
+            # sont des gares publiques.
             return queryset.filter(Q(tenant=tenant) | Q(tenant__isnull=True))
         return queryset.filter(tenant=tenant)
 

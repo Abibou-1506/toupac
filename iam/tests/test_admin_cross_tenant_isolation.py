@@ -196,6 +196,52 @@ def test_admin_a_creating_trip_forces_own_tenant(user_admin_a, tenant_a, tenant_
     assert created.tenant_id == tenant_a.id
 
 
+def test_admin_a_dropdown_user_excludes_toupac_superadmins(
+    user_admin_a, user_dispatcher_a, superadmin,
+):
+    """
+    tenant=None ne veut pas dire la même chose partout.
+
+    Sur une Place c'est « partagée entre compagnies », sur un User c'est
+    « personnel interne TOUPAC » : ce dernier n'a aucune raison d'apparaître
+    dans le dropdown created_by d'un admin de compagnie.
+
+    Assertions sur l'UUID et non sur l'email : User.__str__ rend le nom, donc
+    l'email n'apparaît nulle part dans le HTML — c'est la valeur des <option>
+    qui identifie l'utilisateur de façon fiable.
+    """
+    response = admin_client(user_admin_a).get(f"{TRIP_LIST}add/")
+
+    assert response.status_code == 200
+    body = response.content.decode()
+    assert str(user_dispatcher_a.id) in body
+    assert str(superadmin.id) not in body
+
+
+def test_admin_a_dropdown_place_includes_public_places(user_admin_a, tenant_a):
+    """Contrôle anti-régression : les gares publiques doivent rester sélectionnables."""
+    public = make_place(None, "Gare publique partagée")
+    private = make_place(tenant_a, "Dépôt privé A")
+
+    response = admin_client(user_admin_a).get("/admin/voyage/route/add/")
+
+    assert response.status_code == 200
+    body = response.content.decode()
+    assert str(public.id) in body
+    assert str(private.id) in body
+
+
+def test_superadmin_dropdown_user_shows_all_users(superadmin, user_admin_a, user_admin_b):
+    client = Client()
+    client.force_login(superadmin)
+
+    body = client.get(f"{TRIP_LIST}add/").content.decode()
+
+    assert str(user_admin_a.id) in body
+    assert str(user_admin_b.id) in body
+    assert str(superadmin.id) in body
+
+
 def test_admin_a_dropdown_route_only_shows_own_tenant_routes(user_admin_a, tenant_a, tenant_b):
     route_a = make_route(tenant_a, "AAA")
     route_b = make_route(tenant_b, "BBB")
