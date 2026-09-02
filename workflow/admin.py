@@ -1,6 +1,8 @@
 from django.contrib import admin
 from unfold.admin import ModelAdmin, TabularInline
 
+from core.admin import TenantAdminMixin
+
 from .models import WorkflowDefinition, WorkflowState, WorkflowTransition
 
 
@@ -15,12 +17,15 @@ class WorkflowTransitionInline(TabularInline):
     fk_name = "workflow"
 
 @admin.register(WorkflowDefinition)
-class WorkflowDefinitionAdmin(ModelAdmin):
+class WorkflowDefinitionAdmin(TenantAdminMixin, ModelAdmin):
     list_display = ["name", "entity_type", "tenant", "version", "is_active", "is_system"]
     list_filter = ["entity_type", "is_active", "is_system"]
     inlines = [WorkflowStateInline, WorkflowTransitionInline]
 
 @admin.register(WorkflowState)
-class WorkflowStateAdmin(ModelAdmin):
+class WorkflowStateAdmin(TenantAdminMixin, ModelAdmin):
+    # Pas de champ tenant propre : rattaché via son workflow.
+    tenant_field = "workflow__tenant"
+
     list_display = ["workflow", "code", "label", "display_order", "is_initial", "is_terminal"]
     list_filter = ["workflow", "is_initial", "is_terminal"]

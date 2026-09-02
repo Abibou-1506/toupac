@@ -9,6 +9,8 @@ from django.contrib import admin
 from django.contrib.gis import forms as gis_forms
 from unfold.admin import ModelAdmin
 
+from core.admin import TenantAdminMixin
+
 from .models import Geofence, GeofenceEvent, Position, TrackingLink
 
 
@@ -31,7 +33,7 @@ class GeofenceAdminForm(forms.ModelForm):
 
 
 @admin.register(Position)
-class PositionAdmin(ModelAdmin):
+class PositionAdmin(TenantAdminMixin, ModelAdmin):
     list_display = ["vehicle", "speed_kmh", "source", "recorded_at"]
     list_filter = ["source", "vehicle", "tenant"]
     readonly_fields = [f.name for f in Position._meta.fields]
@@ -44,19 +46,19 @@ class PositionAdmin(ModelAdmin):
 
 
 @admin.register(Geofence)
-class GeofenceAdmin(ModelAdmin):
+class GeofenceAdmin(TenantAdminMixin, ModelAdmin):
     form = GeofenceAdminForm
     list_display = ["name", "type", "is_active", "tenant"]
     list_filter = ["type", "is_active"]
 
 
 @admin.register(GeofenceEvent)
-class GeofenceEventAdmin(ModelAdmin):
+class GeofenceEventAdmin(TenantAdminMixin, ModelAdmin):
     list_display = ["geofence", "vehicle", "event_type", "event_at"]
     list_filter = ["event_type", "tenant"]
 
 
 @admin.register(TrackingLink)
-class TrackingLinkAdmin(ModelAdmin):
+class TrackingLinkAdmin(TenantAdminMixin, ModelAdmin):
     list_display = ["token", "resource_type", "resource_id", "expires_at"]
     list_filter = ["resource_type", "tenant"]

@@ -10,6 +10,8 @@ from django.contrib import admin
 from django.contrib.gis import forms as gis_forms
 from unfold.admin import ModelAdmin
 
+from core.admin import TenantAdminMixin
+
 from .models import Place, Zone
 
 
@@ -44,7 +46,13 @@ class ZoneAdminForm(forms.ModelForm):
 
 
 @admin.register(Place)
-class PlaceAdmin(ModelAdmin):
+class PlaceAdmin(TenantAdminMixin, ModelAdmin):
+    """
+    Cas spécial — tenant nullable. Les places publiques (tenant=None) sont les
+    gares partagées entre compagnies : visibles par tous les tenants, modifiables
+    par les seuls superadmins. `shared_visible` porte exactement cette règle.
+    """
+    shared_visible = True
     form = PlaceAdminForm
     list_display = ["name", "city", "country_code", "type", "latitude", "longitude", "tenant"]
     list_filter = ["type", "country_code", "tenant"]
@@ -64,7 +72,7 @@ class PlaceAdmin(ModelAdmin):
 
 
 @admin.register(Zone)
-class ZoneAdmin(ModelAdmin):
+class ZoneAdmin(TenantAdminMixin, ModelAdmin):
     form = ZoneAdminForm
     list_display = ["name", "type", "is_active", "tenant"]
     list_filter = ["type", "is_active", "tenant"]

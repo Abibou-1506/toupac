@@ -70,6 +70,9 @@ def _make_user(tenant, email, role, first_name, last_name):
     return User.objects.create_user(
         email=email, password=PASSWORD, first_name=first_name, last_name=last_name,
         tenant=tenant, role=role,
+        # Un admin de compagnie accède à l'admin Django (cf. seed_demo, qui pose
+        # le même is_staff) — nécessaire pour tester l'isolation côté admin.
+        is_staff=role == User.Role.ADMIN,
     )
 
 

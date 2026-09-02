@@ -2,6 +2,8 @@
 from django.contrib import admin
 from unfold.admin import ModelAdmin, TabularInline
 
+from core.admin import TenantAdminMixin
+
 from .models import Invoice, InvoiceLine, Payment, PriceList, PriceRule
 
 
@@ -16,14 +18,14 @@ class InvoiceLineInline(TabularInline):
 
 
 @admin.register(PriceList)
-class PriceListAdmin(ModelAdmin):
+class PriceListAdmin(TenantAdminMixin, ModelAdmin):
     list_display = ["name", "type", "currency", "is_active", "tenant"]
     list_filter = ["type", "is_active", "tenant"]
     inlines = [PriceRuleInline]
 
 
 @admin.register(Invoice)
-class InvoiceAdmin(ModelAdmin):
+class InvoiceAdmin(TenantAdminMixin, ModelAdmin):
     list_display = ["invoice_number", "customer_name", "total_xof", "status", "issue_date"]
     list_filter = ["status", "tenant"]
     search_fields = ["invoice_number", "customer_name"]
@@ -31,7 +33,7 @@ class InvoiceAdmin(ModelAdmin):
 
 
 @admin.register(Payment)
-class PaymentAdmin(ModelAdmin):
+class PaymentAdmin(TenantAdminMixin, ModelAdmin):
     list_display = ["provider", "amount_xof", "status", "provider_tx_id", "reservation", "order", "initiated_at"]
     list_filter = ["provider", "status", "tenant"]
     search_fields = ["provider_tx_id"]

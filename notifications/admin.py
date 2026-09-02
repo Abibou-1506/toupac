@@ -2,17 +2,19 @@
 from django.contrib import admin
 from unfold.admin import ModelAdmin
 
+from core.admin import TenantAdminMixin
+
 from .models import NotificationLog, NotificationTemplate
 
 
 @admin.register(NotificationTemplate)
-class NotificationTemplateAdmin(ModelAdmin):
+class NotificationTemplateAdmin(TenantAdminMixin, ModelAdmin):
     list_display = ["event_type", "channel", "language", "is_active", "tenant"]
     list_filter = ["channel", "is_active", "event_type"]
 
 
 @admin.register(NotificationLog)
-class NotificationLogAdmin(ModelAdmin):
+class NotificationLogAdmin(TenantAdminMixin, ModelAdmin):
     list_display = ["event_type", "channel", "recipient", "status", "provider", "sent_at"]
     list_filter = ["channel", "status", "event_type"]
     readonly_fields = [f.name for f in NotificationLog._meta.fields]

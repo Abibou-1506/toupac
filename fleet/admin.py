@@ -7,6 +7,8 @@ from django import forms
 from django.contrib import admin
 from unfold.admin import ModelAdmin, TabularInline
 
+from core.admin import TenantAdminMixin
+
 from .models import Driver, Fleet, Vehicle, VehicleDocument, VehicleType
 
 
@@ -39,12 +41,12 @@ class DriverAdminForm(forms.ModelForm):
         }
 
 @admin.register(VehicleType)
-class VehicleTypeAdmin(ModelAdmin):
+class VehicleTypeAdmin(TenantAdminMixin, ModelAdmin):
     list_display = ["name", "default_capacity", "fuel_type", "tenant"]
     list_filter = ["tenant"]
 
 @admin.register(Vehicle)
-class VehicleAdmin(ModelAdmin):
+class VehicleAdmin(TenantAdminMixin, ModelAdmin):
     form = VehicleAdminForm
     list_display = ["plate_number", "make", "model_name", "capacity", "status", "vehicle_type", "tenant"]
     list_filter = ["status", "vehicle_type", "tenant"]
@@ -52,13 +54,13 @@ class VehicleAdmin(ModelAdmin):
     inlines = [VehicleDocumentInline]
 
 @admin.register(Driver)
-class DriverAdmin(ModelAdmin):
+class DriverAdmin(TenantAdminMixin, ModelAdmin):
     form = DriverAdminForm
     list_display = ["user", "license_number", "license_class", "status", "score", "tenant"]
     list_filter = ["status", "tenant"]
     search_fields = ["user__first_name", "user__last_name", "license_number"]
 
 @admin.register(Fleet)
-class FleetAdmin(ModelAdmin):
+class FleetAdmin(TenantAdminMixin, ModelAdmin):
     list_display = ["name", "zone", "manager", "tenant"]
     list_filter = ["tenant"]
