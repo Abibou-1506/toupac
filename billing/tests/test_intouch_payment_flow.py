@@ -208,7 +208,7 @@ def test_initiate_payment_throttled_after_30_per_minute(
         mock.patch(PROVIDER_PATH, return_value=provider_mock()),
         override_settings(REST_FRAMEWORK={
             "DEFAULT_AUTHENTICATION_CLASSES": [
-                "rest_framework_simplejwt.authentication.JWTAuthentication",
+                "iam.authentication.DenylistJWTAuthentication",
                 "rest_framework.authentication.SessionAuthentication",
             ],
             "DEFAULT_PERMISSION_CLASSES": ["rest_framework.permissions.IsAuthenticated"],

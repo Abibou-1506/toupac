@@ -5,12 +5,16 @@ Les claims custom (`tenant_id`, `role`, `name`) portés par le token access
 sont lus par TenantMiddleware avant toute authentification DRF : s'ils
 disparaissaient, la résolution du tenant tomberait silencieusement.
 """
+import time
+from unittest import mock
+
 import jwt
 import pytest
 from django.test import override_settings
 from rest_framework.test import APIClient
 
 from conftest import PASSWORD
+from iam.authentication import deny_access_token
 
 pytestmark = pytest.mark.django_db
 
@@ -59,7 +63,7 @@ def test_login_throttle_after_10_attempts_per_minute(api_client, user_admin_a):
              "payment_initiate": "30/minute", "tenant_burst": "100/minute"}
     with override_settings(REST_FRAMEWORK={
         "DEFAULT_AUTHENTICATION_CLASSES": [
-            "rest_framework_simplejwt.authentication.JWTAuthentication",
+            "iam.authentication.DenylistJWTAuthentication",
             "rest_framework.authentication.SessionAuthentication",
         ],
         "DEFAULT_THROTTLE_CLASSES": ["rest_framework.throttling.ScopedRateThrottle"],
@@ -113,17 +117,76 @@ def test_logout_returns_400_on_malformed_refresh_token(authenticated_client, use
     assert response.status_code == 400
 
 
-@pytest.mark.xfail(
-    reason="Access token denylist not yet implemented — see Sprint 2 §4.19, "
-           "only refresh is blacklisted in V1",
-    strict=True,
-)
-def test_access_token_still_valid_after_logout(api_client, user_admin_a):
-    """Le logout ne révoque que le refresh : l'access reste utilisable jusqu'à son exp."""
+def test_access_token_is_revoked_after_logout(api_client, user_admin_a):
+    """Le logout révoque aussi l'access : il ne survit plus jusqu'à son exp."""
     tokens = login(api_client, user_admin_a.email).data
 
     client = APIClient()
     client.credentials(HTTP_AUTHORIZATION=f"Bearer {tokens['access']}")
-    client.post(LOGOUT_URL, {"refresh": tokens["refresh"]}, format="json")
+    assert client.get(ME_URL).status_code == 200  # contrôle positif avant logout
+
+    assert client.post(LOGOUT_URL, {"refresh": tokens["refresh"]}, format="json").status_code == 200
 
     assert client.get(ME_URL).status_code == 401
+
+
+def test_revoked_token_401_is_distinguishable_from_natural_expiry(api_client, user_admin_a):
+    """
+    Le code d'erreur sépare « révoqué » de « expiré ».
+
+    L'app mobile doit pouvoir choisir entre rejouer silencieusement (expiré,
+    on rafraîchit) et renvoyer l'utilisateur au login (révoqué).
+    """
+    tokens = login(api_client, user_admin_a.email).data
+    client = APIClient()
+    client.credentials(HTTP_AUTHORIZATION=f"Bearer {tokens['access']}")
+    client.post(LOGOUT_URL, {"refresh": tokens["refresh"]}, format="json")
+
+    response = client.get(ME_URL)
+
+    assert response.status_code == 401
+    assert response.data["detail"].code == "token_revoked"
+    assert str(response.data["detail"]) == "Token révoqué (déconnexion)."
+
+
+def test_denylist_ttl_matches_token_expiration(api_client, user_admin_a):
+    """Le TTL posé en cache est calé sur l'exp du token — d'où l'auto-nettoyage."""
+    tokens = login(api_client, user_admin_a.email).data
+    claims = decode_unverified(tokens["access"])
+
+    client = APIClient()
+    client.credentials(HTTP_AUTHORIZATION=f"Bearer {tokens['access']}")
+    with mock.patch("iam.authentication.cache.set") as cache_set:
+        client.post(LOGOUT_URL, {"refresh": tokens["refresh"]}, format="json")
+
+    cache_set.assert_called_once()
+    key, _value = cache_set.call_args.args
+    ttl = cache_set.call_args.kwargs["timeout"]
+
+    assert key == f"access_denylist:{claims['jti']}"
+    assert 0 < ttl <= claims["exp"] - time.time() + 1
+
+
+def test_denylist_skips_already_expired_token():
+    """TTL nul ou négatif : rien n'est stocké, la validation d'exp suffit."""
+    with mock.patch("iam.authentication.cache.set") as cache_set:
+        deny_access_token("jti-deja-expire", 0)
+        deny_access_token("jti-tres-vieux", -3600)
+
+    cache_set.assert_not_called()
+
+
+def test_logout_with_session_auth_and_no_access_token_returns_200(user_admin_a):
+    """
+    Authentifié par session (admin, API navigable) : `request.auth` est None.
+
+    Le denylist doit être sauté sans planter — le logout reste un 200.
+    """
+    client = APIClient()
+    client.force_login(user_admin_a)
+
+    with mock.patch("iam.authentication.cache.set") as cache_set:
+        response = client.post(LOGOUT_URL, {}, format="json")
+
+    assert response.status_code == 200
+    cache_set.assert_not_called()

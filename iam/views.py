@@ -7,6 +7,7 @@ from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.views import TokenObtainPairView
 from rest_framework_simplejwt.views import TokenRefreshView as BaseTokenRefreshView
 
+from .authentication import deny_token_until_expiry
 from .serializers import ToupacTokenObtainSerializer, UserSerializer
 
 
@@ -29,7 +30,13 @@ class TokenRefreshView(BaseTokenRefreshView):
     responses=inline_serializer("LogoutResponse", {"detail": serializers.CharField()}),
 )
 class LogoutView(APIView):
-    """POST /api/v1/auth/logout/ — Révoque le refresh token (denylist §4.19)."""
+    """
+    POST /api/v1/auth/logout/ — Révoque le refresh token ET l'access courant (§4.19).
+
+    Le refresh part dans la blacklist native de simplejwt ; l'access, que
+    simplejwt ne sait pas révoquer, est ajouté au denylist Redis jusqu'à son
+    expiration naturelle.
+    """
     permission_classes = [IsAuthenticated]
 
     def post(self, request):
@@ -38,6 +45,9 @@ class LogoutView(APIView):
             if refresh_token:
                 token = RefreshToken(refresh_token)
                 token.blacklist()
+            # Après la blacklist du refresh : si celui-ci est invalide, on part
+            # en 400 sans avoir révoqué l'access, et le client peut réessayer.
+            deny_token_until_expiry(request.auth)
             return Response({"detail": "Déconnexion réussie."}, status=status.HTTP_200_OK)
         except Exception:
             return Response({"detail": "Token invalide."}, status=status.HTTP_400_BAD_REQUEST)

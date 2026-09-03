@@ -113,7 +113,9 @@ AUTH_PASSWORD_VALIDATORS = [
 # ─── REST Framework ───
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": [
-        "rest_framework_simplejwt.authentication.JWTAuthentication",
+        # JWTAuthentication + vérification du denylist des access tokens
+        # révoqués au logout (cf. iam/authentication.py).
+        "iam.authentication.DenylistJWTAuthentication",
         "rest_framework.authentication.SessionAuthentication",
     ],
     "DEFAULT_PERMISSION_CLASSES": [
