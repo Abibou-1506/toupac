@@ -78,8 +78,11 @@ class TenantMiddleware(MiddlewareMixin):
     def _attach_tenant(request, tenant_id):
         from iam.models import Tenant
 
+        # TRIAL est un tenant qui paie en essai commercial : il doit pouvoir
+        # utiliser l'API. SUSPENDED reste exclu — c'est le levier de coupure.
+        allowed = (Tenant.Status.ACTIVE, Tenant.Status.TRIAL)
         try:
-            tenant = Tenant.objects.get(id=tenant_id, status="active")
+            tenant = Tenant.objects.get(id=tenant_id, status__in=allowed)
         except (Tenant.DoesNotExist, ValueError, ValidationError):
             return False
 

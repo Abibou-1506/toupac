@@ -1,6 +1,6 @@
 # Dettes techniques — TOUPAC
 
-Dernier update : 2 sept 2026 (fin de sprint applicatif de consolidation)
+Dernier update : 3 sept 2026
 
 Ce fichier consolide les dettes techniques identifiées et **délibérément 
 non corrigées** pendant les tickets précédents. Chaque entrée porte : 
@@ -13,26 +13,7 @@ se fait avec le lead selon le contexte produit.
 
 ## Sécurité
 
-- [ ] **Access token JWT reste valide après logout**
-      → xfail(strict=True) : `iam/tests/test_auth.py::test_access_token_still_valid_after_logout`
-      → État : `LogoutView` blacklist le refresh via simplejwt, mais 
-        l'access token reste utilisable jusqu'à son expiration naturelle 
-        (~30 min).
-      → Fix : implémenter denylist des `jti` d'access token en Redis 
-        avec TTL correspondant à la durée de vie du token. Custom 
-        authentication class DRF qui vérifie le denylist.
-      → Effort : ~2h
-      → Ref : Sprint 2 §4.19, ticket batch tests 2 sept 2026
-
-- [ ] **TenantMiddleware bloque les tenants status='trial'**
-      → xfail(strict=True) : `iam/tests/test_multi_tenant_isolation.py::test_middleware_rejects_jwt_from_trial_tenant_documents_current_bug`
-      → État : `_attach_tenant` filtre sur `status='active'` strict. Un 
-        tenant en essai commercial ne peut pas utiliser l'API.
-      → Fix : élargir à `status__in=['active','trial']` dans le 
-        middleware. Mettre à jour le test pour asserter le comportement 
-        souhaité.
-      → Effort : ~15 min
-      → Ref : batch tests 2 sept 2026
+_Aucune dette sécurité identifiée à date._
 
 ---
 

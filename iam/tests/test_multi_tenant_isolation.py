@@ -150,15 +150,8 @@ def test_middleware_rejects_jwt_from_suspended_tenant(tenant_suspended, authenti
     assert response.data["results"] == []
 
 
-@pytest.mark.xfail(
-    reason="TenantMiddleware filters on status='active' strict, blocking legitimate "
-           "trial tenants. To be fixed by allowing status in ('active', 'trial').",
-    strict=True,
-)
-def test_middleware_rejects_jwt_from_trial_tenant_documents_current_bug(
-    tenant_trial, authenticated_client,
-):
-    """Un tenant en essai devrait voir ses propres données — il n'en voit aucune."""
+def test_middleware_attaches_tenant_for_trial_status(tenant_trial, authenticated_client):
+    """Un tenant en essai commercial voit ses propres données — seul SUSPENDED coupe l'accès."""
     user = User.objects.create_user(
         email="trial@toupac.sn", password="TestPass#2026", first_name="Tri",
         last_name="Al", tenant=tenant_trial, role=User.Role.ADMIN,
