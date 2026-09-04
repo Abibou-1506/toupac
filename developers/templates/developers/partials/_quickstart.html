@@ -1,0 +1,51 @@
+<section id="quickstart" class="section">
+  <h2>Quick start</h2>
+  <p>Trois étapes, une minute.</p>
+
+  <ol class="steps">
+    <li>
+      <h3>Demandez une clé API</h3>
+      <p>
+        Votre contact TOUPAC crée la clé pour votre compagnie et choisit ses
+        <a href="#scopes">scopes</a>. Vous recevez une valeur de la forme
+        <code>prefix.secret</code> — <strong>elle n'est affichée qu'une fois</strong>.
+      </p>
+    </li>
+    <li>
+      <h3>Envoyez votre première requête</h3>
+      <p>Lister les lignes régulières de la compagnie :</p>
+      <div class="code" data-lang="bash">
+        <div class="code-head"><span>curl</span><button class="copy" type="button">Copier</button></div>
+<pre><code>curl {{ api_base_url }}/api/v1/voyage/routes/ \
+  -H "X-API-Key: PREFIX.SECRET"</code></pre>
+      </div>
+    </li>
+    <li>
+      <h3>Lisez la réponse</h3>
+      <div class="code" data-lang="json">
+        <div class="code-head"><span>200 OK</span><button class="copy" type="button">Copier</button></div>
+<pre><code>{
+  "count": 3,
+  "next": null,
+  "previous": null,
+  "results": [
+    {
+      "id": "0b7f1e2a-3c4d-4e5f-8a9b-0c1d2e3f4a5b",
+      "name": "Dakar → Bamako",
+      "code": "DKR-BKO",
+      "distance_km": "1450.00",
+      "duration_minutes": 1440,
+      "is_active": true
+    }
+  ]
+}</code></pre>
+      </div>
+    </li>
+  </ol>
+
+  <p class="note">
+    <strong>Pas encore de clé ?</strong> Écrivez à
+    <a href="mailto:{{ support_email }}">{{ support_email }}</a> en précisant la
+    compagnie et les opérations visées : nous vous ouvrons un environnement de test.
+  </p>
+</section>

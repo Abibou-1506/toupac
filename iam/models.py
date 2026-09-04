@@ -1,8 +1,11 @@
 """
 TOUPAC IAM — Tenants, Users, API credentials, Audit logs.
 """
+import secrets
+
 from django.contrib.auth.models import AbstractBaseUser, BaseUserManager, PermissionsMixin
 from django.contrib.gis.db import models
+from django.core.exceptions import ValidationError
 
 from core.models import SoftDeleteMixin, TimestampMixin, UUIDv7Field
 
@@ -140,6 +143,40 @@ class ApiCredential(TimestampMixin, models.Model):
 
     def __str__(self):
         return f"{self.name} ({self.key_prefix}...)"
+
+    def clean(self):
+        from iam.scopes import validate_scopes
+
+        unknown = validate_scopes(self.scopes)
+        if unknown:
+            raise ValidationError({"scopes": f"Scope(s) inconnu(s) : {', '.join(unknown)}"})
+
+    def has_scope(self, scope_name):
+        """True si le scope est accordé, directement ou via le super-scope admin."""
+        from iam.scopes import ADMIN_SCOPE
+
+        granted = self.scopes or []
+        return ADMIN_SCOPE in granted or scope_name in granted
+
+    @classmethod
+    def issue(cls, tenant, name, scopes, user=None, expires_at=None):
+        """
+        Crée une clé API et retourne (credential, clé_en_clair).
+
+        La clé en clair n'est jamais stockée ni réaffichable : seul son hash
+        l'est. C'est le seul moment où l'appelant peut la transmettre.
+        """
+        from django.contrib.auth.hashers import make_password
+
+        prefix = f"tpc_{secrets.token_hex(4)}"  # 12 caractères, tient dans key_prefix
+        secret = secrets.token_urlsafe(32)
+        credential = cls(
+            tenant=tenant, user=user, name=name, scopes=list(scopes),
+            key_prefix=prefix, key_hash=make_password(secret), expires_at=expires_at,
+        )
+        credential.full_clean(exclude=["user"])
+        credential.save()
+        return credential, f"{prefix}.{secret}"
 
 
 # ─── Audit Log ───

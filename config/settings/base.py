@@ -41,6 +41,7 @@ INSTALLED_APPS = [
     "billing",
     "tracking",
     "notifications",
+    "developers",
 ]
 
 MIDDLEWARE = [
@@ -113,6 +114,9 @@ AUTH_PASSWORD_VALIDATORS = [
 # ─── REST Framework ───
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": [
+        # La clé API d'abord : elle s'identifie par son propre header et
+        # rend la main aux suivants s'il est absent.
+        "iam.api_key_authentication.ApiKeyAuthentication",
         # JWTAuthentication + vérification du denylist des access tokens
         # révoqués au logout (cf. iam/authentication.py).
         "iam.authentication.DenylistJWTAuthentication",
@@ -120,6 +124,10 @@ REST_FRAMEWORK = {
     ],
     "DEFAULT_PERMISSION_CLASSES": [
         "rest_framework.permissions.IsAuthenticated",
+        # Globale et non par vue : un endpoint qui ne déclare pas de scope
+        # doit être fermé aux clés API, pas ouvert par défaut. Sans effet
+        # sur les utilisateurs JWT ou session.
+        "iam.permissions.HasApiScope",
     ],
     "DEFAULT_PAGINATION_CLASS": "core.pagination.StandardPagination",
     "PAGE_SIZE": 25,
@@ -136,6 +144,9 @@ REST_FRAMEWORK = {
         "batch_sync": "20/minute",
         "payment_initiate": "30/minute",
         "tenant_burst": "100/minute",
+        # Rate limiting par clé API (cf. iam/throttles.py)
+        "api_key_default": "1000/hour",
+        "api_key_admin": "10000/hour",
     },
     "EXCEPTION_HANDLER": "core.exceptions.toupac_exception_handler",
     "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",

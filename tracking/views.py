@@ -7,6 +7,8 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from fleet.models import Vehicle
+from iam.permissions import ApiScopedViewSetMixin
+from iam.throttles import ApiKeyAdminRateThrottle, ApiKeyRateThrottle
 
 from .models import Geofence, Position, TrackingLink
 from .serializers import (
@@ -19,14 +21,22 @@ from .serializers import (
     TrackingLinkSerializer,
 )
 
+API_KEY_THROTTLES = [ApiKeyAdminRateThrottle, ApiKeyRateThrottle]
+
 _TAG = extend_schema(tags=["Tracking"])
 
 
 @extend_schema_view(list=_TAG, retrieve=_TAG, create=_TAG, batch=_TAG, vehicle_latest=_TAG)
 class PositionViewSet(
+    ApiScopedViewSetMixin,
     mixins.ListModelMixin, mixins.RetrieveModelMixin, mixins.CreateModelMixin,
     viewsets.GenericViewSet,
 ):
+    # Les positions arrivent par le boîtier télématique, pas par l'API
+    # publique : en pratique seul `tracking:read` est accordé aux partenaires,
+    # l'écriture reste possible mais demande `tracking:write`.
+    api_scope_domain = "tracking"
+    throttle_classes = API_KEY_THROTTLES
     queryset = Position.objects.none()
     filterset_fields = ["vehicle", "source"]
     ordering = ["-recorded_at"]

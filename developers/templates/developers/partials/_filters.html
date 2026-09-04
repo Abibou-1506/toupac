@@ -1,0 +1,44 @@
+<section id="filters" class="section">
+  <h2>Filtres, recherche et tri</h2>
+  <p>Tout se passe en paramètres d'URL, combinables entre eux et avec la pagination.</p>
+
+  <h3>Filtrer</h3>
+  <p>
+    Un paramètre par champ filtrable, en égalité stricte. Les champs disponibles
+    varient par ressource et sont listés endpoint par endpoint dans la
+    <a href="/api/docs/">référence Swagger</a>.
+  </p>
+  <div class="code" data-lang="bash">
+    <div class="code-head"><span>Voyages programmés d'une ligne</span><button class="copy" type="button">Copier</button></div>
+<pre><code>curl "{{ api_base_url }}/api/v1/voyage/trips/?status=scheduled&departure_date=2026-09-15" \
+  -H "X-API-Key: PREFIX.SECRET"</code></pre>
+  </div>
+
+  <h3>Rechercher</h3>
+  <p>
+    <code>search</code> effectue une recherche textuelle sur les champs pertinents de
+    la ressource (nom, code, numéro de suivi selon le cas).
+  </p>
+  <div class="code" data-lang="bash">
+    <div class="code-head"><span>Recherche plein texte</span><button class="copy" type="button">Copier</button></div>
+<pre><code>curl "{{ api_base_url }}/api/v1/colis/parcels/?search=TP-SE-00042" \
+  -H "X-API-Key: PREFIX.SECRET"</code></pre>
+  </div>
+
+  <h3>Trier</h3>
+  <p>
+    <code>ordering</code> prend un nom de champ ; le préfixe <code>-</code> inverse
+    l'ordre. Plusieurs champs se séparent par des virgules.
+  </p>
+  <div class="code" data-lang="bash">
+    <div class="code-head"><span>Les plus récents d'abord</span><button class="copy" type="button">Copier</button></div>
+<pre><code>curl "{{ api_base_url }}/api/v1/voyage/trips/?ordering=-departure_date" \
+  -H "X-API-Key: PREFIX.SECRET"</code></pre>
+  </div>
+
+  <p class="note">
+    Un paramètre inconnu est ignoré silencieusement — il ne provoque pas d'erreur mais
+    ne filtre rien non plus. Si un résultat vous surprend, vérifiez d'abord
+    l'orthographe du paramètre dans Swagger.
+  </p>
+</section>

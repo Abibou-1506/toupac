@@ -1,0 +1,210 @@
+<section id="examples" class="section">
+  <h2>Exemples de code</h2>
+  <p>
+    Quatre usages courants, dans trois langages. Remplacez <code>PREFIX.SECRET</code>
+    par votre clé, lue depuis une variable d'environnement.
+  </p>
+
+  <div class="tabs" data-tabs>
+    <div class="tablist" role="tablist">
+      <button class="tab is-active" role="tab" data-tab="curl">curl</button>
+      <button class="tab" role="tab" data-tab="python">Python</button>
+      <button class="tab" role="tab" data-tab="js">JavaScript</button>
+    </div>
+
+    <div class="tabpanel is-active" data-panel="curl">
+      <h3>Lister les lignes</h3>
+      <div class="code" data-lang="bash">
+        <div class="code-head"><span>GET</span><button class="copy" type="button">Copier</button></div>
+<pre><code>curl {{ api_base_url }}/api/v1/voyage/routes/ \
+  -H "X-API-Key: $TOUPAC_API_KEY"</code></pre>
+      </div>
+
+      <h3>Filtrer les voyages disponibles</h3>
+      <div class="code" data-lang="bash">
+        <div class="code-head"><span>GET + filtres</span><button class="copy" type="button">Copier</button></div>
+<pre><code>curl -G {{ api_base_url }}/api/v1/voyage/trips/ \
+  -H "X-API-Key: $TOUPAC_API_KEY" \
+  --data-urlencode "status=scheduled" \
+  --data-urlencode "departure_date=2026-09-15"</code></pre>
+      </div>
+
+      <h3>Créer une réservation</h3>
+      <div class="code" data-lang="bash">
+        <div class="code-head"><span>POST</span><button class="copy" type="button">Copier</button></div>
+<pre><code>curl -X POST {{ api_base_url }}/api/v1/voyage/reservations/ \
+  -H "X-API-Key: $TOUPAC_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "trip": "0b7f1e2a-3c4d-4e5f-8a9b-0c1d2e3f4a5b",
+    "passenger": "7c2d9f01-1a2b-4c3d-9e8f-5a6b7c8d9e0f",
+    "seat_label": "A1",
+    "amount_xof": 25000,
+    "payment_method": "wave"
+  }'</code></pre>
+      </div>
+
+      <h3>Suivre un colis</h3>
+      <div class="code" data-lang="bash">
+        <div class="code-head"><span>GET + recherche</span><button class="copy" type="button">Copier</button></div>
+<pre><code>curl -G {{ api_base_url }}/api/v1/colis/parcels/ \
+  -H "X-API-Key: $TOUPAC_API_KEY" \
+  --data-urlencode "search=TP-SE-00042"</code></pre>
+      </div>
+    </div>
+
+    <div class="tabpanel" data-panel="python">
+      <h3>Client réutilisable</h3>
+      <div class="code" data-lang="python">
+        <div class="code-head"><span>Session requests</span><button class="copy" type="button">Copier</button></div>
+<pre><code>import os
+import requests
+
+BASE = "{{ api_base_url }}/api/v1"
+
+session = requests.Session()
+session.headers["X-API-Key"] = os.environ["TOUPAC_API_KEY"]
+
+response = session.get(f"{BASE}/voyage/routes/", timeout=10)
+response.raise_for_status()
+for route in response.json()["results"]:
+    print(route["code"], "—", route["name"])</code></pre>
+      </div>
+
+      <h3>Filtrer les voyages disponibles</h3>
+      <div class="code" data-lang="python">
+        <div class="code-head"><span>Paramètres de requête</span><button class="copy" type="button">Copier</button></div>
+<pre><code>trips = session.get(
+    f"{BASE}/voyage/trips/",
+    params={"status": "scheduled", "departure_date": "2026-09-15"},
+    timeout=10,
+).json()
+
+print(f"{trips['count']} voyage(s) programmé(s)")</code></pre>
+      </div>
+
+      <h3>Créer une réservation, en gérant les erreurs</h3>
+      <div class="code" data-lang="python">
+        <div class="code-head"><span>POST + validation</span><button class="copy" type="button">Copier</button></div>
+<pre><code>response = session.post(
+    f"{BASE}/voyage/reservations/",
+    json={
+        "trip": trip_id,
+        "passenger": passenger_id,
+        "seat_label": "A1",
+        "amount_xof": 25000,
+        "payment_method": "wave",
+    },
+    timeout=10,
+)
+
+if response.status_code == 201:
+    print("Réservation", response.json()["id"])
+elif response.status_code == 400:
+    # Erreur de validation : un dict {champ: [messages]}
+    for field, messages in response.json().items():
+        print(f"{field}: {'; '.join(messages)}")
+else:
+    response.raise_for_status()</code></pre>
+      </div>
+
+      <h3>Parcourir toutes les pages</h3>
+      <div class="code" data-lang="python">
+        <div class="code-head"><span>Suivre `next`</span><button class="copy" type="button">Copier</button></div>
+<pre><code>def iter_all(path, **params):
+    """Génère chaque élément, page après page."""
+    url = f"{BASE}{path}"
+    while url:
+        payload = session.get(url, params=params, timeout=10).json()
+        yield from payload["results"]
+        url, params = payload["next"], None  # `next` porte déjà les paramètres
+
+for parcel in iter_all("/colis/parcels/", status="in_transit"):
+    print(parcel["tracking_number"])</code></pre>
+      </div>
+    </div>
+
+    <div class="tabpanel" data-panel="js">
+      <h3>Appel de base</h3>
+      <div class="code" data-lang="javascript">
+        <div class="code-head"><span>fetch</span><button class="copy" type="button">Copier</button></div>
+<pre><code>const BASE = "{{ api_base_url }}/api/v1";
+const headers = { "X-API-Key": process.env.TOUPAC_API_KEY };
+
+const response = await fetch(`${BASE}/voyage/routes/`, { headers });
+if (!response.ok) throw new Error(`HTTP ${response.status}`);
+
+const { results } = await response.json();
+results.forEach((route) => console.log(route.code, "—", route.name));</code></pre>
+      </div>
+
+      <h3>Filtrer les voyages disponibles</h3>
+      <div class="code" data-lang="javascript">
+        <div class="code-head"><span>URLSearchParams</span><button class="copy" type="button">Copier</button></div>
+<pre><code>const query = new URLSearchParams({
+  status: "scheduled",
+  departure_date: "2026-09-15",
+});
+
+const trips = await fetch(`${BASE}/voyage/trips/?${query}`, { headers })
+  .then((r) => r.json());
+
+console.log(`${trips.count} voyage(s) programmé(s)`);</code></pre>
+      </div>
+
+      <h3>Créer une réservation</h3>
+      <div class="code" data-lang="javascript">
+        <div class="code-head"><span>POST</span><button class="copy" type="button">Copier</button></div>
+<pre><code>const response = await fetch(`${BASE}/voyage/reservations/`, {
+  method: "POST",
+  headers: { ...headers, "Content-Type": "application/json" },
+  body: JSON.stringify({
+    trip: tripId,
+    passenger: passengerId,
+    seat_label: "A1",
+    amount_xof: 25000,
+    payment_method: "wave",
+  }),
+});
+
+const body = await response.json();
+if (response.status === 201) {
+  console.log("Réservation", body.id);
+} else if (response.status === 400) {
+  Object.entries(body).forEach(([field, messages]) =&gt;
+    console.error(`${field}: ${messages}`),
+  );
+}</code></pre>
+      </div>
+
+      <h3>Respecter le quota</h3>
+      <div class="code" data-lang="javascript">
+        <div class="code-head"><span>Retry-After</span><button class="copy" type="button">Copier</button></div>
+<pre><code>async function callWithRetry(url, options, attempts = 3) {
+  for (let i = 0; i &lt; attempts; i++) {
+    const response = await fetch(url, options);
+    if (response.status !== 429) return response;
+
+    const wait = Number(response.headers.get("Retry-After") ?? 60);
+    await new Promise((resolve) =&gt; setTimeout(resolve, wait * 1000));
+  }
+  throw new Error("Quota dépassé, abandon après plusieurs tentatives");
+}</code></pre>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="swagger" class="section">
+  <h2>Référence complète</h2>
+  <p>
+    Cette page est le point d'entrée : elle couvre les conventions transverses. Le
+    détail de chaque endpoint — champs, filtres disponibles, schémas de requête et de
+    réponse — vit dans la référence interactive, générée depuis le code et donc
+    toujours à jour.
+  </p>
+  <p class="cta-row">
+    <a class="btn" href="/api/docs/">Ouvrir Swagger</a>
+    <a class="btn btn-ghost" href="/api/redoc/">Version ReDoc</a>
+  </p>
+</section>

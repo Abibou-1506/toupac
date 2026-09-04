@@ -13,6 +13,8 @@ from rest_framework.views import APIView
 
 from billing.models import PriceList, PriceRule
 from colis.models import Order as ColisOrder
+from iam.permissions import ApiScopedViewSetMixin
+from iam.throttles import ApiKeyAdminRateThrottle, ApiKeyRateThrottle
 
 from .models import (
     CashEntry,
@@ -51,6 +53,8 @@ from .services.qr_jwt import qr_public_key_pem, sign_ticket_jwt
 
 MAX_BATCH_EVENTS = 100
 
+API_KEY_THROTTLES = [ApiKeyAdminRateThrottle, ApiKeyRateThrottle]
+
 _TAG = extend_schema(tags=["Voyage"])
 _CRUD_TAGS = {
     "list": _TAG, "retrieve": _TAG, "create": _TAG,
@@ -59,7 +63,9 @@ _CRUD_TAGS = {
 
 
 @extend_schema_view(**_CRUD_TAGS)
-class RouteViewSet(viewsets.ModelViewSet):
+class RouteViewSet(ApiScopedViewSetMixin, viewsets.ModelViewSet):
+    api_scope_domain = "voyage"
+    throttle_classes = API_KEY_THROTTLES
     serializer_class = RouteSerializer
     queryset = Route.objects.none()
     search_fields = ["name", "code"]
@@ -74,7 +80,9 @@ class RouteViewSet(viewsets.ModelViewSet):
 
 
 @extend_schema_view(**_CRUD_TAGS)
-class ScheduleViewSet(viewsets.ModelViewSet):
+class ScheduleViewSet(ApiScopedViewSetMixin, viewsets.ModelViewSet):
+    api_scope_domain = "voyage"
+    throttle_classes = API_KEY_THROTTLES
     serializer_class = ScheduleSerializer
     queryset = Schedule.objects.none()
     filterset_fields = ["route", "is_active"]
@@ -84,7 +92,9 @@ class ScheduleViewSet(viewsets.ModelViewSet):
 
 
 @extend_schema_view(**_CRUD_TAGS)
-class TripViewSet(viewsets.ModelViewSet):
+class TripViewSet(ApiScopedViewSetMixin, viewsets.ModelViewSet):
+    api_scope_domain = "voyage"
+    throttle_classes = API_KEY_THROTTLES
     queryset = Trip.objects.none()
     filterset_fields = ["status", "route", "departure_date", "vehicle", "driver"]
     search_fields = ["internal_id"]
@@ -342,7 +352,9 @@ _BOARDING_ACTION_SCHEMA = extend_schema(
 
 
 @extend_schema_view(**_CRUD_TAGS)
-class ReservationViewSet(viewsets.ModelViewSet):
+class ReservationViewSet(ApiScopedViewSetMixin, viewsets.ModelViewSet):
+    api_scope_domain = "voyage"
+    throttle_classes = API_KEY_THROTTLES
     queryset = Reservation.objects.none()
     filterset_fields = ["trip", "status", "passenger", "payment_method"]
 

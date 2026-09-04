@@ -1,0 +1,49 @@
+<section id="auth" class="section">
+  <h2>Authentification</h2>
+  <p>
+    Toute requête porte votre clé dans l'en-tête <code>X-API-Key</code>. Il n'y a ni
+    jeton à rafraîchir, ni session à maintenir.
+  </p>
+
+  <div class="code" data-lang="http">
+    <div class="code-head"><span>En-tête</span><button class="copy" type="button">Copier</button></div>
+<pre><code>X-API-Key: PREFIX.SECRET</code></pre>
+  </div>
+
+  <h3>Anatomie d'une clé</h3>
+  <p>
+    Une clé se lit en deux parties séparées par un point. Le <strong>préfixe</strong>
+    (12 caractères) identifie la clé et peut apparaître dans vos journaux ; le
+    <strong>secret</strong> ne doit jamais être journalisé — nous n'en conservons
+    qu'une empreinte, personne chez TOUPAC ne peut vous le relire.
+  </p>
+
+  <table class="table">
+    <thead><tr><th>Partie</th><th>Exemple</th><th>Sensibilité</th></tr></thead>
+    <tbody>
+      <tr><td>Préfixe</td><td><code>tpc_a1b2c3d4</code></td><td>Identifiant, journalisable</td></tr>
+      <tr><td>Secret</td><td><code>&lt;votre_secret&gt;</code></td><td>Secret, jamais journalisé</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Bonnes pratiques</h3>
+  <ul class="checklist">
+    <li>Stockez la clé en variable d'environnement ou dans un gestionnaire de secrets — jamais dans le dépôt.</li>
+    <li>Une clé par environnement et par application : révoquer l'une n'interrompt pas les autres.</li>
+    <li>N'exposez jamais la clé dans un front web ou une application mobile : elle serait lisible par vos utilisateurs. Appelez l'API depuis votre serveur.</li>
+    <li>Rotation à la demande : nous émettons la nouvelle clé, vous basculez, nous révoquons l'ancienne. Aucune coupure.</li>
+    <li>En cas de fuite, écrivez-nous immédiatement — la révocation est instantanée.</li>
+  </ul>
+
+  <h3>Réponses d'authentification</h3>
+  <table class="table">
+    <thead><tr><th>Situation</th><th>Statut</th></tr></thead>
+    <tbody>
+      <tr><td>En-tête absent</td><td><code>401</code> — aucune authentification fournie</td></tr>
+      <tr><td>Format sans point</td><td><code>401</code> — format de clé invalide</td></tr>
+      <tr><td>Clé inconnue, révoquée ou secret erroné</td><td><code>401</code></td></tr>
+      <tr><td>Clé expirée</td><td><code>401</code> — clé expirée</td></tr>
+      <tr><td>Clé valide, scope manquant</td><td><code>403</code> — voir <a href="#scopes">Scopes</a></td></tr>
+    </tbody>
+  </table>
+</section>

@@ -1,0 +1,36 @@
+<section id="introduction" class="section section-lead">
+  <p class="eyebrow">Documentation développeur</p>
+  <h1>L'API TOUPAC</h1>
+  <p class="lead">
+    TOUPAC est un système de gestion du transport pour l'Afrique de l'Ouest. Son API
+    REST vous permet de réserver un siège sur un voyage, suivre un colis de bout en
+    bout, consulter une flotte et ses positions GPS, ou récupérer des factures — les
+    mêmes opérations que celles de nos applications, exposées à vos systèmes.
+  </p>
+
+  <div class="cards">
+    <div class="card">
+      <h3>Multi-tenant</h3>
+      <p>
+        Chaque clé API est rattachée à une compagnie de transport. Vos requêtes ne
+        voient jamais que les données de cette compagnie — l'isolation est appliquée
+        côté serveur, vous n'avez aucun filtre à poser.
+      </p>
+    </div>
+    <div class="card">
+      <h3>REST &amp; JSON</h3>
+      <p>
+        Verbes HTTP standards, corps et réponses en JSON <code>UTF-8</code>, codes de
+        statut usuels. Les montants sont en francs CFA (XOF), entiers : le XOF n'a pas
+        de sous-unité.
+      </p>
+    </div>
+    <div class="card">
+      <h3>HTTPS obligatoire</h3>
+      <p>
+        En production, seul le HTTPS est accepté. Une requête en clair est refusée —
+        votre clé transiterait en clair sur le réseau.
+      </p>
+    </div>
+  </div>
+</section>

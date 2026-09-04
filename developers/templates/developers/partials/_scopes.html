@@ -1,0 +1,52 @@
+<section id="scopes" class="section">
+  <h2>Scopes</h2>
+  <p>
+    Un scope s'écrit <code>domaine:action</code>. L'action vaut <code>read</code> ou
+    <code>write</code> ; <strong><code>write</code> n'implique pas <code>read</code></strong> :
+    une intégration qui lit et écrit porte les deux scopes.
+  </p>
+  <p>
+    Votre clé n'en porte qu'un sous-ensemble, choisi avec votre contact TOUPAC selon
+    le principe du moindre privilège. Un appel hors périmètre reçoit un
+    <code>403</code> explicite plutôt qu'un résultat vide.
+  </p>
+
+  <table class="table table-scopes">
+    <thead><tr><th>Scope</th><th>Autorise</th></tr></thead>
+    <tbody>
+      {% for scope in scopes %}
+      <tr{% if scope.is_admin %} class="row-admin"{% endif %}>
+        <td><code>{{ scope.name }}</code></td>
+        <td>{{ scope.description }}{% if scope.is_admin %} <span class="badge">réservé SI interne</span>{% endif %}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <p class="note note-warn">
+    <strong><code>admin:*</code> satisfait n'importe quelle vérification de scope.</strong>
+    Il est réservé aux intégrations internes du client (ERP maison) et n'est jamais
+    accordé à un partenaire externe.
+  </p>
+
+  <h3>Endpoints exposés</h3>
+  <p>
+    Seuls les domaines ci-dessous sont ouverts aux clés API en V1. Les endpoints
+    d'administration, d'authentification et de synchronisation hors ligne de
+    l'application contrôleur ne sont pas accessibles par clé, quels que soient les
+    scopes portés.
+  </p>
+  <table class="table">
+    <thead><tr><th>Ressource</th><th>Scope lecture</th><th>Scope écriture</th></tr></thead>
+    <tbody>
+      <tr><td><code>/api/v1/voyage/routes/</code></td><td><code>voyage:read</code></td><td><code>voyage:write</code></td></tr>
+      <tr><td><code>/api/v1/voyage/schedules/</code></td><td><code>voyage:read</code></td><td><code>voyage:write</code></td></tr>
+      <tr><td><code>/api/v1/voyage/trips/</code></td><td><code>voyage:read</code></td><td><code>voyage:write</code></td></tr>
+      <tr><td><code>/api/v1/voyage/reservations/</code></td><td><code>voyage:read</code></td><td><code>voyage:write</code></td></tr>
+      <tr><td><code>/api/v1/colis/orders/</code></td><td><code>colis:read</code></td><td><code>colis:write</code></td></tr>
+      <tr><td><code>/api/v1/colis/parcels/</code></td><td><code>colis:read</code></td><td>—  <span class="muted">lecture seule</span></td></tr>
+      <tr><td><code>/api/v1/tracking/positions/</code></td><td><code>tracking:read</code></td><td><code>tracking:write</code></td></tr>
+      <tr><td><code>/api/v1/billing/invoices/</code></td><td><code>billing:read</code></td><td><code>billing:write</code></td></tr>
+    </tbody>
+  </table>
+</section>

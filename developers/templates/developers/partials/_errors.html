@@ -1,0 +1,75 @@
+<section id="errors" class="section">
+  <h2>Gestion des erreurs</h2>
+  <p>
+    Toute erreur renvoie un corps JSON. Deux formes seulement, selon qu'il s'agit
+    d'une erreur générale ou d'une validation de champs.
+  </p>
+
+  <div class="two-col">
+    <div class="code" data-lang="json">
+      <div class="code-head"><span>Erreur générale</span><button class="copy" type="button">Copier</button></div>
+<pre><code>{
+  "detail": "Cette clé API n'a pas le scope requis pour cet endpoint.",
+  "status_code": 403
+}</code></pre>
+    </div>
+    <div class="code" data-lang="json">
+      <div class="code-head"><span>Erreur de validation</span><button class="copy" type="button">Copier</button></div>
+<pre><code>{
+  "seat_label": ["Ce siège est déjà réservé pour ce voyage."],
+  "amount_xof": ["Assurez-vous que cette valeur est supérieure ou égale à 1."],
+  "status_code": 400
+}</code></pre>
+    </div>
+  </div>
+
+  <p>
+    Une erreur de validation est indexée par nom de champ, la valeur étant une liste
+    de messages. Le champ <code>status_code</code> reprend le statut HTTP, pour les
+    clients qui ne le lisent pas facilement.
+  </p>
+
+  <table class="table">
+    <thead><tr><th>Code</th><th>Signification</th><th>Que faire</th></tr></thead>
+    <tbody>
+      <tr>
+        <td><code class="ok">200</code></td><td>Succès</td>
+        <td>—</td>
+      </tr>
+      <tr>
+        <td><code class="ok">201</code></td><td>Ressource créée</td>
+        <td>Le corps contient la ressource, avec son <code>id</code>.</td>
+      </tr>
+      <tr>
+        <td><code class="warn">400</code></td><td>Requête invalide</td>
+        <td>Corrigez les champs listés. Ne réessayez pas à l'identique.</td>
+      </tr>
+      <tr>
+        <td><code class="warn">401</code></td><td>Authentification absente ou invalide</td>
+        <td>Vérifiez l'en-tête <code>X-API-Key</code> et que la clé n'est ni expirée ni révoquée.</td>
+      </tr>
+      <tr>
+        <td><code class="warn">403</code></td><td>Authentifié mais non autorisé</td>
+        <td>Scope manquant. Demandez son ajout à votre contact TOUPAC.</td>
+      </tr>
+      <tr>
+        <td><code class="warn">404</code></td><td>Ressource inexistante</td>
+        <td>
+          Vérifiez l'identifiant. Une ressource d'une autre compagnie répond aussi
+          <code>404</code> : nous ne révélons pas son existence.
+        </td>
+      </tr>
+      <tr>
+        <td><code class="warn">429</code></td><td>Quota dépassé</td>
+        <td>Attendez la durée de <code>Retry-After</code>. Voir <a href="#rate-limits">Quotas</a>.</td>
+      </tr>
+      <tr>
+        <td><code class="err">500</code></td><td>Erreur serveur</td>
+        <td>
+          Réessayez avec un back-off. Si cela persiste, écrivez-nous avec l'horodatage
+          et le chemin appelé.
+        </td>
+      </tr>
+    </tbody>
+  </table>
+</section>

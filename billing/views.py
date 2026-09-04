@@ -5,6 +5,9 @@ from rest_framework import serializers, status, viewsets
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from iam.permissions import ApiScopedViewSetMixin
+from iam.throttles import ApiKeyAdminRateThrottle, ApiKeyRateThrottle
+
 from .models import Invoice, Payment, PriceList
 from .serializers import (
     InvoiceDetailSerializer,
@@ -14,6 +17,8 @@ from .serializers import (
     PricingCalculateSerializer,
 )
 from .services import PricingEngine
+
+API_KEY_THROTTLES = [ApiKeyAdminRateThrottle, ApiKeyRateThrottle]
 
 _TAG = extend_schema(tags=["Billing"])
 _CRUD_TAGS = {
@@ -33,7 +38,9 @@ class PriceListViewSet(viewsets.ModelViewSet):
 
 
 @extend_schema_view(**_CRUD_TAGS)
-class InvoiceViewSet(viewsets.ModelViewSet):
+class InvoiceViewSet(ApiScopedViewSetMixin, viewsets.ModelViewSet):
+    api_scope_domain = "billing"
+    throttle_classes = API_KEY_THROTTLES
     queryset = Invoice.objects.none()
     filterset_fields = ["status"]
     search_fields = ["invoice_number", "customer_name"]

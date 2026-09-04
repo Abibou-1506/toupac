@@ -1,0 +1,75 @@
+{% load static %}<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>API TOUPAC — Documentation développeur</title>
+  <meta name="description" content="Documentation d'intégration de l'API TOUPAC : authentification par clé, scopes, quotas et exemples de code.">
+  <link rel="stylesheet" href="{% static 'developers/css/portal.css' %}">
+</head>
+<body>
+
+<a class="skip-link" href="#content">Aller au contenu</a>
+
+<header class="topbar">
+  <div class="topbar-inner">
+    <a class="brand" href="#top">
+      <span class="brand-mark">T</span>
+      <span class="brand-text">TOUPAC <span class="brand-sub">API</span></span>
+    </a>
+    <nav class="topbar-links">
+      <a href="/api/docs/">Référence Swagger</a>
+      <a href="#contact">Support</a>
+    </nav>
+  </div>
+</header>
+
+<div class="layout" id="top">
+
+  <aside class="sidebar">
+    <nav aria-label="Sommaire">
+      <p class="sidebar-title">Démarrer</p>
+      <ul>
+        <li><a href="#introduction">Introduction</a></li>
+        <li><a href="#quickstart">Quick start</a></li>
+        <li><a href="#auth">Authentification</a></li>
+      </ul>
+      <p class="sidebar-title">Référence</p>
+      <ul>
+        <li><a href="#scopes">Scopes</a></li>
+        <li><a href="#rate-limits">Quotas</a></li>
+        <li><a href="#errors">Erreurs</a></li>
+        <li><a href="#pagination">Pagination</a></li>
+        <li><a href="#filters">Filtres &amp; tri</a></li>
+      </ul>
+      <p class="sidebar-title">Aller plus loin</p>
+      <ul>
+        <li><a href="#examples">Exemples de code</a></li>
+        <li><a href="#swagger">Référence complète</a></li>
+        <li><a href="#contact">Contact</a></li>
+      </ul>
+    </nav>
+  </aside>
+
+  <main class="content" id="content">
+    {% include "developers/partials/_intro.html" %}
+    {% include "developers/partials/_quickstart.html" %}
+    {% include "developers/partials/_auth.html" %}
+    {% include "developers/partials/_scopes.html" %}
+    {% include "developers/partials/_rate_limits.html" %}
+    {% include "developers/partials/_errors.html" %}
+    {% include "developers/partials/_pagination.html" %}
+    {% include "developers/partials/_filters.html" %}
+    {% include "developers/partials/_examples.html" %}
+    {% include "developers/partials/_contact.html" %}
+
+    <footer class="foot">
+      <p>TOUPAC — Transport Management System. Documentation à jour au moment du déploiement de cette instance.</p>
+    </footer>
+  </main>
+
+</div>
+
+<script src="{% static 'developers/js/portal.js' %}" defer></script>
+</body>
+</html>

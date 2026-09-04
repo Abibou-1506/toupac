@@ -1,0 +1,37 @@
+<section id="rate-limits" class="section">
+  <h2>Quotas</h2>
+  <p>Le quota se compte par clé, sur une fenêtre glissante d'une heure.</p>
+
+  <table class="table">
+    <thead><tr><th>Type de clé</th><th>Quota</th></tr></thead>
+    <tbody>
+      <tr><td>Clé partenaire (scopes restreints)</td><td><strong>{{ rate_default }} requêtes / heure</strong></td></tr>
+      <tr><td>Clé interne <code>admin:*</code></td><td><strong>{{ rate_admin }} requêtes / heure</strong></td></tr>
+    </tbody>
+  </table>
+
+  <h3>Dépassement</h3>
+  <p>
+    Au-delà du quota, l'API répond <code>429 Too Many Requests</code> avec un en-tête
+    <code>Retry-After</code> indiquant le nombre de secondes à attendre. Respectez-le :
+    réessayer avant terme ne fait que consommer votre fenêtre.
+  </p>
+
+  <div class="code" data-lang="http">
+    <div class="code-head"><span>429 Too Many Requests</span><button class="copy" type="button">Copier</button></div>
+<pre><code>HTTP/1.1 429 Too Many Requests
+Retry-After: 3412
+Content-Type: application/json
+
+{
+  "detail": "Requête ralentie. Disponible à nouveau dans 3412 secondes.",
+  "status_code": 429
+}</code></pre>
+  </div>
+
+  <p class="note">
+    Un back-off exponentiel côté client, plafonné à la valeur de
+    <code>Retry-After</code>, est la stratégie recommandée. Si votre volume légitime
+    dépasse durablement le quota, parlons-en plutôt que de multiplier les clés.
+  </p>
+</section>

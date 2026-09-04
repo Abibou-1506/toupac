@@ -1,0 +1,37 @@
+<section id="pagination" class="section">
+  <h2>Pagination</h2>
+  <p>
+    Toutes les listes sont paginées. La réponse porte quatre clés : le total, les URLs
+    de page suivante et précédente (<code>null</code> aux extrémités), et les éléments.
+  </p>
+
+  <div class="code" data-lang="json">
+    <div class="code-head"><span>Réponse paginée</span><button class="copy" type="button">Copier</button></div>
+<pre><code>{
+  "count": 128,
+  "next": "{{ api_base_url }}/api/v1/voyage/trips/?page=3",
+  "previous": "{{ api_base_url }}/api/v1/voyage/trips/?page=1",
+  "results": [ ... ]
+}</code></pre>
+  </div>
+
+  <table class="table">
+    <thead><tr><th>Paramètre</th><th>Défaut</th><th>Maximum</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td><code>page</code></td><td><code>1</code></td><td>—</td><td>Numéro de page, à partir de 1.</td></tr>
+      <tr><td><code>page_size</code></td><td><code>25</code></td><td><code>100</code></td><td>Éléments par page. Au-delà de 100, la valeur est ramenée à 100.</td></tr>
+    </tbody>
+  </table>
+
+  <p class="note">
+    Pour parcourir un jeu complet, suivez <code>next</code> jusqu'à <code>null</code>
+    plutôt que d'incrémenter <code>page</code> vous-même : vous éviterez de sauter
+    des éléments si le jeu évolue pendant le parcours.
+  </p>
+
+  <div class="code" data-lang="bash">
+    <div class="code-head"><span>Deuxième page, 50 par page</span><button class="copy" type="button">Copier</button></div>
+<pre><code>curl "{{ api_base_url }}/api/v1/voyage/trips/?page=2&page_size=50" \
+  -H "X-API-Key: PREFIX.SECRET"</code></pre>
+  </div>
+</section>

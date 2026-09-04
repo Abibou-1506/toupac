@@ -8,6 +8,9 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from iam.permissions import ApiScopedViewSetMixin
+from iam.throttles import ApiKeyAdminRateThrottle, ApiKeyRateThrottle
+
 from .models import DeliveryTask, Order, Parcel, ProofOfDelivery
 from .serializers import (
     DeliveryTaskSerializer,
@@ -22,6 +25,8 @@ from .serializers import (
 )
 from .services import DispatchService, InternalIdGenerator, TrackingNumberGenerator
 
+API_KEY_THROTTLES = [ApiKeyAdminRateThrottle, ApiKeyRateThrottle]
+
 _TAG = extend_schema(tags=["Colis"])
 _CRUD_TAGS = {
     "list": _TAG, "retrieve": _TAG, "create": _TAG,
@@ -30,7 +35,9 @@ _CRUD_TAGS = {
 
 
 @extend_schema_view(**_CRUD_TAGS, add_parcel=_TAG)
-class OrderViewSet(viewsets.ModelViewSet):
+class OrderViewSet(ApiScopedViewSetMixin, viewsets.ModelViewSet):
+    api_scope_domain = "colis"
+    throttle_classes = API_KEY_THROTTLES
     queryset = Order.objects.none()
     filterset_fields = ["status", "priority", "payment_status"]
     search_fields = ["internal_id", "customer_name", "customer_phone"]
@@ -74,7 +81,9 @@ class OrderViewSet(viewsets.ModelViewSet):
 
 
 @extend_schema_view(list=_TAG, retrieve=_TAG)
-class ParcelViewSet(viewsets.ReadOnlyModelViewSet):
+class ParcelViewSet(ApiScopedViewSetMixin, viewsets.ReadOnlyModelViewSet):
+    api_scope_domain = "colis"
+    throttle_classes = API_KEY_THROTTLES
     serializer_class = ParcelSerializer
     queryset = Parcel.objects.none()
     search_fields = ["tracking_number", "description"]
