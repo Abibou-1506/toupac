@@ -1,0 +1,70 @@
+{% extends "admin/base_site.html" %}
+{# Étend base_site : le CSS unfold est chargé par le layout parent, on ne
+   dépend d'aucun template interne unfold, qui pourrait bouger de version. #}
+
+{% block content %}
+<div id="api-credential-reveal" style="max-width: 780px;">
+
+  <div style="border: 2px solid #c1272d; border-radius: 8px; padding: 20px 24px; margin-bottom: 22px;">
+    <h2 style="margin: 0 0 8px; font-size: 18px; color: #c1272d;">
+      Copiez ce secret maintenant
+    </h2>
+    <p style="margin: 0 0 4px;">
+      C'est le seul moment où il est lisible. Il n'est pas stocké en clair :
+      recharger cette page ne le réaffichera pas, et personne — pas même un
+      administrateur TOUPAC — ne peut le retrouver ensuite.
+    </p>
+    <p style="margin: 0;">
+      Perdu, il faut émettre une nouvelle clé et révoquer celle-ci.
+    </p>
+  </div>
+
+  <h3 style="margin: 0 0 6px; font-size: 14px;">Clé complète</h3>
+  <pre id="api-credential-secret"
+       style="background: #1c2128; color: #d6dde5; padding: 16px; border-radius: 8px;
+              overflow-x: auto; user-select: all; font-size: 13.5px; margin: 0 0 6px;"
+  >{{ secret }}</pre>
+  <p style="margin: 0 0 24px; font-size: 13px; color: #6b7280;">
+    À transmettre au partenaire dans l'en-tête <code>X-API-Key</code>. Stockage en
+    variable d'environnement ou gestionnaire de secrets — jamais dans un dépôt.
+  </p>
+
+  <h3 style="margin: 0 0 6px; font-size: 14px;">Récapitulatif</h3>
+  <table style="border-collapse: collapse; width: 100%; margin-bottom: 24px;">
+    <tbody>
+      <tr>
+        <th style="text-align: left; padding: 7px 12px 7px 0; width: 190px;">Nom</th>
+        <td style="padding: 7px 0;">{{ credential.name }}</td>
+      </tr>
+      <tr>
+        <th style="text-align: left; padding: 7px 12px 7px 0;">Compagnie</th>
+        <td style="padding: 7px 0;">{{ credential.tenant }}</td>
+      </tr>
+      <tr>
+        <th style="text-align: left; padding: 7px 12px 7px 0;">Préfixe</th>
+        <td style="padding: 7px 0;"><code>{{ credential.key_prefix }}</code></td>
+      </tr>
+      <tr>
+        <th style="text-align: left; padding: 7px 12px 7px 0;">Porteur</th>
+        <td style="padding: 7px 0;">{{ credential.user|default:"—" }}</td>
+      </tr>
+      <tr>
+        <th style="text-align: left; padding: 7px 12px 7px 0;">Expiration</th>
+        <td style="padding: 7px 0;">{{ credential.expires_at|default:"Sans expiration" }}</td>
+      </tr>
+      <tr>
+        <th style="text-align: left; padding: 7px 12px 7px 0; vertical-align: top;">Scopes</th>
+        <td style="padding: 7px 0;">
+          {% for scope in credential.scopes %}<code>{{ scope }}</code>{% if not forloop.last %} {% endif %}{% empty %}—{% endfor %}
+        </td>
+      </tr>
+    </tbody>
+  </table>
+
+  <p>
+    <a href="{{ change_url }}" class="button">Voir la clé</a>
+    <a href="{{ changelist_url }}" style="margin-left: 10px;">Retour à la liste</a>
+  </p>
+
+</div>
+{% endblock %}

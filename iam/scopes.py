@@ -51,3 +51,8 @@ def scope_for_action(domain, action):
 def validate_scopes(scopes):
     """Retourne la liste des scopes inconnus parmi ceux fournis."""
     return [scope for scope in scopes or [] if scope not in AVAILABLE_SCOPES]
+
+
+def get_scope_choices():
+    """Choix pour un champ de formulaire — même source que le portail développeur."""
+    return [(name, f"{name} — {description}") for name, description in AVAILABLE_SCOPES.items()]
