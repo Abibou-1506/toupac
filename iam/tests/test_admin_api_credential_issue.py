@@ -8,10 +8,12 @@ part ailleurs (base, journal d'audit, seconde lecture).
 import json
 
 import pytest
-from django.contrib.auth.models import Permission
+from django.contrib.auth.models import Group, Permission
+from django.core.management import call_command
 from django.test import Client
 from django.urls import reverse
 
+from core.management.commands.seed_demo import STAFF_GROUP
 from iam.models import ApiCredential, AuditLog, User
 from iam.scopes import AVAILABLE_SCOPES
 
@@ -193,6 +195,77 @@ def test_issued_key_actually_authenticates(superadmin, tenant_a, user_admin_a):
     api.credentials(HTTP_X_API_KEY=secret)
 
     assert api.get("/api/v1/voyage/routes/").status_code == 200
+
+
+def test_admin_scope_forbidden_for_tenant_admin(user_admin_a, tenant_a):
+    """
+    `admin:*` est réservé aux intégrations internes TOUPAC.
+
+    Aucune compagnie cliente n'a de cas d'usage légitime : le refus est
+    catégorique pour tout émetteur non superadmin.
+    """
+    before = ApiCredential.objects.count()
+
+    response = create_credential(
+        admin_client(user_admin_a), tenant_a, user_admin_a,
+        name="Clé tout-puissante", scopes=("admin:*",),
+    )
+
+    assert response.status_code == 200  # formulaire réaffiché, pas de redirection
+    body = response.content.decode()
+    assert "admin:*" in body
+    assert "intégrations internes TOUPAC" in body
+    assert ApiCredential.objects.count() == before
+
+
+def test_admin_scope_allowed_for_superadmin(superadmin, tenant_a, user_admin_a):
+    response = create_credential(
+        admin_client(superadmin), tenant_a, user_admin_a,
+        name="Outillage interne", scopes=("admin:*",),
+    )
+
+    assert response.status_code == 302
+    credential = ApiCredential.objects.get(name="Outillage interne")
+    assert credential.scopes == ["admin:*"]
+    assert response["Location"] == reveal_url(credential)
+
+
+def test_credential_without_bearer_passes_model_validation(tenant_a):
+    """
+    `blank=True` aligne le modèle sur la base : SET_NULL peut laisser une clé
+    sans porteur, `full_clean()` ne doit donc pas l'interdire. La contrainte
+    « porteur obligatoire » vit dans le formulaire et l'authentificateur.
+    """
+    credential = ApiCredential(
+        tenant=tenant_a, name="Clé orpheline", key_prefix="tpc_xxxx",
+        key_hash="x", scopes=["voyage:read"],
+    )
+
+    credential.full_clean(exclude=["key_hash"])  # ne lève pas
+
+
+def test_seed_demo_staff_group_has_apicredential_permissions():
+    """
+    Sans ces permissions, un admin de compagnie reçoit un 403 sur
+    /admin/iam/apicredential/ — la démo lead était impossible sur son compte.
+
+    `--only` plutôt qu'un seed complet : celui-ci signe 428 QR en RS256 et
+    prendrait près d'une minute pour une vérification qui ne touche qu'au
+    groupe de permissions.
+    """
+    call_command("seed_demo", only="tenants", quiet=True)
+    call_command("seed_demo", only="users", quiet=True)
+
+    group = Group.objects.get(name=STAFF_GROUP)
+    codenames = set(group.permissions.values_list("codename", flat=True))
+
+    assert {
+        "add_apicredential", "change_apicredential",
+        "view_apicredential", "delete_apicredential",
+    } <= codenames
+    # L'ouverture reste chirurgicale : pas de gestion d'utilisateurs.
+    assert "add_user" not in codenames
+    assert "change_user" not in codenames
 
 
 def test_reveal_url_rejects_after_5_minutes(superadmin, tenant_a, user_admin_a):

@@ -97,6 +97,32 @@ _Aucune dette sécurité identifiée à date._
 
 ---
 
+## Fonctionnel — À venir
+
+### Self-service user management pour admins de compagnie
+
+Habilite les admins de compagnie à créer/modifier/désactiver leurs propres 
+utilisateurs (dispatchers, agents, contrôleurs, chauffeurs) depuis l'admin 
+Django, sans risque d'escalade de privilèges. **Prérequis prod** : sans cette 
+capacité, TOUPAC devient goulot d'étranglement à chaque embauche client.
+
+Portée technique :
+- Ajouter `add_user`, `change_user`, `view_user` au groupe staff dans 
+  `seed_demo.STAFF_GROUP_APPS` (ou via ajout ciblé équivalent au pattern 
+  des `*_apicredential`).
+- Durcir `UserAdmin` contre l'escalade : restreindre les choix de `role` 
+  (jamais `SUPERADMIN`, à trancher pour `ADMIN`), masquer/readonly 
+  `is_superuser`, contrôler `is_staff`, restreindre le choix de `groups` 
+  aux groupes auxquels l'émetteur appartient déjà, empêcher l'ajout direct 
+  de `user_permissions`.
+- Choix workflow : mot de passe défini par l'admin vs email d'invitation 
+  avec lien de définition. Second plus safe (le password ne transite par 
+  personne).
+
+À planifier après la refonte notifications.
+
+---
+
 ## Tests / perf
 
 - [ ] **Perf tests : envisager pytest-xdist + fixtures scope='session'**
@@ -107,3 +133,18 @@ _Aucune dette sécurité identifiée à date._
         session.
       → Effort : ~1h une fois le seuil atteint
       → Ref : conversation 2 sept 2026
+
+- [ ] **PBKDF2 sur ApiCredential.key_hash → basculer sur HMAC-SHA-256**
+      → État : hash lent (adapté aux passwords humains) utilisé sur des 
+        secrets API 256-bit d'entropie CSPRNG. Coût CPU inutile à chaque 
+        requête authentifiée.
+      → Fix : passer sur hashlib.sha256(secret.encode()).hexdigest() OU 
+        HMAC-SHA-256 avec un pepper serveur. Migration : recréer les 
+        clés existantes (ou support double-hash transitoire).
+      → Depuis le ticket admin (5 sept 2026), chaque création de clé depuis 
+        Django Admin passe aussi par `make_password()` (≈250 ms/appel). À 
+        prendre en compte quand un partenaire s'onboarde avec plusieurs 
+        clés d'un coup.
+      → À déclencher : si latence auth API key devient visible en prod 
+        (~5ms+ observé), ou si l'équipe chatbot IA se plaint de latence.
+      → Effort : ~2h + coordination migration clés

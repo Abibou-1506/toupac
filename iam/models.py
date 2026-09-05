@@ -127,7 +127,13 @@ class User(AbstractBaseUser, PermissionsMixin, TimestampMixin, SoftDeleteMixin):
 class ApiCredential(TimestampMixin, models.Model):
     id = UUIDv7Field()
     tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name="api_credentials")
-    user = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, related_name="api_credentials")
+    # null : la clé survit à la suppression de son porteur (SET_NULL).
+    # blank : full_clean() ne doit pas exiger un porteur que la DB accepte
+    # d'omettre — la contrainte « porteur obligatoire à l'émission » est
+    # portée par ApiCredentialCreateForm et par ApiKeyAuthentication.
+    user = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, blank=True, related_name="api_credentials",
+    )
     name = models.CharField("Nom", max_length=100)
     key_prefix = models.CharField("Préfixe clé", max_length=12)
     key_hash = models.CharField("Hash clé", max_length=255)

@@ -500,6 +500,19 @@ class Command(BaseCommand):
         ).exclude(codename__startswith="delete_")
         group.permissions.set(permissions)
 
+        # `iam` reste hors de STAFF_GROUP_APPS : y donner accès en bloc
+        # ouvrirait `add_user`, donc la création d'un superadmin fantôme par un
+        # admin de compagnie. On n'ouvre ici que les clés API, dont la gestion
+        # est légitimement du ressort du client (delete inclus : révoquer sa
+        # propre clé compromise ne doit pas passer par le support TOUPAC).
+        group.permissions.add(*Permission.objects.filter(
+            content_type__app_label="iam",
+            codename__in=[
+                "add_apicredential", "change_apicredential",
+                "view_apicredential", "delete_apicredential",
+            ],
+        ))
+
         staff = User.objects.filter(tenant__slug__in=[t["slug"] for t in TENANTS], is_staff=True)
         for user in staff:
             user.groups.add(group)

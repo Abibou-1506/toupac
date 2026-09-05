@@ -7,8 +7,12 @@ l'action est `read` ou `write` — `write` n'implique pas `read`, une clé qui
 doit lire et écrire porte les deux.
 
 `admin:*` est un super-scope : il satisfait n'importe quelle vérification.
-Réservé aux intégrations SI internes du client (ERP maison) ; il ne doit
-jamais être accordé à un partenaire externe comme le chatbot.
+Réservé aux intégrations internes TOUPAC (outillage superadmin, adaptateurs
+Toupac CRM maintenus par TOUPAC, services internes futurs). Un tenant qui
+doit donner des droits étendus à un partenaire externe (chatbot Toupac BI,
+intégrations tierces) compose une combinaison de scopes explicites — jamais
+`admin:*`. Le formulaire admin refuse `admin:*` pour tout émetteur qui n'est
+pas superadmin TOUPAC.
 """
 
 ADMIN_SCOPE = "admin:*"

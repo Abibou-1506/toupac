@@ -68,9 +68,16 @@ class ApiCredentialAdmin(TenantAdminMixin, ModelAdmin):
     REVEAL_TTL_SECONDS = 300
 
     def get_form(self, request, obj=None, **kwargs):
-        if obj is None:
-            kwargs["form"] = ApiCredentialCreateForm
-        return super().get_form(request, obj, **kwargs)
+        if obj is not None:
+            return super().get_form(request, obj, **kwargs)
+
+        kwargs["form"] = ApiCredentialCreateForm
+        form_class = super().get_form(request, obj, **kwargs)
+        # Sous-classe dynamique plutôt que functools.partial : Django lit
+        # `form_class.base_fields` dans get_fields(), attribut qu'un partial
+        # n'expose pas. Le formulaire y lit qui émet la clé, pour refuser
+        # `admin:*` à un non-superadmin.
+        return type(form_class.__name__, (form_class,), {"_request": request})
 
     def get_readonly_fields(self, request, obj=None):
         # Seulement en édition : sur le formulaire de création, ces champs
