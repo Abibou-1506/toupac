@@ -17,7 +17,7 @@
       {% for scope in scopes %}
       <tr{% if scope.is_admin %} class="row-admin"{% endif %}>
         <td><code>{{ scope.name }}</code></td>
-        <td>{{ scope.description }}{% if scope.is_admin %} <span class="badge">réservé SI interne</span>{% endif %}</td>
+        <td>{{ scope.description }}{% if scope.is_admin %} <span class="badge">réservé TOUPAC interne</span>{% endif %}</td>
       </tr>
       {% endfor %}
     </tbody>
@@ -25,8 +25,9 @@
 
   <p class="note note-warn">
     <strong><code>admin:*</code> satisfait n'importe quelle vérification de scope.</strong>
-    Il est réservé aux intégrations internes du client (ERP maison) et n'est jamais
-    accordé à un partenaire externe.
+    Il est réservé aux intégrations internes TOUPAC (outillage superadmin, adaptateurs
+    Toupac CRM). Un tenant qui doit donner des droits étendus à un partenaire externe
+    compose une combinaison de scopes explicites — jamais <code>admin:*</code>.
   </p>
 
   <h3>Endpoints exposés</h3>
