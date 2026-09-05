@@ -21,8 +21,8 @@ class DeveloperPortalView(TemplateView):
             {"name": name, "description": description, "is_admin": name == ADMIN_SCOPE}
             for name, description in AVAILABLE_SCOPES.items()
         ]
-        context["api_base_url"] = "https://api.toupac.example"
-        context["support_email"] = "dev-api@toupac.example"
+        context["api_base_url"] = "https://api.toupac.com"
+        context["support_email"] = "contact@toupac.com"
         context["rate_default"] = "1 000"
         context["rate_admin"] = "10 000"
         return context

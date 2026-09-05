@@ -312,6 +312,14 @@ UNFOLD = {
                 ],
             },
             {
+                "title": "API & Intégrations",
+                "icon": "key",
+                "items": [
+                    {"title": "Clés API", "link": "/admin/iam/apicredential/"},
+                    {"title": "Journal d'audit", "link": "/admin/iam/auditlog/"},
+                ],
+            },
+            {
                 "title": "Flotte",
                 "icon": "directions_bus",
                 "items": [
