@@ -46,12 +46,17 @@ def superadmin():
     )
 
 
-def create_credential(client, tenant, bearer, name="Clé chatbot BI", scopes=("voyage:read",)):
-    """POST le formulaire d'ajout. Retourne la réponse (302 attendu)."""
+def create_credential(client, tenant, bearer=None, name="Clé chatbot BI", scopes=("voyage:read",)):
+    """
+    POST le formulaire d'ajout. Retourne la réponse (302 attendu).
+
+    `bearer` est conservé pour la compatibilité des appels existants mais n'est
+    plus transmis : le porteur est le compte de service du tenant, posé par
+    l'admin, plus un humain choisi dans un dropdown.
+    """
     return client.post(ADD_URL, {
         "name": name,
         "tenant": str(tenant.pk),
-        "user": str(bearer.pk),
         "scopes": list(scopes),
         "expires_at_0": "",
         "expires_at_1": "",
@@ -158,29 +163,33 @@ def test_tenant_admin_cannot_forge_tenant_field(user_admin_a, tenant_a, tenant_b
     assert credential.tenant_id == tenant_a.id
 
 
-def test_credential_without_bearer_is_refused(superadmin, tenant_a):
-    """
-    ApiKeyAuthentication rejette une clé orpheline : sans ce garde-fou, le
-    formulaire produisait des clés créées sans erreur puis 401 à l'usage.
-    """
-    response = admin_client(superadmin).post(ADD_URL, {
-        "name": "Clé sans porteur", "tenant": str(tenant_a.pk),
-        "scopes": ["voyage:read"], "expires_at_0": "", "expires_at_1": "",
-    })
+def test_add_form_no_longer_has_user_field(superadmin):
+    """Le porteur n'est plus un choix : c'est le compte de service du tenant."""
+    body = admin_client(superadmin).get(ADD_URL).content.decode()
 
-    assert response.status_code == 200  # formulaire réaffiché
-    assert not ApiCredential.objects.filter(name="Clé sans porteur").exists()
+    assert 'name="user"' not in body
+    assert 'name="scopes"' in body  # le reste du formulaire est intact
 
 
-def test_bearer_from_another_tenant_is_refused(superadmin, tenant_a, user_admin_b):
-    """Un porteur d'une autre compagnie ferait diverger request.user.tenant du tenant de la clé."""
-    response = create_credential(
-        admin_client(superadmin), tenant_a, user_admin_b, name="Clé porteur croisé",
-    )
+def test_issued_credential_points_to_service_account(superadmin, tenant_a):
+    create_credential(admin_client(superadmin), tenant_a, name="Clé service")
 
-    assert response.status_code == 200
-    assert "autre compagnie" in response.content.decode()
-    assert not ApiCredential.objects.filter(name="Clé porteur croisé").exists()
+    credential = ApiCredential.objects.get(name="Clé service")
+
+    assert credential.user is not None
+    assert credential.user.role == User.Role.SERVICE_ACCOUNT
+    assert credential.user.email == f"api-bot@{tenant_a.slug}.internal"
+
+
+def test_service_account_is_recreated_if_deleted(superadmin, tenant_a):
+    """Auto-guérison : supprimer le bot ne bloque pas l'émission suivante."""
+    User.objects.filter(email=f"api-bot@{tenant_a.slug}.internal").delete()
+
+    response = create_credential(admin_client(superadmin), tenant_a, name="Clé après purge")
+
+    assert response.status_code == 302
+    credential = ApiCredential.objects.get(name="Clé après purge")
+    assert credential.user.email == f"api-bot@{tenant_a.slug}.internal"
 
 
 def test_issued_key_actually_authenticates(superadmin, tenant_a, user_admin_a):

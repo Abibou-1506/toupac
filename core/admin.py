@@ -145,7 +145,10 @@ class TenantAdminMixin:
         # ne demande à un admin de compagnie de désigner un salarié TOUPAC, et
         # les lister exposerait leurs noms — on les exclut.
         if related is User:
-            return queryset.filter(tenant=tenant)
+            # Les comptes de service (porteurs techniques des clés API) sont
+            # exclus au même titre : aucun flux ne demande de désigner un bot
+            # comme chauffeur, contrôleur ou créateur.
+            return queryset.filter(tenant=tenant).exclude(role=User.Role.SERVICE_ACCOUNT)
 
         if field.null:
             # Objet partagé : il doit rester sélectionnable, sinon on ne peut

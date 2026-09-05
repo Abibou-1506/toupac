@@ -46,6 +46,19 @@ class UserAdmin(TenantAdminMixin, BaseUserAdmin, ModelAdmin):
         }),
     )
 
+    def get_queryset(self, request):
+        """
+        Masque les comptes de service aux admins de compagnie.
+
+        Un porteur technique de clés API n'est pas un utilisateur à
+        administrer : le lister n'apporterait qu'une ligne incompréhensible
+        dans la liste du personnel. Le superadmin le voit, pour diagnostic.
+        """
+        queryset = super().get_queryset(request)
+        if self._is_superadmin(request.user):
+            return queryset
+        return queryset.exclude(role=User.Role.SERVICE_ACCOUNT)
+
 
 @admin.register(ApiCredential)
 class ApiCredentialAdmin(TenantAdminMixin, ModelAdmin):
@@ -104,7 +117,9 @@ class ApiCredentialAdmin(TenantAdminMixin, ModelAdmin):
             tenant=tenant,
             name=form.cleaned_data["name"],
             scopes=form.cleaned_data["scopes"],
-            user=form.cleaned_data.get("user"),
+            # Porteur systématique : le compte de service du tenant. Appel
+            # get_or_create, donc auto-guérison si quelqu'un l'a supprimé.
+            user=tenant.get_or_create_service_account(),
             expires_at=form.cleaned_data.get("expires_at"),
         )
 

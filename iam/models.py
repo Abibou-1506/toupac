@@ -48,6 +48,36 @@ class Tenant(TimestampMixin, models.Model):
     def __str__(self):
         return self.name
 
+    @property
+    def service_account_email(self):
+        # `.internal` est un TLD réservé (ICANN, 2024) : non routable, aucune
+        # adresse n'y reçoit de courrier. Marqueur non ambigu de compte technique.
+        return f"api-bot@{self.slug}.internal"
+
+    def get_or_create_service_account(self):
+        """
+        Compte technique portant les clés API du tenant. Idempotent.
+
+        Une clé ne doit pas dépendre d'un salarié : désactiver l'humain porteur
+        rendait toutes ses clés orphelines, donc 401. Ce compte ne peut pas
+        s'authentifier (mot de passe inutilisable) ni entrer dans le
+        back-office ; il n'existe que pour satisfaire `IsAuthenticated` et les
+        FK `created_by` en aval des écritures faites par API.
+        """
+        service_account = User.objects.filter(email=self.service_account_email).first()
+        if service_account is not None:
+            return service_account
+
+        service_account = User(
+            email=self.service_account_email,
+            first_name="API", last_name="Bot",
+            tenant=self, role=User.Role.SERVICE_ACCOUNT,
+            is_active=True, is_staff=False, is_superuser=False,
+        )
+        service_account.set_unusable_password()
+        service_account.save()
+        return service_account
+
 
 # ─── User ───
 
@@ -81,6 +111,7 @@ class User(AbstractBaseUser, PermissionsMixin, TimestampMixin, SoftDeleteMixin):
         DRIVER = "driver", "Chauffeur"
         CONTROLLER = "controller", "Contrôleur"
         CLIENT = "client", "Client"
+        SERVICE_ACCOUNT = "service_account", "Compte de service"
 
     id = UUIDv7Field()
     tenant = models.ForeignKey(

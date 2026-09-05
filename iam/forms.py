@@ -35,22 +35,15 @@ class ApiCredentialCreateForm(forms.ModelForm):
 
     class Meta:
         model = ApiCredential
-        fields = ["name", "tenant", "user", "scopes", "expires_at"]
+        # Pas de `user` : le porteur est le compte de service du tenant, posé
+        # par l'admin. Demander à l'opérateur de désigner un humain n'avait pas
+        # de sens produit et rendait la clé tributaire de sa présence.
+        fields = ["name", "tenant", "scopes", "expires_at"]
 
     def __init__(self, *args, request=None, **kwargs):
         super().__init__(*args, **kwargs)
         if request is not None:
             self._request = request
-        # Le porteur reste obligatoire, bien que le modèle l'autorise à null :
-        # ApiKeyAuthentication refuse une clé orpheline (il lui faut un
-        # request.user pour IsAuthenticated). Une clé sans porteur serait
-        # créée sans erreur puis rejetée en 401 à chaque appel.
-        if "user" in self.fields:
-            self.fields["user"].required = True
-            self.fields["user"].help_text = (
-                "Utilisateur au nom duquel la clé agit. Obligatoire : une clé sans "
-                "porteur est refusée à l'authentification."
-            )
 
     def clean_scopes(self):
         """
@@ -72,12 +65,3 @@ class ApiCredentialCreateForm(forms.ModelForm):
                 "les scopes correspondant aux opérations attendues."
             )
         return scopes
-
-    def clean(self):
-        cleaned = super().clean()
-        tenant, user = cleaned.get("tenant"), cleaned.get("user")
-        # Un porteur d'un autre tenant ferait diverger request.user.tenant du
-        # tenant que l'authentificateur attache depuis la clé.
-        if tenant and user and user.tenant_id != tenant.id:
-            self.add_error("user", "Ce porteur appartient à une autre compagnie.")
-        return cleaned
