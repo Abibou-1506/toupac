@@ -130,6 +130,12 @@ class User(AbstractBaseUser, PermissionsMixin, TimestampMixin, SoftDeleteMixin):
     is_active = models.BooleanField("Actif", default=True)
     is_staff = models.BooleanField("Staff (accès admin)", default=False)
     last_login_at = models.DateTimeField("Dernière connexion", null=True, blank=True)
+    notification_preferences = models.JSONField(
+        "Préférences de notification", default=dict, blank=True,
+        help_text="Dict de catégories opt-in/opt-out. Ex: {'marketing': False, 'trip_updates': True}. "
+                  "Clé absente = opt-in ; les catégories de notifications.preferences.NEVER_OPT_OUT "
+                  "ignorent la valeur.",
+    )
 
     objects = UserManager()
 
