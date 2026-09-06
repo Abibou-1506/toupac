@@ -5,7 +5,7 @@ from notifications.models import NotificationTemplate
 
 SYSTEM_TEMPLATES = [
     {
-        "event_type": "reservation_confirmed",
+        "event_code": "notif.order.confirmed.v1",
         "channel": NotificationTemplate.Channel.SMS,
         "language": "fr",
         "template_body": (
@@ -14,7 +14,7 @@ SYSTEM_TEMPLATES = [
         ),
     },
     {
-        "event_type": "trip_departure_reminder",
+        "event_code": "notif.trip.reminder.v1",
         "channel": NotificationTemplate.Channel.SMS,
         "language": "fr",
         "template_body": (
@@ -23,7 +23,7 @@ SYSTEM_TEMPLATES = [
         ),
     },
     {
-        "event_type": "delivery_complete",
+        "event_code": "notif.parcel.delivered.v1",
         "channel": NotificationTemplate.Channel.SMS,
         "language": "fr",
         "template_body": (
@@ -32,7 +32,7 @@ SYSTEM_TEMPLATES = [
         ),
     },
     {
-        "event_type": "payment_received",
+        "event_code": "notif.payment.confirmed.v1",
         "channel": NotificationTemplate.Channel.SMS,
         "language": "fr",
         "template_body": (
@@ -51,13 +51,13 @@ class Command(BaseCommand):
         for spec in SYSTEM_TEMPLATES:
             template, created = NotificationTemplate.objects.get_or_create(
                 tenant=None,
-                event_type=spec["event_type"],
+                event_code=spec["event_code"],
                 channel=spec["channel"],
                 language=spec["language"],
                 defaults={"template_body": spec["template_body"]},
             )
             label = "créé" if created else "déjà présent"
-            self.stdout.write(f"  {template.event_type} / {template.channel} / {template.language} — {label}")
+            self.stdout.write(f"  {template.event_code} / {template.channel} / {template.language} — {label}")
             if created:
                 created_count += 1
 

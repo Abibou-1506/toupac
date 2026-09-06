@@ -10,7 +10,7 @@ class NotificationService:
     """Service central d'envoi de notifications."""
 
     @staticmethod
-    def send_notification(tenant, event_type, channel, recipient, context_data, user=None, language="fr"):
+    def send_notification(tenant, event_code, channel, recipient, context_data, user=None, language="fr"):
         """
         1. Cherche le template (tenant-specific, puis système).
         2. Rend le template avec context_data.
@@ -22,7 +22,7 @@ class NotificationService:
         """
         template_obj = (
             NotificationTemplate.objects.filter(
-                event_type=event_type, channel=channel, language=language, is_active=True,
+                event_code=event_code, channel=channel, language=language, is_active=True,
             )
             .filter(Q(tenant=tenant) | Q(tenant__isnull=True))
             .order_by("-tenant_id")  # tenant-specific en priorité sur système
@@ -30,13 +30,30 @@ class NotificationService:
         )
 
         if not template_obj:
-            return None  # Pas de template → pas d'envoi (silencieux)
+            # N-08 traçabilité : la notification cherche un template absent.
+            # On log (status=failed, failure_reason préfixé "no_template:") au
+            # lieu de retourner None en silence — aucune notif ne disparaît, et
+            # l'exploitation détecte les templates manquants sans fouiller les
+            # logs Django : NotificationLog.objects.filter(
+            #   status="failed", failure_reason__startswith="no_template:").
+            return NotificationLog.objects.create(
+                tenant=tenant,
+                user=user,
+                channel=channel,
+                recipient=recipient,
+                event_code=event_code,
+                content="",
+                status=NotificationLog.Status.FAILED,
+                provider="",
+                provider_message_id="",
+                failure_reason=f"no_template:{event_code}/{channel}/{language}",
+            )
 
         django_template = Template(template_obj.template_body)
         rendered = django_template.render(Context(context_data))
         subject_rendered = ""
-        if template_obj.subject:
-            subject_rendered = Template(template_obj.subject).render(Context(context_data))
+        if template_obj.title_template:
+            subject_rendered = Template(template_obj.title_template).render(Context(context_data))
 
         provider = NotificationService._get_provider(channel)
         result = provider.send(recipient=recipient, message=rendered, subject=subject_rendered)
@@ -46,7 +63,7 @@ class NotificationService:
             user=user,
             channel=channel,
             recipient=recipient,
-            event_type=event_type,
+            event_code=event_code,
             content=rendered[:500],  # tronqué
             status="sent" if result.success else "failed",
             provider=provider.__class__.__name__.lower().replace("provider", ""),

@@ -22,7 +22,7 @@ _TAG = extend_schema(tags=["Notifications"])
 class NotificationTemplateViewSet(viewsets.ModelViewSet):
     serializer_class = NotificationTemplateSerializer
     queryset = NotificationTemplate.objects.none()
-    filterset_fields = ["event_type", "channel", "is_active"]
+    filterset_fields = ["event_code", "channel", "is_active"]
 
     def get_queryset(self):
         return NotificationTemplate.objects.filter(
@@ -34,7 +34,7 @@ class NotificationTemplateViewSet(viewsets.ModelViewSet):
 class NotificationLogViewSet(viewsets.ReadOnlyModelViewSet):
     serializer_class = NotificationLogSerializer
     queryset = NotificationLog.objects.none()
-    filterset_fields = ["channel", "event_type", "status"]
+    filterset_fields = ["channel", "event_code", "status"]
     ordering = ["-created_at"]
 
     def get_queryset(self):
@@ -56,7 +56,7 @@ class SendNotificationView(APIView):
 
         send_notification_async.delay(
             tenant_id=str(request.tenant.id),
-            event_type=data["event_type"],
+            event_code=data["event_code"],
             channel=data["channel"],
             recipient=data["recipient"],
             context_data=data["context_data"],

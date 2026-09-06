@@ -5,7 +5,7 @@ from .services import NotificationService
 
 
 @shared_task(bind=True, max_retries=3, default_retry_delay=60)
-def send_notification_async(self, tenant_id, event_type, channel, recipient, context_data, user_id=None, language="fr"):
+def send_notification_async(self, tenant_id, event_code, channel, recipient, context_data, user_id=None, language="fr"):
     """
     Tâche Celery pour envoi asynchrone de notifications.
     Retry 3 fois avec 60s d'intervalle en cas d'échec.
@@ -18,7 +18,7 @@ def send_notification_async(self, tenant_id, event_type, channel, recipient, con
     try:
         NotificationService.send_notification(
             tenant=tenant,
-            event_type=event_type,
+            event_code=event_code,
             channel=channel,
             recipient=recipient,
             context_data=context_data,
@@ -30,7 +30,7 @@ def send_notification_async(self, tenant_id, event_type, channel, recipient, con
 
 
 @shared_task
-def send_bulk_notifications(tenant_id, event_type, channel, recipients_data, language="fr"):
+def send_bulk_notifications(tenant_id, event_code, channel, recipients_data, language="fr"):
     """
     Envoie une notification à plusieurs destinataires.
     recipients_data = [{"recipient": "+221...", "context_data": {...}, "user_id": "..."}, ...]
@@ -38,7 +38,7 @@ def send_bulk_notifications(tenant_id, event_type, channel, recipients_data, lan
     for r in recipients_data:
         send_notification_async.delay(
             tenant_id=tenant_id,
-            event_type=event_type,
+            event_code=event_code,
             channel=channel,
             recipient=r["recipient"],
             context_data=r["context_data"],

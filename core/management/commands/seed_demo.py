@@ -242,15 +242,18 @@ PASSENGER_LAST = [
 STAFF_GROUP = "Démo — Personnel compagnie"
 STAFF_GROUP_APPS = ["voyage", "colis", "billing", "fleet", "geo", "tracking", "notifications", "workflow"]
 
+# Codes canoniques du catalogue (notifications/catalog.py). Le mapping depuis
+# les anciens event_type est rejoué sur les bases existantes par
+# notifications/migrations/0005.
 NOTIFICATION_TEMPLATES = [
-    ("reservation_confirmed", "sms", "",
+    ("notif.order.confirmed.v1", "sms", "",
      "Bonjour {{nom}}, votre réservation {{trip_code}} le {{date}} est confirmée. "
      "Siège {{seat}}. Bon voyage."),
-    ("trip_reminder", "sms", "",
+    ("notif.trip.reminder.v1", "sms", "",
      "Rappel: votre bus {{trip_code}} part demain à {{time}}. Présentez-vous 30 min avant."),
-    ("parcel_delivered", "sms", "",
+    ("notif.parcel.delivered.v1", "sms", "",
      "Votre colis {{tracking}} a été livré à {{recipient}} le {{date}}."),
-    ("payment_received", "email", "Paiement reçu — TOUPAC",
+    ("notif.payment.confirmed.v1", "email", "Paiement reçu — TOUPAC",
      "Merci pour votre paiement de {{amount}} XOF."),
 ]
 
@@ -1253,10 +1256,10 @@ class Command(BaseCommand):
 
     def seed_notifications(self):
         templates = logs = 0
-        for event_type, channel, subject, body in NOTIFICATION_TEMPLATES:
+        for event_code, channel, title, body in NOTIFICATION_TEMPLATES:
             _, made = NotificationTemplate.objects.get_or_create(
-                tenant=None, event_type=event_type, channel=channel, language="fr",
-                defaults={"subject": subject, "template_body": body, "is_active": True},
+                tenant=None, event_code=event_code, channel=channel, language="fr",
+                defaults={"title_template": title, "template_body": body, "is_active": True},
             )
             templates += made
 
@@ -1266,7 +1269,7 @@ class Command(BaseCommand):
             passengers = list(Passenger.objects.filter(tenant=tenant)[:10])
             users = list(User.objects.filter(tenant=tenant))
             for index in range(10):
-                event_type, channel, _subject, body = NOTIFICATION_TEMPLATES[index % len(NOTIFICATION_TEMPLATES)]
+                event_code, channel, _title, body = NOTIFICATION_TEMPLATES[index % len(NOTIFICATION_TEMPLATES)]
                 if channel == "email":
                     recipient = users[index % len(users)].email if users else "demo@example.sn"
                 else:
@@ -1277,7 +1280,7 @@ class Command(BaseCommand):
                     tenant=tenant, provider_message_id=f"MSG-{prefix}-{index:03d}",
                     defaults={
                         "user": users[index % len(users)] if users else None,
-                        "channel": channel, "recipient": recipient, "event_type": event_type,
+                        "channel": channel, "recipient": recipient, "event_code": event_code,
                         "content": body, "status": status,
                         "provider": "console",
                         "failure_reason": "Numéro injoignable" if status == NotificationLog.Status.FAILED else "",

@@ -18,7 +18,7 @@ class NotificationLogSerializer(serializers.ModelSerializer):
 
 
 class SendNotificationSerializer(serializers.Serializer):
-    event_type = serializers.CharField(max_length=50)
+    event_code = serializers.CharField(max_length=100)
     channel = serializers.ChoiceField(choices=NotificationTemplate.Channel.choices)
     recipient = serializers.CharField(max_length=100)
     context_data = serializers.JSONField()
