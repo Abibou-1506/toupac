@@ -16,6 +16,20 @@ PASSWORD = "TestPass#2026"
 
 
 @pytest.fixture(autouse=True)
+def _celery_runs_inline(settings):
+    """
+    Exécute les tâches Celery dans le processus de test.
+
+    Autouse : sans ça, `.delay()` publie sur le vrai courtier Redis, et le
+    worker de développement — qui tourne à côté, sur la base de développement —
+    récupère des identifiants introuvables chez lui. Le test devient dépendant
+    d'un service externe pour un résultat qu'il n'observe jamais.
+    """
+    settings.CELERY_TASK_ALWAYS_EAGER = True
+    settings.CELERY_TASK_EAGER_PROPAGATES = False
+
+
+@pytest.fixture(autouse=True)
 def _isolated_throttle_cache(settings):
     """
     Isole le compteur de throttling DRF du Redis de dev.

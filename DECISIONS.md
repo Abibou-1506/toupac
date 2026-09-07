@@ -12,6 +12,318 @@ Ordre : les patterns les plus récents en haut, groupés par domaine.
 
 ---
 
+## Services et flow d'émission
+
+### Fail-log symétrique — couvrir toutes les branches d'échec, pas juste celle qui a motivé le ticket
+_Validé — Ticket notifications-refonte-B (7 sept 2026)_
+
+Un mécanisme de traçabilité d'erreur doit couvrir **toutes** les branches
+d'échec possibles, pas seulement celle qui a motivé le ticket. Lister
+les scénarios en début de design :
+- Ressource absente (template manquant, resolver inconnu, destinataire nul).
+- Ressource présente mais cassée (template Django syntax error,
+  resolver qui lève).
+- Ressource présente mais inapplicable (préférences user opt-out,
+  destinataire injoignable, contrainte violation).
+- Ressource présente mais externe en panne (provider timeout, quota
+  dépassé).
+
+Chaque branche crée un objet log dédié avec un `failure_reason` préfixé
+distinct : `no_template:`, `template_error:`, `resolver_unimplemented:`,
+`resolver_error:`, `preference_violation:`, `provider_error:`. Les logs
+sont recherchables par préfixe pour l'exploitation.
+
+Vécu : le warm-up avait couvert « template absent » (log `no_template:`)
+mais oublié « template présent cassé » — Celery avalait l'exception,
+notification perdue sans trace. Le Ticket B couvre les 6 branches
+d'un coup, avec une entrée spécifique par cas dans `EmitResult.failure_reasons`.
+
+Garde-fou mémoire (voir pattern suivant) : plafonner la liste retournée.
+
+### Résultat d'opération en masse : plafonner les détails, garder un compteur
+_Découvert — Ticket notifications-refonte-B (7 sept 2026)_
+
+Un service qui opère sur N destinataires × M canaux peut produire N×M
+entrées d'erreur. Retourner cette liste entière à l'appelant fait
+exploser la mémoire process dès que N×M devient significatif (~1000
+destinataires × 4 canaux = 4000 strings de 100 chars = 400 Ko par
+appel).
+
+Règle : plafonner la liste de détails à 20 entrées, garder un compteur
+total pour l'exploitation.
+
+```python
+MAX_FAILURES_IN_RESULT = 20
+
+if len(result.failure_reasons) < MAX_FAILURES_IN_RESULT:
+    result.failure_reasons.append(reason)
+elif len(result.failure_reasons) == MAX_FAILURES_IN_RESULT:
+    result.failure_reasons.append(f"... et {result.failure_reasons_truncated} autres")
+    result.failure_reasons_truncated += 1
+else:
+    result.failure_reasons_truncated += 1
+```
+
+La liste complète est de toute façon dans les `NotificationLog` en base
+(`filter(status=failed, ...)`), la structure retournée n'est qu'un
+résumé informationnel.
+
+Vécu USR-B : `EmitResult.failure_reasons` sans plafond aurait cassé le
+service à 60% de charge. Un test dessus (émission avec 30 destinataires
+à aucun template) verrouille le comportement pour les futurs modifs.
+
+### Idempotence avant résolution destinataires — clé tronquée
+_Validé — Ticket notifications-refonte-B (7 sept 2026)_
+
+Court-circuiter une opération en amont économise du travail, mais
+certaines clés d'idempotence dépendent des destinataires (impossible à
+connaître sans avoir résolu). Solution : **deux niveaux de clé**.
+
+- Clé pré-résolution : `hash(event_code + actor_id + scope + context)` —
+  court-circuite le lookup complet quand le résultat est manifestement
+  caché.
+- Clé post-résolution : `hash(precedente + sorted_user_ids)` — enforce
+  la contrainte DB par destinataire.
+
+La clé pré-résolution seule est **insuffisante** en cas de race
+condition entre deux workers Celery : ils passent tous deux le
+short-circuit puisque personne n'a encore posé la clé. La clé
+post-résolution (avec contrainte DB partielle) rattrape la course.
+
+Vécu USR-B : ma spec initiale supposait « clé short-circuit avant
+résolution » sans distinguer les deux niveaux. Le dev a repoussé
+(impossible sans destinataires) et implémenté les deux, mieux qu'attendu.
+
+### Deprecation d'un service : migrer les appels internes avant d'inviter les externes
+_Validé — Ticket notifications-refonte-B (7 sept 2026)_
+
+Laisser un service deprecated appelable en interne pollue la suite
+pytest de warnings et masque les vrais problèmes. Deux règles :
+
+1. Migrer les appels **du module lui-même** vers le nouveau service dans
+   le même ticket qui pose la deprecation. Zero warning interne.
+2. Garder le wrapper deprecated **pour l'usage externe** (autres modules,
+   scripts, code de compat). DeprecationWarning uniquement pour eux.
+3. Retrait complet planifié dans un ticket ultérieur, quand tous les
+   appelants externes sont migrés.
+
+Vécu USR-B : `NotificationService.send_notification` était appelé dans
+`test_service.py` du module notifications lui-même. Le dev a migré ces
+appels vers `emit()`, gardé le wrapper pour `iam/otp_views.py` (USR-2)
+et les futurs appelants externes. Suite pytest passe sans warning.
+
+### Retry policy déclarative par domaine, pas hardcodée dans le service
+_Validé — Ticket notifications-refonte-B (7 sept 2026)_
+
+Un `max_retries=3, default_retry_delay=60` hardcodé sur une task Celery
+traite tous les canaux identiquement. Faux dans notre cas : push peut
+retry (idempotent), SMS ne doit pas (coût par envoi).
+
+Règle : déclarer une policy par canal/type/domaine dans un fichier
+dédié (`notifications/retries.py`), la task lit dynamiquement selon
+l'objet traité. Backoff exponentiel paramétré (base_delay * 2^retry
+typique).
+
+```python
+RETRY_POLICIES: dict[Channel, RetryPolicy] = {
+    Channel.PUSH: RetryPolicy(max_retries=3, base_delay_seconds=60),
+    Channel.EMAIL: RetryPolicy(max_retries=3, base_delay_seconds=60),
+    Channel.SMS: RetryPolicy(max_retries=0, base_delay_seconds=0),
+    Channel.WHATSAPP: RetryPolicy(max_retries=0, base_delay_seconds=0),
+    Channel.IN_APP: RetryPolicy(max_retries=0, base_delay_seconds=0),
+}
+```
+
+Un canal inconnu tombe sur une policy par défaut safe (0 retry).
+
+### Clé d'idempotence = hash sur JSON canonique du contexte
+_Validé — Ticket notifications-refonte-B (7 sept 2026)_
+
+Une clé d'idempotence deterministe se calcule par hachage d'une
+représentation canonique du contexte, pas d'une concaténation naïve.
+
+```python
+canonical = json.dumps(
+    context, sort_keys=True, separators=(",", ":"), default=str,
+)
+key_hash = hashlib.sha256(canonical.encode()).hexdigest()[:32]
+```
+
+Détails qui évitent des bugs :
+- `sort_keys=True` : deux dicts avec les mêmes clés en ordre différent
+  donnent la même clé.
+- `separators=(",", ":")` : élimine les espaces entre paires, deterministe
+  cross-version Python (les défauts json ont changé en Python 3.4).
+- `default=str` : supporte `datetime`, `UUID`, `Decimal` sans lever
+  `TypeError`. Sans lui, un contexte contenant `"created_at":
+  datetime.now()` fait crasher l'idempotency check.
+- Troncature `[:32]` : `sha256` en hex fait 64 chars, la moitié suffit
+  à la collision-résistance en pratique (fenêtre TTL courte).
+
+Composition finale de la clé pré-résolution :
+`f"notif_idem:{event_code}:{actor_id or 'sys'}:{scope or ''}:{key_hash}"`.
+Lisible en debug Redis (`SCAN notif_idem:*`), discriminante, stable
+dans le temps.
+
+### `transaction.on_commit()` obligatoire pour enqueue Celery référençant une entité nouvellement créée
+_Découvert — Ticket notifications-refonte-B (7 sept 2026)_
+
+Créer une entité en DB puis enqueue une task Celery qui référence son ID
+doit passer par `transaction.on_commit(lambda: task.delay(entity.id))`.
+Sans ça, deux modes de comportement selon l'environnement :
+
+- **Mode eager** (tests avec `CELERY_TASK_ALWAYS_EAGER=True`) : la task
+  s'exécute immédiatement, avant que la transaction externe soit
+  committée. Le `Model.objects.get(id=X)` dans la task lève
+  `DoesNotExist`.
+- **Mode async prod** : la task s'exécute après un délai variable. Si le
+  broker est rapide et la transaction lente, même race que ci-dessus,
+  masquée par le retry Celery. Les tests passent, la prod flake.
+
+```python
+# Anti-pattern
+notification = Notification.objects.create(...)
+send_notification_log.delay(notification.id)  # peut voir une DB non commit
+
+# Pattern correct
+notification = Notification.objects.create(...)
+transaction.on_commit(lambda: send_notification_log.delay(notification.id))
+```
+
+Vécu Ticket B : deux tests étaient flakey. Le dev a pris le temps de
+trouver la vraie cause plutôt que de patcher avec un `sleep()` — le
+pattern `on_commit` a résolu proprement, sans besoin de délais artificiels.
+
+Règle générale : toute enqueue Celery qui référence un ID créé dans la
+transaction courante passe par `transaction.on_commit`. Anti-pattern à
+traquer en revue de code sur tout `Model.objects.create(...)` suivi
+d'un `.delay(...)`.
+
+### Confidentialité asymétrique par canal
+_Validé — Ticket notifications-refonte-B (7 sept 2026)_
+
+Une notification qui passe par plusieurs canaux ne doit pas avoir le
+même niveau de détail partout. Push et SMS sont **lisibles sur écran
+verrouillé sans authentification** : les vars sensibles doivent y être
+masquées. In-app et email sont **lisibles après auth** (app déverrouillée,
+lien signature) : payload complet.
+
+Règle : déclarer les variables sensibles au niveau de l'événement dans le
+catalog (`confidentiality_masks=("qr_payload", "amount_xof", "otp")`).
+Le service applique le masquage au moment du rendu, conditionné au canal :
+
+```python
+CHANNELS_MASKING_APPLIED = {Channel.PUSH, Channel.SMS, Channel.WHATSAPP}
+CHANNELS_FULL_PAYLOAD = {Channel.IN_APP, Channel.EMAIL}
+
+if channel in CHANNELS_MASKING_APPLIED:
+    for masked in event.confidentiality_masks:
+        render_context[masked] = "***"
+```
+
+Vécu USR-B : TKT-01 `notif.ticket.issued.v1` avec
+`confidentiality_masks=("qr_payload",)` — le push affiche « Votre billet
+est prêt, ouvrez l'app », l'in-app contient le vrai QR code. Test
+dédié verrouille le comportement.
+
+---
+
+## ORM PostgreSQL
+
+### `ORDER BY DESC` avec NULLs : PostgreSQL les met en tête par défaut
+_Découvert — Ticket notifications-refonte-B (7 sept 2026)_
+
+`Model.objects.order_by("-tenant_id")` en PostgreSQL utilise `NULLS FIRST`
+par défaut sur les DESC. Conséquence : les enregistrements avec `tenant=NULL`
+(souvent les fallback système) remontent **avant** les enregistrements
+spécifiques.
+
+Cas concret : recherche d'un `NotificationTemplate` avec surcharge
+tenant possible sur fallback système. `filter(Q(tenant=T) | Q(tenant__isnull=True)).order_by("-tenant_id").first()`
+ne retourne PAS le template tenant-specific quand il existe — le système
+remonte en premier, la surcharge est ignorée.
+
+Règle : quand la présence d'une valeur doit primer sur son absence,
+annoter et trier explicitement :
+
+```python
+.annotate(
+    is_tenant_specific=Case(
+        When(tenant__isnull=False, then=Value(1)),
+        default=Value(0),
+        output_field=IntegerField(),
+    )
+).order_by("-is_tenant_specific", "-tenant_id")
+```
+
+Alternative Django 4.2+ : `.order_by(F("tenant_id").desc(nulls_last=True))`.
+
+Appliqué : lookup des `NotificationTemplate` avec priorité tenant-specific
+dans le service USR-B.
+
+---
+
+## Tests
+
+### Tester le double throttle en abaissant les seuils, pas en générant du trafic
+_Validé — Tickets user-model-refactor-4 et notifications-refonte-B (7 sept 2026)_
+
+Un plafond à 1000/h ne peut pas être testé en générant 1001 requêtes — le
+test tourne 5 minutes ou timeout la CI. Testé en abaissant `settings.REST_FRAMEWORK["DEFAULT_THROTTLE_RATES"]` à `"1/hour"` pendant
+le test, envoyer 2 requêtes, vérifier que la 2ème est 429.
+
+La mécanique est prouvée (throttle applique bien la limite selon la
+clé), la valeur numérique reste un choix de config non-codé.
+
+Override via `override_settings` :
+```python
+@override_settings(REST_FRAMEWORK={
+    ...settings.REST_FRAMEWORK,
+    "DEFAULT_THROTTLE_RATES": {
+        **settings.REST_FRAMEWORK["DEFAULT_THROTTLE_RATES"],
+        "platform_key": "1/hour",
+        "acting_customer": "1/hour",
+    },
+})
+def test_throttle_limits_second_request(self):
+    ...
+```
+
+S'applique également au rate-limiting IP, aux quotas API, aux limites de
+taille de payload, etc.
+
+### Tester un provider en panne via appel direct de la task avec `.retry()` mocké
+_Validé — Ticket notifications-refonte-B (7 sept 2026)_
+
+Tester le comportement Celery de retry en mode `CELERY_TASK_ALWAYS_EAGER`
+est lent (chaque retry attend son `countdown`) et fragile (les mocks
+fuient entre tests).
+
+Alternative plus simple : appeler la task directement en fonction Python
+(`send_notification_log(log_id)`), monkey-patcher `self.retry()` pour
+qu'elle lève `Retry` sans attendre, boucler jusqu'à max_retries. On
+teste la mécanique décisionnelle, pas l'ordonnancement Celery (qui a
+ses propres tests upstream).
+
+```python
+def test_provider_error_after_max_retries(monkeypatch):
+    log = NotificationLog.objects.create(...)
+    monkeypatch.setattr("notifications.tasks.send_notification_log.retry",
+                        lambda **kw: (_ for _ in ()).throw(Retry()))
+    
+    for _ in range(RETRY_POLICIES[Channel.PUSH].max_retries + 1):
+        try:
+            send_notification_log(log.id)
+        except Retry:
+            continue
+    
+    log.refresh_from_db()
+    assert log.status == "failed"
+    assert log.failure_reason.startswith("provider_error:push:")
+```
+
+---
+
 ## Acting user & patterns d'intégration B2B2C
 
 ### Le principal authentifié n'est pas toujours le porteur du secret
