@@ -97,7 +97,7 @@ def test_a_billed_channel_fails_on_the_first_refusal(tenant_a, client_fatou):
     provider = mock.Mock()
     provider.send.return_value = NotificationResult(success=False, error_message="refus")
 
-    with mock.patch.object(NotificationService, "_get_provider", return_value=provider):
+    with mock.patch("notifications.tasks.get_provider", return_value=provider):
         send_notification_log(str(log.pk))
 
     log.refresh_from_db()
@@ -132,7 +132,7 @@ def test_the_task_is_a_no_op_on_an_already_processed_log(tenant_a, client_fatou)
     first_sent_at = log.sent_at
 
     provider = mock.Mock()
-    with mock.patch.object(NotificationService, "_get_provider", return_value=provider):
+    with mock.patch("notifications.tasks.get_provider", return_value=provider):
         send_notification_log(str(log.pk))
 
     log.refresh_from_db()

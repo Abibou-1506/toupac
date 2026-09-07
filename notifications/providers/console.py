@@ -1,9 +1,7 @@
 """TOUPAC Notifications — Provider de développement, écrit dans les logs Django."""
 import logging
 
-from django.conf import settings
-
-from .base import NotificationProvider, NotificationResult
+from .base import REDACTED, NotificationProvider, NotificationResult, loggable_body
 
 logger = logging.getLogger("toupac.notifications")
 
@@ -13,29 +11,28 @@ class ConsoleProvider(NotificationProvider):
     Provider de développement — affiche les notifications dans les logs.
 
     Il n'envoie rien : il sert à lire le message rendu sans installer de
-    passerelle. C'est aussi, faute de mieux, le provider utilisé partout tant
-    que la fabrique par canal n'existe pas (Ticket C) — y compris en production,
-    où il ne délivre donc rien.
+    passerelle. Depuis le Ticket C, il ne sert plus qu'au canal in-app et de
+    filet pour un canal absent du mapping — les autres ont leur propre provider.
 
-    D'où la coupure ci-dessous : hors développement, le corps du message n'est
-    pas écrit. Un code de connexion, un QR de billet ou un montant se
-    retrouveraient sinon en clair dans la sortie standard, agrégée et conservée
-    par l'infrastructure — une fuite silencieuse, sans rapport avec le canal
-    d'envoi ni avec les masques de confidentialité, qui ne s'appliquent qu'au
-    rendu poussé.
+    Le masquage hors développement reste néanmoins nécessaire : le filet peut se
+    déclencher en production, et un code de connexion, un QR de billet ou un
+    montant se retrouveraient alors en clair dans la sortie standard, agrégée et
+    conservée par l'infrastructure. Fuite sans rapport avec les masques de
+    confidentialité, qui ne portent que sur le rendu poussé.
 
     Ce qui reste journalisé — destinataire, canal, longueur — suffit à constater
     qu'un envoi a eu lieu sans en révéler le contenu.
     """
 
-    #: Ce que l'on écrit à la place du message hors développement.
-    REDACTED = "[contenu masqué hors développement]"
+    #: Repris de `base.py`, où la règle est désormais commune aux trois
+    #: providers qui impriment sans envoyer. Conservé ici comme alias : les
+    #: tests s'y réfèrent, et l'attribut dit sur la classe ce qu'elle fait.
+    REDACTED = REDACTED
 
     def send(self, recipient, message, subject=""):
-        if settings.DEBUG:
-            body = f"{subject + ' — ' if subject else ''}{message}"
-        else:
-            body = f"{self.REDACTED} ({len(message)} caractères)"
-
-        logger.info("[NOTIFICATION] → %s: %s", recipient, body)
-        return NotificationResult(success=True, provider_message_id="console")
+        logger.info(
+            "[NOTIFICATION] → %s: %s", recipient, loggable_body(message, subject),
+        )
+        return NotificationResult(
+            success=True, provider="console", provider_message_id="console",
+        )

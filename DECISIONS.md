@@ -12,8 +12,97 @@ Ordre : les patterns les plus récents en haut, groupés par domaine.
 
 ---
 
+### Le choix du fournisseur appartient aux settings, pas au code
+_Validé — Ticket notifications-refonte-C (7 sept 2026)_
+
+`settings.NOTIFICATION_PROVIDERS` associe chaque canal à un chemin pointé,
+et `get_provider(channel)` l'importe à l'appel. Brancher une vraie
+passerelle SMS devient un changement de configuration d'environnement :
+aucune ligne du service ni de la tâche ne bouge.
+
+Le gain ne se limite pas au déploiement. Un test qui veut substituer un
+fournisseur passe par `override_settings`, pas par un `mock.patch` sur un
+attribut privé. Le Ticket B avait dû patcher `NotificationService._get_provider`
+en trois endroits ; ces trois patchs visaient une méthode privée, donc un
+détail d'implémentation — la fabrique leur donne une prise publique.
+
+Corollaire : **une instance neuve par appel, jamais de cache.** Un provider
+est sans état et sa construction ne coûte rien, alors qu'une instance
+partagée entre les fils d'un worker Celery serait un état commun à
+surveiller pour aucun gain mesurable.
+
+### Un repli silencieux protège d'un oubli, jamais d'une faute de frappe
+_Validé — Ticket notifications-refonte-C (7 sept 2026)_
+
+La fabrique traite deux erreurs de façon opposée, et l'asymétrie est le
+cœur de la décision :
+
+- **Canal absent du mapping → `ConsoleProvider`, sans bruit.** Une émission
+  porte plusieurs canaux ; lever priverait les autres d'un envoi qui
+  n'avait aucune raison d'échouer. Le repli est sûr : ce provider ne
+  divulgue rien hors développement.
+- **Chemin pointé invalide → `ImportError` propagée.** Retomber sur la
+  console masquerait la faute de frappe et laisserait croire la passerelle
+  branchée. Un envoi qui n'arrive pas est visible ; un envoi qu'on croit
+  parti ne l'est pas.
+
+Règle générale : un défaut vaut pour ce que l'on a **omis** de déclarer.
+Ce que l'on a déclaré de travers doit échouer bruyamment — sans quoi le
+défaut devient un cache-misère.
+
+Complété par un test qui interdit l'omission là où elle compte :
+`test_every_declared_channel_is_mapped` compare les clés du mapping à
+l'énumération `Channel`. Le repli reste, mais plus personne ne s'y appuie
+par distraction.
+
+### Une simulation s'annonce dans ses propres traces
+_Validé — Ticket notifications-refonte-C (7 sept 2026)_
+
+Quatre des cinq canaux ne délivrent rien. Chacun le dit deux fois : dans
+le journal (`[SMS-MOCK]`, `[WHATSAPP-MOCK]`, `[FAKE-PUSH]`) et dans la
+ligne écrite en base (`provider="sms_mock"`, identifiant `fake_fcm_…`).
+
+Le contre-exemple est vécu : jusqu'à ce ticket, l'unique provider
+imprimait puis rendait `success=True`. Toutes les notifications
+apparaissaient « envoyées » en base — en production comprise, où la
+connexion par code ne fonctionnait donc pas, sans qu'aucune trace ne le
+dise. Un mock muet ne coûte pas un envoi manquant : il coûte le temps que
+l'on met à comprendre pourquoi personne ne reçoit rien.
+
+Corollaire pour plus tard : ces préfixes rendent l'historique
+rétro-lisible. Le jour où les vraies passerelles arriveront, distinguer
+les lignes qui correspondaient à un envoi réel se fera par requête, pas
+par datation approximative.
+
+### Le fournisseur se nomme lui-même ; sa classe ne le nomme pas
+_Validé — Ticket notifications-refonte-C (7 sept 2026)_
+
+`NotificationResult.provider` porte un nom court choisi par le provider.
+La tâche ne retombe sur le nom de classe que si le champ est vide — repli
+utile aux doublures de test, pas au code de production.
+
+Motif : `SmsConsoleProvider` doit se lire « sms_mock » dans le journal.
+Ce qu'un opérateur a besoin de savoir est que l'envoi était **simulé**,
+pas quelle classe l'a simulé. Une convention dérivée du nom de classe
+(`.lower().replace("provider", "")`) rend « smsconsole » — exact et
+inutile : elle décrit l'implémentation là où l'exploitation attend une
+nature.
+
+Pattern général : quand une valeur destinée à l'exploitation peut se
+déduire d'un nom d'identifiant Python, la déduction est presque toujours
+une fausse économie. Le nom de classe suit les contraintes du code ; la
+valeur exploitée suit celles du lecteur.
+
 ### Un provider de développement qui log en clair s'auto-restreint hors DEBUG
-_Validé — Correctif post-Ticket B (7 sept 2026)_
+_Validé — Correctif post-Ticket B (7 sept 2026), étendu au Ticket C_
+
+**Extension Ticket C** : la règle est passée de `ConsoleProvider` à une
+fonction partagée, `notifications.providers.base.loggable_body()`, dont
+les trois providers qui impriment sans envoyer (console, mock SMS, mock
+WhatsApp) dépendent. Motif : deux nouveaux providers venaient de naître
+avec la même contrainte, et une règle de confidentialité recopiée est une
+règle qui divergera. `EmailSmtpProvider` en est délibérément exclu — il
+délivre pour de bon et ne journalise jamais le corps, seulement le sujet.
 
 Tout provider dont le mécanisme d'observation (log, print, écriture disque
 non chiffrée) expose la charge utile doit s'auto-restreindre sous
@@ -648,25 +737,31 @@ futurs ajouts silencieux.
 
 ## Auth, secrets et cache
 
-### Le logger `notifications` doit être en INFO en dev
-_Validé — Déploiement USR-2 (7 sept 2026)_
+### Le logger à déclarer est `toupac`, jamais `notifications`
+_Validé — Déploiement USR-2, corrigé le 7 sept 2026_
 
-`ConsoleProvider` (l'unique provider actif tant que les vrais canaux ne
-sont pas branchés) émet `logger.info(...)` avec le corps rendu du message.
-Le `LOGGING` Django par défaut est `WARNING` — le message est envoyé,
-tracé en base (`NotificationLog.status=sent`), mais invisible dans les
-logs Docker. Un dev qui teste un OTP ou une notif ne voit rien passer et
-croit à un bug.
+Les providers émettent `logger.info(...)` avec le corps rendu du message.
+Le `LOGGING` Django par défaut est `WARNING` — le message part, il est
+tracé en base (`NotificationLog.status=sent`), mais reste invisible dans
+les logs Docker. Un dev qui teste un code de connexion ne voit rien passer
+et conclut à un bug.
 
-Règle : `config/settings/dev.py` (et tout environnement de développement)
-configure un handler `console` sur le logger `notifications` en niveau
-`INFO`. Le `NotificationLog.content` reste le référentiel des messages
-envoyés (utile pour extraire un OTP par script en cas d'urgence de débug),
-mais le logger console est ce qu'un développeur regarde en flux continu.
+Règle : déclarer un handler `console` en `INFO` sur **`toupac`**, la
+racine du projet. Le code écrit dans `toupac.notifications`,
+`toupac.iam.otp`, `toupac.iam.platform` ; la hiérarchie des loggers Python
+suit les points, donc `toupac.notifications` remonte vers `toupac` et
+jamais vers `notifications`, qui en est un frère sans lien.
 
-En prod, `INFO` sur `notifications` reste raisonnable : les vrais
-providers (FCM, SMTP, providers SMS) auront leurs propres logs et
-métriques. On n'y perd pas de signal en gardant `INFO` global.
+**Incident vécu** : la première version de cette entrée nommait le logger
+`notifications`. La configuration a été écrite telle quelle, n'a jamais
+rien capté, et le diagnostic est parti chercher un bug d'envoi là où il
+n'y en avait pas — l'envoi fonctionnait, seule la déclaration était
+inerte.
+
+En prod, `INFO` sur `toupac` reste raisonnable, à condition que chaque
+provider s'auto-restreigne (voir l'entrée sur `loggable_body`) : la
+configuration `LOGGING` est une frontière d'observabilité, pas de
+sécurité.
 
 ### Un secret à usage unique se stocke haché, jamais en clair
 _Validé — Ticket user-model-refactor-2 (6 sept 2026)_

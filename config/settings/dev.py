@@ -16,6 +16,12 @@ if not shutil.which("pg_config"):
         }
     }
 
+# E-mails en dev : impression sur la sortie standard. Sans cette ligne, Django
+# retomberait sur son défaut — SMTP vers localhost:25 — et le provider e-mail
+# échouerait à chaque envoi sur un poste sans serveur de mail, la connexion par
+# code comprise.
+EMAIL_BACKEND = "django.core.mail.backends.console.EmailBackend"
+
 LOGGING = {
     "version": 1,
     "disable_existing_loggers": False,

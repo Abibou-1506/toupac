@@ -281,6 +281,28 @@ CELERY_BEAT_SCHEDULE = {
     },
 }
 
+# ─── Notifications ───
+# Canal → provider (chemin pointé). La fabrique `get_provider()` lit ce mapping
+# à chaque envoi : brancher une vraie passerelle se fait ici, sans toucher au
+# service ni à la tâche. Un canal absent retombe sur `ConsoleProvider`.
+#
+# Quatre des cinq entrées sont des simulations : seul l'e-mail délivre
+# réellement aujourd'hui. Les mocks l'annoncent dans leurs traces (`sms_mock`,
+# `whatsapp_mock`, `fake_fcm_…`) plutôt que de laisser croire à un envoi.
+NOTIFICATION_PROVIDERS = {
+    "push": "notifications.providers.fake_push.FakePushProvider",
+    "email": "notifications.providers.email_smtp.EmailSmtpProvider",
+    "sms": "notifications.providers.sms_console.SmsConsoleProvider",
+    "whatsapp": "notifications.providers.whatsapp_console.WhatsAppConsoleProvider",
+    # In-app : la notification vit en base, la ligne de journal ne fait que
+    # constater l'écriture. Console est ici le bon provider, pas un pis-aller.
+    "in_app": "notifications.providers.console.ConsoleProvider",
+}
+
+# Expéditeur des e-mails sortants. `EMAIL_BACKEND` est laissé aux settings
+# d'environnement : console en dev, SMTP en prod.
+DEFAULT_FROM_EMAIL = os.environ.get("DEFAULT_FROM_EMAIL", "no-reply@toupac.sn")
+
 # ─── Channels ───
 CHANNEL_LAYERS = {
     "default": {

@@ -17,6 +17,7 @@ from celery import shared_task
 from django.utils import timezone
 
 from .models import NotificationLog
+from .providers.factory import get_provider
 from .retries import get_retry_policy
 
 logger = logging.getLogger("toupac.notifications")
@@ -30,8 +31,6 @@ _MAX_RETRIES_CEILING = 3
 @shared_task(bind=True, max_retries=_MAX_RETRIES_CEILING)
 def send_notification_log(self, log_id):
     """Remet au fournisseur l'envoi `log_id`, puis consigne le résultat."""
-    from .services import NotificationService
-
     log = NotificationLog.objects.select_related("notification").filter(pk=log_id).first()
     if log is None:
         # Purge ou suppression entre la mise en file et l'exécution.
@@ -44,7 +43,7 @@ def send_notification_log(self, log_id):
     policy = get_retry_policy(log.channel)
 
     try:
-        provider = NotificationService._get_provider(log.channel)
+        provider = get_provider(log.channel)
         result = provider.send(
             recipient=log.recipient,
             message=log.content,
@@ -60,7 +59,7 @@ def send_notification_log(self, log_id):
 
     if result.success:
         log.status = NotificationLog.Status.SENT
-        log.provider = provider.__class__.__name__.lower().replace("provider", "")
+        log.provider = _provider_name(result, provider)
         log.provider_message_id = result.provider_message_id or ""
         log.sent_at = timezone.now()
         log.failure_reason = ""
@@ -76,8 +75,20 @@ def send_notification_log(self, log_id):
     if self.request.retries < policy.max_retries:
         raise self.retry(countdown=policy.countdown_for(self.request.retries))
 
-    log.provider = provider.__class__.__name__.lower().replace("provider", "")
+    log.provider = _provider_name(result, provider)
     _mark_failed(log, f"provider_error:{log.channel}:{result.error_message or 'refus du fournisseur'}")
+
+
+def _provider_name(result, provider):
+    """
+    Nom court à consigner : celui que le fournisseur se donne, sinon sa classe.
+
+    Le nom de classe ne suffit pas — `SmsConsoleProvider` doit se lire
+    « sms_mock » dans le journal, car ce qu'un opérateur a besoin de savoir est
+    que l'envoi était simulé, pas quelle classe l'a simulé. Le repli reste utile
+    pour les doublures de test, qui ne renseignent pas le champ.
+    """
+    return result.provider or provider.__class__.__name__.lower().replace("provider", "")
 
 
 def _mark_failed(log, failure_reason):

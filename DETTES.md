@@ -189,13 +189,55 @@ Portée technique :
       → Ref : ticket USR-2, révisé au Ticket B, 7 sept 2026.
 
 - [x] **~~Le provider console écrivait le message complet dans les logs~~** —
-      corrigé le 7 sept 2026. `ConsoleProvider` sert partout tant que la
-      fabrique par canal n'existe pas (Ticket C), production comprise, et
-      `prod.py` journalise `toupac` à INFO : codes de connexion, QR de billets
-      et montants partaient en clair dans la sortie standard. Le corps du
-      message n'est désormais écrit que sous `DEBUG` ; hors développement,
-      seuls le destinataire et la longueur subsistent. Le vrai correctif reste
-      le Ticket C, qui remplacera ce provider par de vraies passerelles.
+      corrigé le 7 sept 2026. `ConsoleProvider` servait alors tous les canaux,
+      production comprise, et `prod.py` journalise `toupac` à INFO : codes de
+      connexion, QR de billets et montants partaient en clair dans la sortie
+      standard. Le corps n'est désormais écrit que sous `DEBUG`. Règle
+      généralisée au Ticket C : les mocks SMS et WhatsApp partagent la même
+      fonction `loggable_body()`, et `EmailSmtpProvider` ne journalise jamais
+      le corps.
+
+### Notifications — passerelles réelles
+
+- [ ] **Trois canaux sur cinq ne délivrent rien**
+      → État : depuis le Ticket C, chaque canal a son provider et l'e-mail part
+        pour de bon via `django.core.mail`. Push, SMS et WhatsApp restent des
+        simulations, qui s'annoncent comme telles (`fake_fcm_…`, `sms_mock`,
+        `whatsapp_mock`) au lieu de se faire passer pour des envois.
+      → Conséquence directe : **la connexion par code ne fonctionne pas pour un
+        client sans adresse e-mail.** Le code est bien généré et tracé, mais
+        aucun SMS ne part. C'est le chemin nominal d'une bonne partie de la
+        clientèle visée.
+      → Fix : un ticket par passerelle, chacun conditionné à un compte et un
+        budget — Firebase (push), Africa's Talking ou Twilio (SMS), Twilio
+        WhatsApp ou Meta Cloud API (WhatsApp). Côté code, chacun se réduit à une
+        classe et une ligne de `NOTIFICATION_PROVIDERS`.
+      → Effort : ~1 j par passerelle, hors création de compte et validation des
+        gabarits Meta pour WhatsApp.
+      → Ref : ticket notifications-refonte-C, 7 sept 2026.
+
+- [ ] **`.env.prod` ne configure aucun serveur SMTP**
+      → État : `prod.py` déclare le backend SMTP et lit `EMAIL_HOST`,
+        `EMAIL_PORT`, `EMAIL_HOST_USER`, `EMAIL_HOST_PASSWORD`. Aucune n'est
+        renseignée. Tout envoi e-mail en production lèvera, épuisera ses trois
+        réessais et finira tracé en échec.
+      → C'est voulu et préférable à l'état antérieur, où l'envoi se déclarait
+        réussi sans que rien ne parte. Mais l'échec est réel : à renseigner
+        avant toute mise en service.
+      → Effort : ~0,5 j (choix du fournisseur, DNS SPF/DKIM, variables).
+      → Ref : ticket notifications-refonte-C, 7 sept 2026.
+
+- [ ] **Aucun retour de livraison n'est collecté**
+      → État : `NotificationLog.sent_at` dit qu'un fournisseur a accepté le
+        message, pas qu'il a été remis. Les vraies passerelles exposent des
+        webhooks de statut (remis, rebond, plainte) que rien ne consomme.
+      → Portée : sans cela, une adresse morte ou un numéro invalide reste
+        indéfiniment considéré comme joignable, et les rebonds répétés abîment
+        la réputation d'envoi du domaine.
+      → Fix : à traiter avec la première passerelle réelle, pas avant — la forme
+        du webhook dépend du fournisseur retenu.
+      → Effort : ~1 j
+      → Ref : ticket notifications-refonte-C, 7 sept 2026.
 
 ### JS admin — affichage conditionnel du champ tenant selon le rôle
 

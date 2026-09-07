@@ -150,7 +150,7 @@ def test_a_provider_failure_is_traced_after_the_last_retry(tenant_a, client_fato
         success=False, error_message="passerelle injoignable",
     )
 
-    with mock.patch.object(NotificationService, "_get_provider", return_value=failing):
+    with mock.patch("notifications.tasks.get_provider", return_value=failing):
         emit_with(resolver_returning(client_fatou), tenant_a, channels=["in_app"])
 
     trace = reasons_by_prefix("provider_error:").get()

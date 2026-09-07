@@ -500,10 +500,3 @@ class NotificationService:
         if recipient.startswith("+"):
             return "phone"
         return "user"
-
-    @staticmethod
-    def _get_provider(channel):
-        """Provider du canal. La fabrique par canal arrive au Ticket C."""
-        from notifications.providers.console import ConsoleProvider
-
-        return ConsoleProvider()

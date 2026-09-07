@@ -1,18 +1,24 @@
 """
 TOUPAC Notifications — Le provider de développement ne divulgue pas hors dev.
 
-Tant que la fabrique par canal n'existe pas (Ticket C), `ConsoleProvider` sert
-partout, production comprise. Or `prod.py` journalise `toupac` à INFO : sans
-garde-fou, chaque code de connexion, chaque QR de billet et chaque montant
-partirait en clair dans la sortie standard.
+`prod.py` journalise `toupac` à INFO. Sans garde-fou, chaque code de connexion,
+chaque QR de billet et chaque montant partirait en clair dans la sortie
+standard, agrégée et conservée par l'infrastructure.
 
 Le masquage par canal (N-05) ne couvre pas ce cas : il porte sur le rendu poussé
 vers l'utilisateur, pas sur ce que le serveur écrit sur lui-même.
+
+Depuis le Ticket C, la règle vit dans `providers.base.loggable_body()` et vaut
+pour les trois providers qui impriment sans envoyer. Le cas bout en bout ci-
+dessous emprunte donc le canal SMS : c'est celui qui transporte réellement des
+codes vers un provider qui les journalise, et donc le seul où un défaut de
+masquage se traduirait par une fuite.
 """
 import logging
 
 import pytest
 
+from notifications.providers.base import REDACTED
 from notifications.providers.console import ConsoleProvider
 
 pytestmark = pytest.mark.django_db
@@ -69,7 +75,12 @@ def test_the_recipient_stays_visible(caplog, settings):
 
 
 def test_the_one_time_code_does_not_reach_the_logs_in_production(caplog, settings):
-    """Bout en bout : la demande de code ne divulgue rien hors développement."""
+    """
+    Bout en bout : la demande de code ne divulgue rien hors développement.
+
+    Par SMS, le canal où le code atteint réellement un provider qui journalise.
+    """
+    import re
     from io import StringIO
 
     from django.core.management import call_command
@@ -82,15 +93,15 @@ def test_the_one_time_code_does_not_reach_the_logs_in_production(caplog, setting
 
     with caplog.at_level(logging.INFO, logger="toupac.notifications"):
         response = APIClient().post(
-            "/api/v1/auth/otp/request/", {"email": "fatou@example.sn"}, format="json",
+            "/api/v1/auth/otp/request/", {"phone": "+221770000077"}, format="json",
         )
 
     assert response.status_code == 200
-    log = NotificationLog.objects.get(recipient="fatou@example.sn")
+    log = NotificationLog.objects.get(recipient="+221770000077")
     assert log.status == NotificationLog.Status.SENT
+    assert log.provider == "sms_mock"
 
     # Le code est bien rendu et conservé en base — mais absent de la sortie.
-    import re
-
     code = re.search(r"\b(\d{6})\b", log.content).group(1)
     assert code not in caplog.text
+    assert REDACTED in caplog.text
