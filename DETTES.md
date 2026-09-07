@@ -209,12 +209,74 @@ Portée technique :
         aucun SMS ne part. C'est le chemin nominal d'une bonne partie de la
         clientèle visée.
       → Fix : un ticket par passerelle, chacun conditionné à un compte et un
-        budget — Firebase (push), Africa's Talking ou Twilio (SMS), Twilio
-        WhatsApp ou Meta Cloud API (WhatsApp). Côté code, chacun se réduit à une
-        classe et une ligne de `NOTIFICATION_PROVIDERS`.
+        budget — Firebase (push), Africa's Talking / Twilio / D7Networks (SMS),
+        Twilio WhatsApp ou Meta Cloud API (WhatsApp). Côté code, chacun se
+        réduit à une classe et une ligne de `NOTIFICATION_PROVIDERS`.
       → Effort : ~1 j par passerelle, hors création de compte et validation des
         gabarits Meta pour WhatsApp.
       → Ref : ticket notifications-refonte-C, 7 sept 2026.
+
+**Priorité produit implicite** (à valider avec le lead) : SMS d'abord (auth
+CLIENT), puis WhatsApp, puis Push. Le SMS débloque la connexion par code
+pour la majorité de la clientèle ouest-africaine — les deux autres sont des
+enrichissements produit.
+
+#### Choix du fournisseur SMS — comparaison pour à valider avec le lead
+
+Trois candidats couramment cités pour l'Afrique de l'Ouest. Aucun n'a été
+testé côté TOUPAC — le lead a la relation commerciale.
+
+| Critère | Africa's Talking | Twilio | D7Networks |
+|---|---|---|---|
+| Couverture UEMOA (Orange, Free, MTN, Expresso, Malitel) | Historique fort, spécialiste Afrique | Universel, tous opérateurs | Bonne couverture, prix agressif |
+| Coût indicatif SMS SN | ~10-15 FCFA | ~25-40 FCFA | ~8-12 FCFA |
+| API REST classique | Oui, doc lisible | Oui, SDK Python officiel | Oui, doc en anglais |
+| Sender ID alphanumérique (« TOUPAC » au lieu d'un numéro) | Oui, sur demande | Oui, payant | Oui, gratuit |
+| Rapports de livraison (webhook) | Oui | Oui | Oui |
+| Contrats/facturation UEMOA (XOF, TVA locale) | Oui (bureau Nairobi) | Non (facture USD) | Non (facture USD) |
+
+Ma reco personnelle si le lead n'a pas de préférence : **Africa's Talking**
+pour la spécialisation région + facturation XOF native. Twilio si le
+partenaire chatbot demande la même passerelle qu'il utilise déjà ailleurs.
+D7Networks si coût déterminant.
+
+#### Cadrage du ticket SMS-real, prêt quand la clé arrive
+
+Quand le lead te transmet un identifiant + une clé API SMS (peu importe le
+fournisseur), le ticket suivant se résume à :
+
+1. **Créer `notifications/providers/sms_<fournisseur>.py`** (ex.
+   `sms_africas_talking.py`) qui hérite de `NotificationProvider` et
+   appelle l'API HTTP du fournisseur via `requests` (ou SDK officiel).
+2. **Retourner `NotificationResult(success, provider="sms_<slug>",
+   provider_message_id=<id API>)`.** En cas d'échec HTTP, propager
+   l'exception — la retry policy du canal SMS (`retries.py`) est
+   actuellement à 0 retry par coût (à rediscuter selon le fournisseur).
+3. **Ajouter les clés API dans `.env.prod`** avec un préfixe
+   `SMS_<SLUG>_API_KEY`, lues dans `config/settings/prod.py`.
+4. **Overrider `NOTIFICATION_PROVIDERS["sms"]`** en `prod.py` vers le
+   nouveau provider. `dev.py` continue avec `SmsConsoleProvider` mock.
+5. **Ajouter un webhook de statut delivery** (voir dette suivante). Peut
+   être fait séparément.
+6. **Tests** : mocker `requests.post` en test unitaire, un test
+   d'intégration `manage.py send_test_sms +221...` en commande admin
+   pour vérifier sur serveur dev avec la vraie API en pré-prod.
+
+Effort : ~1 j Sonnet 4.5 une fois la clé API en main.
+
+#### Cadrage WhatsApp — à traiter après SMS
+
+Attention spécifique WhatsApp Business :
+- Impose des **templates de message pré-approuvés par Meta** pour tout
+  envoi initié par l'entreprise (window de 24h après un message user
+  suspend cette contrainte, mais l'OTP est toujours initié par nous).
+- Validation Meta prend 1-3 jours ouvrés.
+- Twilio WhatsApp ou Meta Cloud API directe — Twilio simplifie
+  l'onboarding, Meta Cloud API coûte moins cher.
+- Coût ~4-5x un SMS classique selon pays.
+
+Pré-requis avant d'ouvrir le ticket WhatsApp : compte Meta Business
+validé, templates OTP soumis et approuvés, clé API disponible.
 
 - [ ] **`.env.prod` ne configure aucun serveur SMTP**
       → État : `prod.py` déclare le backend SMTP et lit `EMAIL_HOST`,
