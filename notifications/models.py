@@ -121,6 +121,20 @@ class Notification(TenantModel):
 
 class NotificationLog(TenantModel):
     """Historique des tentatives d'envoi, tous canaux confondus."""
+
+    # `TenantModel` impose un tenant ; il n'y en a pas pour une notification de
+    # plateforme. L'OTP de connexion d'un client TOUPAC en est le cas type : le
+    # client est global (USR-1), il n'appartient à aucune compagnie au moment où
+    # il se connecte. Sans ce nullable, journaliser l'envoi lève une
+    # IntegrityError et fait échouer la demande de code.
+    # Même parti que `iam.AuditLog.tenant` et `NotificationTemplate.tenant`,
+    # nullables pour la même raison.
+    tenant = models.ForeignKey(
+        "iam.Tenant", on_delete=models.CASCADE, null=True, blank=True,
+        related_name="notifications_notificationlog_set", db_index=True,
+        verbose_name="Tenant",
+    )
+
     class Status(models.TextChoices):
         QUEUED = "queued", "En file"
         SENT = "sent", "Envoyée"

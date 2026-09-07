@@ -9,6 +9,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from iam.permissions import ApiScopedViewSetMixin
+from iam.platform_throttles import PlatformKeyRateThrottle
 from iam.throttles import ApiKeyAdminRateThrottle, ApiKeyRateThrottle
 
 from .models import DeliveryTask, Order, Parcel, ProofOfDelivery
@@ -25,7 +26,7 @@ from .serializers import (
 )
 from .services import DispatchService, InternalIdGenerator, TrackingNumberGenerator
 
-API_KEY_THROTTLES = [ApiKeyAdminRateThrottle, ApiKeyRateThrottle]
+API_KEY_THROTTLES = [ApiKeyAdminRateThrottle, ApiKeyRateThrottle, PlatformKeyRateThrottle]
 
 _TAG = extend_schema(tags=["Colis"])
 _CRUD_TAGS = {

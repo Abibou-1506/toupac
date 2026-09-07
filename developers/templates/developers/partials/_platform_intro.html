@@ -1,0 +1,115 @@
+<section id="platform" class="section">
+  <h2>Mode plateforme</h2>
+  <p>
+    TOUPAC distingue deux familles d'intégration. La documentation ci-dessus décrit la
+    première ; cette section décrit la seconde, réservée aux partenaires mandatés par
+    TOUPAC.
+  </p>
+
+  <table class="table">
+    <thead>
+      <tr><th>&nbsp;</th><th>Intégration du tenant</th><th>Service plateforme</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <th>Pour qui</th>
+        <td>Une compagnie qui branche son propre SI</td>
+        <td>Un service central TOUPAC servant toutes les compagnies abonnées</td>
+      </tr>
+      <tr>
+        <th>Qui émet la clé</th>
+        <td>L'administrateur de la compagnie</td>
+        <td>TOUPAC uniquement</td>
+      </tr>
+      <tr>
+        <th>Préfixe</th>
+        <td><code>tpc_…</code></td>
+        <td><code>tpc_platform_…</code></td>
+      </tr>
+      <tr>
+        <th>Portée</th>
+        <td>Une compagnie, fixée dans la clé</td>
+        <td>Toutes les compagnies abonnées, choisies par requête</td>
+      </tr>
+      <tr>
+        <th>Scopes</th>
+        <td><code>voyage:read</code>, <code>colis:write</code>…</td>
+        <td><code>platform:voyage:read</code>, <code>platform:colis:read</code>…</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <p class="note">
+    Si votre clé commence par <code>tpc_</code> sans <code>platform</code>, cette section
+    ne vous concerne pas : vous êtes une intégration de compagnie, référez-vous à
+    l'authentification décrite plus haut.
+  </p>
+
+  <h3>Deux en-têtes au lieu d'un</h3>
+  <p>
+    Une clé plateforme ne porte pas de compagnie : vous indiquez à chaque appel celle que
+    vous visez, par son <em>slug</em>.
+  </p>
+
+<pre><code>curl https://api.toupac.com/api/v1/voyage/routes/ \
+  -H "X-API-Key: tpc_platform_a1b2c3d4.VOTRE_SECRET" \
+  -H "X-Tenant-ID: sahel-express"</code></pre>
+
+  <p>
+    Le slug est celui retourné par <code>GET /api/v1/platform/tenants/</code>. Ne le
+    devinez pas et ne le mettez pas en dur : la liste des compagnies abonnées évolue sans
+    que vous ayez à redéployer.
+  </p>
+
+  <h3>Endpoints globaux</h3>
+  <p>
+    Deux endpoints répondent sans contexte de compagnie. Ils
+    <strong>refusent</strong> <code>X-Tenant-ID</code> — le transmettre renvoie un
+    <code>400</code>, parce qu'une réponse globale filtrée par compagnie serait un
+    contresens silencieux.
+  </p>
+
+  <table class="table">
+    <thead><tr><th>Endpoint</th><th>Retourne</th></tr></thead>
+    <tbody>
+      <tr>
+        <td><code>GET /api/v1/platform/tenants/</code></td>
+        <td>Les compagnies abonnées à votre service : <code>slug</code> et <code>name</code></td>
+      </tr>
+      <tr>
+        <td><code>GET /api/v1/platform/health/</code></td>
+        <td>L'état de votre clé : service, scopes, date d'expiration, jours restants</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <p>
+    Symétriquement, un endpoint métier appelé avec une clé plateforme
+    <strong>exige</strong> <code>X-Tenant-ID</code> : sans lui, la réponse serait vide
+    sans que rien ne signale l'oubli. Le <code>400</code> est donc explicite.
+  </p>
+
+  <h3>Allowlist IP</h3>
+  <p>
+    Chaque clé plateforme est restreinte aux adresses IP que vous nous communiquez
+    (adresse élastique, plage CIDR d'une passerelle NAT). Un appel depuis une autre
+    origine reçoit un <code>403</code> et déclenche une entrée d'audit. Prévenez-nous
+    <em>avant</em> tout changement d'infrastructure qui déplacerait votre IP de sortie.
+  </p>
+
+  <h3>Rotation</h3>
+  <p>
+    Une clé plateforme expire au bout de 90 jours — la rotation n'est pas optionnelle.
+    Surveillez <code>days_until_expiry</code> sur
+    <code>/api/v1/platform/health/</code> plutôt que d'attendre la vague de
+    <code>401</code>. Nous vous transmettons la clé suivante avant l'échéance ; les deux
+    restent valides le temps que vous basculiez.
+  </p>
+
+  <p class="note note-warn">
+    <strong>Une clé plateforme ouvre les données de toutes les compagnies abonnées.</strong>
+    Stockez-la dans un gestionnaire de secrets — jamais en variable d'environnement en
+    clair, jamais dans un dépôt. Signalez-nous immédiatement toute compromission
+    suspectée : la révocation est instantanée de notre côté.
+  </p>
+</section>

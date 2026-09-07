@@ -21,10 +21,12 @@ import random
 import uuid
 from datetime import date, datetime, time, timedelta
 from decimal import Decimal
+from io import StringIO
 
 from django.conf import settings
 from django.contrib.auth.models import Group, Permission
 from django.contrib.gis.geos import Point, Polygon
+from django.core.management import call_command
 from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
 from django.utils import timezone
@@ -105,6 +107,17 @@ USERS = {
         ("driver2@dem-dikk.sn", "Bineta", "Cissé", User.Role.DRIVER),
     ],
 }
+
+# Clients TOUPAC : globaux, rattachés à aucune compagnie (cf. USR-1). Les trois
+# formes de contact sont représentées — e-mail seul (chatbot web), téléphone
+# seul (chatbot WhatsApp), les deux — pour que la démo montre la convergence des
+# comptes plutôt qu'un seul cas idéal.
+CLIENTS = [
+    ("fatou.mbaye@example.sn", "+221770000101", "Fatou", "Mbaye"),
+    ("ousmane.traore@example.sn", "", "Ousmane", "Traoré"),
+    ("", "+221770000103", "Aminata", "Sow"),
+    ("khadija.diallo@example.sn", "+221770000104", "Khadija", "Diallo"),
+]
 
 VEHICLE_TYPES = [
     ("Autocar 45 places", 45, "diesel", {"rows": 12, "cols": 4}),
@@ -491,8 +504,22 @@ class Command(BaseCommand):
                     is_staff=role in (User.Role.ADMIN, User.Role.DISPATCHER), is_active=True,
                 )
                 created += 1
+        # Les clients ne bouclent pas sur les tenants : ils sont globaux.
+        # `get_or_create_client` porte l'idempotence, inutile de la refaire ici.
+        clients_created = 0
+        for email, client_phone, first, last in CLIENTS:
+            _, was_created = User.get_or_create_client(
+                email=email or None, phone=client_phone or "",
+                first_name=first, last_name=last,
+            )
+            clients_created += was_created
+
         staff = self.grant_staff_permissions()
-        self.step("Utilisateurs", f"{self.counts(created, existing)}, {staff} rattaché(s) au groupe admin")
+        self.step(
+            "Utilisateurs",
+            f"{self.counts(created, existing)}, {clients_created} client(s) global(aux) créé(s), "
+            f"{staff} rattaché(s) au groupe admin",
+        )
 
     @staticmethod
     def grant_staff_permissions():
@@ -1255,6 +1282,12 @@ class Command(BaseCommand):
     # ─── 9. Notifications ───
 
     def seed_notifications(self):
+        # Les gabarits système (dont le code de connexion) ont leur propre
+        # commande, seule source de vérité. On l'appelle plutôt que de recopier
+        # ses entrées ici : les deux seeders se marchaient déjà dessus avant
+        # USR-1, dupliquer le code de connexion aggraverait la divergence.
+        call_command("seed_notification_templates", stdout=StringIO())
+
         templates = logs = 0
         for event_code, channel, title, body in NOTIFICATION_TEMPLATES:
             _, made = NotificationTemplate.objects.get_or_create(

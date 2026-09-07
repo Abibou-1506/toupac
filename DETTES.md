@@ -121,6 +121,149 @@ Portée technique :
 
 À planifier après la refonte notifications.
 
+### Rattacher un second canal à un compte client existant
+
+- [ ] **Un client « e-mail seul » qui se connecte par téléphone crée un doublon**
+      → État : `get_or_create_client` résout par e-mail puis par téléphone. Un
+        client connu par son e-mail qui demande pour la première fois un code
+        sur un numéro jamais associé obtient un **second** compte, avec un
+        historique séparé.
+      → Pourquoi c'est volontaire : rattacher le numéro au compte existant
+        reviendrait à croire sur parole qu'il s'agit de la même personne. Le
+        helper refuse déjà de recopier un identifiant déjà porté par un autre
+        compte (USR-1) — précisément pour ne pas offrir une prise de contrôle à
+        qui devine un numéro.
+      → Fix : endpoint `POST /api/v1/customer/add-contact/`, réservé à un
+        client déjà connecté, qui envoie un code de confirmation sur le canal à
+        ajouter. La preuve de possession est alors établie, la fusion devient
+        légitime. Prévoir la fusion des historiques (USR-3 aura posé les FK).
+      → Effort : ~1 j
+      → Seuil : premiers doublons remontés après la démo lead.
+      → Ref : ticket USR-2, 7 sept 2026.
+
+- [ ] **Le code de connexion est stocké en clair dans `NotificationLog.content`**
+      → État : `send_notification()` journalise le message rendu, code compris.
+        Le catalogue déclare pourtant `confidentiality_masks=("otp",)` sur
+        `notif.auth.otp_signin.v1` — le masquage N-05 n'est pas encore appliqué,
+        il arrive au Ticket B/C de la refonte notifications.
+      → Portée réelle : le code n'est exploitable que 5 minutes, et les lignes
+        sans compagnie ne sont visibles que du superadmin (le mixin d'admin
+        filtre par tenant). Mais la ligne, elle, est conservée indéfiniment.
+      → Fix : appliquer `confidentiality_masks` au rendu journalisé dans le
+        service refondu — le message envoyé garde le code, la trace ne le garde
+        pas.
+      → Effort : intégré au Ticket B
+      → Ref : ticket USR-2, 7 sept 2026.
+
+### JS admin — affichage conditionnel du champ tenant selon le rôle
+
+- [ ] **Le formulaire utilisateur propose « Compagnie » pour tous les rôles**
+      → État : depuis USR-1, la combinaison rôle/tenant est contrainte (CLIENT et
+        SUPERADMIN sans compagnie, rôles opérationnels avec). `User.clean()` et
+        les contraintes de base refusent une saisie incohérente, mais
+        l'opérateur ne l'apprend qu'à la soumission.
+      → Fix : un JS léger qui masque le champ « Compagnie » quand le rôle
+        sélectionné est CLIENT ou SUPERADMIN, et le rend obligatoire sinon.
+      → Effort : ~1 h
+      → Non bloquant : la validation serveur est complète, seul le confort
+        manque.
+      → Ref : ticket USR-1, 7 sept 2026.
+
+### Plateforme — hors périmètre V1 de `PlatformCredential`
+
+Cinq chantiers volontairement écartés du ticket d'implémentation initial
+(ticket `iam-platform-credentials`, 6 sept 2026). Chacun devient nécessaire à un
+seuil identifié, pas « un jour ».
+
+- [ ] **Rotation automatique programmée des `PlatformCredential`**
+      → État : `expires_at` est obligatoire (défaut +90 j) et vérifié à chaque
+        authentification, mais la rotation est entièrement manuelle. Un oubli se
+        solde par une coupure du service partenaire.
+      → Fix : cron ou Celery beat, alerte e-mail à J-30, émission de la clé
+        suivante à J-7 en mode recouvrement (les deux clés valides le temps que
+        le partenaire bascule).
+      → Effort : ~1 j
+      → Seuil : dès la première rotation réelle en production.
+
+- [ ] **Alertes d'usage anormal**
+      → État : `PlatformAuditLog` enregistre tout, personne ne le lit. Un
+        partenaire compromis qui exfiltre passe inaperçu jusqu'à l'audit manuel.
+      → Fix : job Celery quotidien, baseline glissante 7 jours par
+        (tenant, endpoint, heure), alerte superadmin sur écart > 3σ ou pic > 5×.
+      → Effort : ~1,5 j
+      → Seuil : ≥ 3 services plateforme actifs, ou premier partenaire en prod
+        avec volumétrie réelle.
+
+- [ ] **Purge / archivage des `PlatformAuditLog` au-delà de 90 jours**
+      → État : table en croissance non bornée. Estimation à maturité :
+        3 services × 5 000 requêtes/jour × 365 ≈ 5,5 M lignes/an.
+      → Fix : commande de management + tâche périodique, avec export préalable
+        si une exigence de rétention apparaît côté contrat.
+      → Effort : ~0,5 j
+      → Seuil : > 1 M lignes, ou première alerte d'espace disque.
+
+- [ ] **Migration vers OAuth 2.0 client credentials**
+      → État : Option A retenue (clé statique + `X-Tenant-ID`), cf.
+        `docs/design/platform-credentials.md`. Le risque cardinal — compromission
+        du secret partagé — est identique aux deux options ; OAuth apporte
+        surtout des jetons courts et l'interopérabilité SDK.
+      → Fix : `OAuthClient` + `OAuthAccessToken`, endpoints `/oauth/token/` et
+        `/oauth/revoke/`, backend DRF dédié. La `PlatformCredential` actuelle se
+        lit déjà comme un couple `client_id` / `client_secret`.
+      → Effort : ~2 j
+      → Seuil : 3+ services plateforme avec politiques de rotation distinctes,
+        ou exigence d'audit sécurité.
+
+- [ ] **Portail `/developers/platform/` séparé**
+      → État : la documentation plateforme est une section du portail tenant
+        existant. Elle mélange deux publics dont les contrats diffèrent.
+      → Fix : vue et gabarit dédiés, avec le contrat partenaire (allowlist IP,
+        rotation coopérative, gestionnaire de secrets) en première page.
+      → Effort : ~0,5 j
+      → Seuil : 2+ partenaires plateforme distincts.
+
+---
+
+## Sécurité — connu et accepté
+
+- [ ] **Les vues qui redéfinissent `permission_classes` sortent du dispositif de scopes**
+      → État : `MeView`, `LogoutView`, le webhook de paiement et la
+        synchronisation hors ligne posent leur propre `permission_classes`, ce
+        qui écarte les permissions globales `HasApiScope` **et**
+        `HasPlatformScope`. Conséquence mesurée : `GET /api/v1/auth/me/` répond
+        200 à une `ApiCredential` tenant comme à une `PlatformCredential`, alors
+        qu'aucune des deux ne devrait y accéder.
+      → Portée réelle : la réponse décrit le compte technique porteur
+        (`api-bot@<slug>.internal` ou `platform-bot@toupac.internal`), pas un
+        humain ni des données de tenant. La fuite se limite à confirmer qu'une
+        clé est valide et à révéler l'identité du bot.
+      → Comportement pré-existant, découvert en écrivant les tests plateforme —
+        ce n'est pas une régression introduite par ce ticket.
+      → Fix : faire hériter ces vues d'une base qui conserve les permissions
+        globales et n'ajoute `AllowAny`/`IsAuthenticated` qu'en complément, ou
+        annoter explicitement chaque vue comme fermée aux clés.
+      → Effort : ~1 h
+      → Ref : `iam/tests/test_platform_permissions.py::test_platform_key_cannot_reach_endpoints_outside_the_scope_dispositif`
+        (`xfail(strict=True)` documentaire — retirer le marqueur au fix).
+
+- [ ] **`TenantMiddleware._resolve_from_header` accepte `X-Tenant-ID` sans authentification**
+      → État : le middleware résout un tenant depuis `X-Tenant-ID` interprété
+        comme UUID, sans contrôle d'authentification et sans garde `DEBUG`,
+        alors que son docstring annonce « dev/tests uniquement ». Non
+        exploitable aujourd'hui — les branches session et JWT rendent la main
+        avant, et une requête anonyme échoue ensuite sur `IsAuthenticated` —
+        mais la protection tient à un enchaînement, pas à une règle explicite.
+      → Aggravé par ce ticket : le même en-tête porte désormais un **slug** pour
+        les clés plateforme. `PlatformApiKeyAuthentication` est autoritaire (il
+        réécrit `request.tenant` ou refuse), donc les deux usages coexistent
+        sans faille, mais un seul en-tête pour deux formats de valeur est un
+        piège pour la prochaine évolution.
+      → Fix : conditionner `_resolve_from_header` à `settings.DEBUG`, ou
+        renommer l'en-tête de développement (`X-Toupac-Debug-Tenant`) pour que
+        `X-Tenant-ID` appartienne sans ambiguïté au contrat plateforme.
+      → Effort : ~30 min
+      → Ref : ticket `iam-platform-credentials`, 6 sept 2026.
+
 ---
 
 ## Tests / perf

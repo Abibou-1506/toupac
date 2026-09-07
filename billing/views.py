@@ -6,6 +6,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from iam.permissions import ApiScopedViewSetMixin
+from iam.platform_throttles import PlatformKeyRateThrottle
 from iam.throttles import ApiKeyAdminRateThrottle, ApiKeyRateThrottle
 
 from .models import Invoice, Payment, PriceList
@@ -18,7 +19,7 @@ from .serializers import (
 )
 from .services import PricingEngine
 
-API_KEY_THROTTLES = [ApiKeyAdminRateThrottle, ApiKeyRateThrottle]
+API_KEY_THROTTLES = [ApiKeyAdminRateThrottle, ApiKeyRateThrottle, PlatformKeyRateThrottle]
 
 _TAG = extend_schema(tags=["Billing"])
 _CRUD_TAGS = {

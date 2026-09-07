@@ -1,0 +1,74 @@
+{% extends "admin/base_site.html" %}
+{# Même parti que la révélation des clés tenant : on étend base_site, jamais un
+   template interne unfold, qui pourrait bouger de version. #}
+
+{% block content %}
+<div id="platform-credential-reveal" style="max-width: 780px;">
+
+  <div style="border: 2px solid #c1272d; border-radius: 8px; padding: 20px 24px; margin-bottom: 22px;">
+    <h2 style="margin: 0 0 8px; font-size: 18px; color: #c1272d;">
+      Copiez ce secret maintenant
+    </h2>
+    <p style="margin: 0 0 4px;">
+      C'est le seul moment où il est lisible. Il n'est pas stocké en clair :
+      recharger cette page ne le réaffichera pas, et personne — pas même un
+      administrateur TOUPAC — ne peut le retrouver ensuite.
+    </p>
+    <p style="margin: 0;">
+      Cette clé ouvre les données de <strong>tous les tenants abonnés</strong> au
+      service. Transmettez-la par un canal sécurisé, jamais par e-mail en clair.
+    </p>
+  </div>
+
+  <h3 style="margin: 0 0 6px; font-size: 14px;">Clé complète</h3>
+  <pre id="platform-credential-secret"
+       style="background: #1c2128; color: #d6dde5; padding: 16px; border-radius: 8px;
+              overflow-x: auto; user-select: all; font-size: 13.5px; margin: 0 0 6px;"
+  >{{ secret }}</pre>
+  <p style="margin: 0 0 24px; font-size: 13px; color: #6b7280;">
+    À transmettre dans l'en-tête <code>X-API-Key</code>, accompagné de
+    <code>X-Tenant-ID</code> sur les endpoints tenant-scopés. Stockage en
+    gestionnaire de secrets — jamais dans un dépôt ni une variable d'environnement.
+  </p>
+
+  <h3 style="margin: 0 0 6px; font-size: 14px;">Récapitulatif</h3>
+  <table style="border-collapse: collapse; width: 100%; margin-bottom: 24px;">
+    <tbody>
+      <tr>
+        <th style="text-align: left; padding: 7px 12px 7px 0; width: 190px;">Nom</th>
+        <td style="padding: 7px 0;">{{ credential.name }}</td>
+      </tr>
+      <tr>
+        <th style="text-align: left; padding: 7px 12px 7px 0;">Service plateforme</th>
+        <td style="padding: 7px 0;"><code>{{ credential.platform_service }}</code></td>
+      </tr>
+      <tr>
+        <th style="text-align: left; padding: 7px 12px 7px 0;">Préfixe</th>
+        <td style="padding: 7px 0;"><code>{{ credential.key_prefix }}</code></td>
+      </tr>
+      <tr>
+        <th style="text-align: left; padding: 7px 12px 7px 0;">Expiration</th>
+        <td style="padding: 7px 0;">{{ credential.expires_at }} ({{ credential.days_until_expiry }} jours)</td>
+      </tr>
+      <tr>
+        <th style="text-align: left; padding: 7px 12px 7px 0; vertical-align: top;">IP autorisées</th>
+        <td style="padding: 7px 0;">
+          {% for cidr in credential.allowed_ips %}<code>{{ cidr }}</code>{% if not forloop.last %} {% endif %}{% empty %}<em>aucune — développement uniquement</em>{% endfor %}
+        </td>
+      </tr>
+      <tr>
+        <th style="text-align: left; padding: 7px 12px 7px 0; vertical-align: top;">Scopes</th>
+        <td style="padding: 7px 0;">
+          {% for scope in credential.platform_scopes %}<code>{{ scope }}</code>{% if not forloop.last %} {% endif %}{% empty %}—{% endfor %}
+        </td>
+      </tr>
+    </tbody>
+  </table>
+
+  <p>
+    <a href="{{ change_url }}" class="button">Voir la clé</a>
+    <a href="{{ changelist_url }}" style="margin-left: 10px;">Retour à la liste</a>
+  </p>
+
+</div>
+{% endblock %}

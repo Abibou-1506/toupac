@@ -1,8 +1,15 @@
 """TOUPAC IAM — Formulaires d'administration."""
+from datetime import timedelta
+from ipaddress import ip_network
+
 from django import forms
+from django.conf import settings
+from django.utils import timezone
 
 from core.admin import TenantAdminMixin
-from iam.models import ApiCredential
+from iam.models import PLATFORM_DEFAULT_LIFETIME, ApiCredential, PlatformCredential
+from iam.platform_scopes import get_platform_scope_choices
+from iam.platform_services import PLATFORM_SERVICES, get_platform_service_choices
 from iam.scopes import ADMIN_SCOPE, get_scope_choices
 
 
@@ -65,3 +72,93 @@ class ApiCredentialCreateForm(forms.ModelForm):
                 "les scopes correspondant aux opérations attendues."
             )
         return scopes
+
+
+class PlatformCredentialCreateForm(forms.ModelForm):
+    """
+    Formulaire d'émission d'une clé plateforme depuis l'admin.
+
+    Réservé au superadmin TOUPAC (l'admin l'impose via SuperadminOnlyAdminMixin).
+    Les champs générés — préfixe, hash — sont absents : ils sont produits par
+    `PlatformCredential.issue()`, pas saisis.
+
+    Trois garde-fous du ticket sont ici plutôt que sur le modèle, parce qu'ils
+    encadrent le geste d'émission et non l'état de la ligne : le service doit
+    être déclaré en code, l'expiration doit laisser une vraie durée de vie, et
+    l'allowlist IP ne peut être vide qu'en DEBUG.
+    """
+
+    platform_service = forms.ChoiceField(
+        choices=get_platform_service_choices,
+        label="Service plateforme",
+        help_text="Déclaré dans iam/platform_services.py. Ajouter un service est une "
+                  "décision de conception, pas une saisie d'exploitation.",
+    )
+
+    platform_scopes = forms.MultipleChoiceField(
+        choices=get_platform_scope_choices,
+        widget=forms.CheckboxSelectMultiple,
+        label="Scopes plateforme",
+        help_text="Accorder au plus juste. Il n'existe volontairement ni super-scope "
+                  "`platform:*` ni scope d'écriture en V1.",
+    )
+
+    allowed_ips = forms.CharField(
+        widget=forms.Textarea(attrs={"rows": 4, "placeholder": "52.34.10.5/32\n10.0.0.0/24"}),
+        required=False,
+        label="IP autorisées (CIDR)",
+        help_text="Un CIDR par ligne. Une IP seule est acceptée et traitée comme /32.",
+    )
+
+    class Meta:
+        model = PlatformCredential
+        fields = ["name", "platform_service", "platform_scopes", "allowed_ips", "expires_at"]
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # Rotation forcée : l'opérateur part de +90 jours et raccourcit s'il veut,
+        # plutôt que de devoir composer une date à la main à chaque émission.
+        self.fields["expires_at"].required = True
+        self.fields["expires_at"].initial = timezone.now() + PLATFORM_DEFAULT_LIFETIME
+
+    def clean_platform_service(self):
+        service = self.cleaned_data["platform_service"]
+        if service not in PLATFORM_SERVICES:
+            raise forms.ValidationError(
+                f"Service plateforme inconnu : {service!r}. Les services sont déclarés "
+                "dans iam/platform_services.py."
+            )
+        return service
+
+    def clean_allowed_ips(self):
+        """Textarea → liste de CIDR, chaque ligne validée par la stdlib."""
+        raw = self.cleaned_data.get("allowed_ips", "") or ""
+        cidrs = [line.strip() for line in raw.splitlines() if line.strip()]
+
+        invalid = []
+        for cidr in cidrs:
+            try:
+                ip_network(cidr, strict=False)
+            except ValueError:
+                invalid.append(cidr)
+        if invalid:
+            raise forms.ValidationError(
+                f"CIDR invalide(s) : {', '.join(invalid)}. Exemple attendu : 52.34.10.5/32."
+            )
+
+        if not cidrs and not settings.DEBUG:
+            raise forms.ValidationError(
+                "L'allowlist IP est obligatoire hors développement : une clé plateforme "
+                "ouvre les données de tous les tenants abonnés, la restreindre à l'IP "
+                "source du service est la mitigation principale. Renseignez au moins un CIDR."
+            )
+        return cidrs
+
+    def clean_expires_at(self):
+        expires_at = self.cleaned_data["expires_at"]
+        if expires_at < timezone.now() + timedelta(hours=12):
+            raise forms.ValidationError(
+                "Une clé plateforme doit être valide au moins 12 heures après son émission. "
+                "Conservez la valeur par défaut (+90 jours) sauf raison contraire."
+            )
+        return expires_at

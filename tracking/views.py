@@ -8,6 +8,7 @@ from rest_framework.views import APIView
 
 from fleet.models import Vehicle
 from iam.permissions import ApiScopedViewSetMixin
+from iam.platform_throttles import PlatformKeyRateThrottle
 from iam.throttles import ApiKeyAdminRateThrottle, ApiKeyRateThrottle
 
 from .models import Geofence, Position, TrackingLink
@@ -21,7 +22,7 @@ from .serializers import (
     TrackingLinkSerializer,
 )
 
-API_KEY_THROTTLES = [ApiKeyAdminRateThrottle, ApiKeyRateThrottle]
+API_KEY_THROTTLES = [ApiKeyAdminRateThrottle, ApiKeyRateThrottle, PlatformKeyRateThrottle]
 
 _TAG = extend_schema(tags=["Tracking"])
 

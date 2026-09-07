@@ -14,6 +14,7 @@ from rest_framework.views import APIView
 from billing.models import PriceList, PriceRule
 from colis.models import Order as ColisOrder
 from iam.permissions import ApiScopedViewSetMixin
+from iam.platform_throttles import PlatformKeyRateThrottle
 from iam.throttles import ApiKeyAdminRateThrottle, ApiKeyRateThrottle
 
 from .models import (
@@ -53,7 +54,7 @@ from .services.qr_jwt import qr_public_key_pem, sign_ticket_jwt
 
 MAX_BATCH_EVENTS = 100
 
-API_KEY_THROTTLES = [ApiKeyAdminRateThrottle, ApiKeyRateThrottle]
+API_KEY_THROTTLES = [ApiKeyAdminRateThrottle, ApiKeyRateThrottle, PlatformKeyRateThrottle]
 
 _TAG = extend_schema(tags=["Voyage"])
 _CRUD_TAGS = {

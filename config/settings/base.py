@@ -52,6 +52,9 @@ MIDDLEWARE = [
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "core.middleware.TenantMiddleware",
+    # Après TenantMiddleware : sa phase réponse s'exécute donc avant, et lit un
+    # request.tenant déjà résolu (ou écrasé par l'authentification plateforme).
+    "iam.platform_audit.PlatformAuditMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
@@ -104,6 +107,11 @@ AUTHENTICATION_BACKENDS = [
     "guardian.backends.ObjectPermissionBackend",
 ]
 
+# guardian crée un utilisateur « AnonymousUser » en base à chaque post_migrate.
+# Sa fabrique par défaut le laisse en rôle `agent` sans tenant, ce que la
+# contrainte user_tenant_matches_role interdit — cf. iam/guardian.py.
+GUARDIAN_GET_INIT_ANONYMOUS_USER = "iam.guardian.get_anonymous_user_instance"
+
 AUTH_PASSWORD_VALIDATORS = [
     {"NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator"},
     {"NAME": "django.contrib.auth.password_validation.MinimumLengthValidator", "OPTIONS": {"min_length": 10}},
@@ -114,6 +122,11 @@ AUTH_PASSWORD_VALIDATORS = [
 # ─── REST Framework ───
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": [
+        # Clé plateforme avant clé tenant : les deux lisent X-API-Key, et seul
+        # le préfixe les sépare (`tpc_platform_` vs `tpc_`). Comme le premier
+        # est aussi un préfixe valide pour le second, l'ordre garantit qu'une
+        # clé plateforme n'est jamais cherchée dans la table des clés tenant.
+        "iam.platform_authentication.PlatformApiKeyAuthentication",
         # La clé API d'abord : elle s'identifie par son propre header et
         # rend la main aux suivants s'il est absent.
         "iam.api_key_authentication.ApiKeyAuthentication",
@@ -128,6 +141,10 @@ REST_FRAMEWORK = {
         # doit être fermé aux clés API, pas ouvert par défaut. Sans effet
         # sur les utilisateurs JWT ou session.
         "iam.permissions.HasApiScope",
+        # Mêmes raisons côté clés plateforme, plus le contrat X-Tenant-ID
+        # (obligatoire sur les endpoints tenant, interdit sur les globaux).
+        "iam.platform_permissions.HasPlatformScope",
+        "iam.platform_permissions.IsPlatformTenantContextValid",
     ],
     "DEFAULT_PAGINATION_CLASS": "core.pagination.StandardPagination",
     "PAGE_SIZE": 25,
@@ -141,12 +158,19 @@ REST_FRAMEWORK = {
     ],
     "DEFAULT_THROTTLE_RATES": {
         "auth_login": "10/minute",
+        # Chaque demande de code envoie un SMS ou un e-mail : le plafond
+        # protège la facture autant que les comptes visés.
+        "auth_otp_request": "5/hour",
+        "auth_otp_verify": "10/hour",
         "batch_sync": "20/minute",
         "payment_initiate": "30/minute",
         "tenant_burst": "100/minute",
         # Rate limiting par clé API (cf. iam/throttles.py)
         "api_key_default": "1000/hour",
         "api_key_admin": "10000/hour",
+        # Compteur séparé : une clé plateforme sert N tenants (cf.
+        # iam/platform_throttles.py).
+        "platform_key_default": "1000/hour",
     },
     "EXCEPTION_HANDLER": "core.exceptions.toupac_exception_handler",
     "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
@@ -317,6 +341,28 @@ UNFOLD = {
                 "items": [
                     {"title": "Clés API", "icon": "vpn_key", "link": "/admin/iam/apicredential/"},
                     {"title": "Journal d'audit", "icon": "history", "link": "/admin/iam/auditlog/"},
+                    # Réservées au personnel TOUPAC : la sidebar Unfold étant
+                    # déclarative, elle n'applique aucune permission d'elle-même
+                    # et afficherait ces entrées à un admin de compagnie, qui
+                    # récolterait un 403 au clic.
+                    {
+                        "title": "Clés plateforme",
+                        "icon": "hub",
+                        "link": "/admin/iam/platformcredential/",
+                        "permission": "iam.unfold.is_toupac_superadmin",
+                    },
+                    {
+                        "title": "Abonnements tenants",
+                        "icon": "subscriptions",
+                        "link": "/admin/iam/tenantsubscription/",
+                        "permission": "iam.unfold.is_toupac_superadmin",
+                    },
+                    {
+                        "title": "Audit plateforme",
+                        "icon": "monitoring",
+                        "link": "/admin/iam/platformauditlog/",
+                        "permission": "iam.unfold.is_toupac_superadmin",
+                    },
                 ],
             },
             {

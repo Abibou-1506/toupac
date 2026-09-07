@@ -1,0 +1,49 @@
+<section id="platform-scopes" class="section">
+  <h2>Scopes plateforme</h2>
+  <p>
+    Les scopes plateforme sont préfixés <code>platform:</code> et ne se mélangent jamais
+    aux scopes de compagnie : une clé porte les uns ou les autres, jamais les deux. Un
+    scope <code>voyage:read</code> accordé à une compagnie ne satisfait aucune
+    vérification côté plateforme, et réciproquement.
+  </p>
+
+  <table class="table table-scopes">
+    <thead><tr><th>Scope</th><th>Autorise</th></tr></thead>
+    <tbody>
+      {% for scope in platform_scopes %}
+      <tr>
+        <td><code>{{ scope.name }}</code></td>
+        <td>{{ scope.description }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <p class="note note-warn">
+    <strong>Il n'existe ni super-scope <code>platform:*</code>, ni scope d'écriture.</strong>
+    Les deux absences sont délibérées. Le super-scope est refusé aux partenaires externes
+    par principe — votre clé porte une liste explicite, revue périodiquement. L'écriture
+    est fermée en V1 : un service qui traduit du langage naturel en appels API ne doit pas
+    pouvoir déclencher d'effets réels (notification à un chauffeur, SMS facturé) au bout
+    d'une formulation inattendue. Si un besoin d'écriture apparaît, il passera par un
+    mécanisme dédié et contraint, pas par l'ouverture d'un scope générique.
+  </p>
+
+  <h3>Services plateforme déclarés</h3>
+  <p>
+    Votre clé est rattachée à un service, qui détermine les compagnies auxquelles elle
+    donne accès — celles qui y sont abonnées.
+  </p>
+
+  <table class="table">
+    <thead><tr><th>Service</th><th>Description</th></tr></thead>
+    <tbody>
+      {% for service in platform_services %}
+      <tr>
+        <td><code>{{ service.slug }}</code> — {{ service.label }}</td>
+        <td>{{ service.description }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>

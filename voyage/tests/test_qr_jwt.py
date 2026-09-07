@@ -62,10 +62,17 @@ def make_tenant(slug="acme-qr"):
     return Tenant.objects.create(name=f"Transport {slug}", slug=slug)
 
 
-def make_user(tenant, email="client@acme.sn"):
+def make_user(tenant, email="agent@acme.sn"):
+    """Utilisateur rattaché au tenant, pour exercer un endpoint tenant-scopé.
+
+    Rôle AGENT et non CLIENT : depuis USR-1, un client TOUPAC est global et ne
+    peut pas porter de compagnie. Ce que le test demande à ce compte, c'est
+    d'appartenir au tenant du voyage — n'importe quel rôle opérationnel fait
+    l'affaire.
+    """
     return User.objects.create_user(
         email=email, password="x", first_name="Awa", last_name="Diop",
-        tenant=tenant, role=User.Role.CLIENT,
+        tenant=tenant, role=User.Role.AGENT,
     )
 
 

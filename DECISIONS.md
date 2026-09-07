@@ -12,6 +12,189 @@ Ordre : les patterns les plus récents en haut, groupés par domaine.
 
 ---
 
+## Auth, secrets et cache
+
+### Un secret à usage unique se stocke haché, jamais en clair
+_Validé — Ticket user-model-refactor-2 (6 sept 2026)_
+
+Même en cache volatil (Redis, memcached). Le hachage protège contre la
+lecture accidentelle d'un dump ou d'une inspection ; ce qui protège contre
+le brute-force reste le TTL court et le plafond de tentatives, jamais le
+hachage seul. Confusion à éviter : le hash n'est pas une défense en
+profondeur équivalente au reste, c'est une hygiène minimale.
+
+Appliqué aux OTP (SHA256 stocké, comparaison via `secrets.compare_digest`
+en temps constant).
+
+### Écrire l'échéance absolue dans le payload plutôt que d'interroger le TTL
+_Validé — Ticket user-model-refactor-2 (6 sept 2026)_
+
+Le backend `django.core.cache.backends.redis.RedisCache` (stdlib Django 4+)
+n'expose pas le TTL d'une clé. Réémettre la valeur avec le TTL plein à
+chaque réécriture (par exemple pour incrémenter un compteur d'échec)
+prolonge la fenêtre indefiniment — une tentative fausse toutes les 4
+minutes rend le code utilisable pour toujours.
+
+Solution : stocker l'échéance absolue (`expires_at` ISO) dans le payload.
+La réécriture conserve la fenêtre d'origine ; la vérification peut renvoyer
+`expired` sans dépendre de la purge Redis.
+
+**Corollaire ferme** : ne jamais atteindre `cache._cache` ou
+`cache.client.get_client()` pour contourner une API absente. Un backend
+cache Django est un contrat, pas un client Redis déguisé. Si l'API publique
+ne suffit pas, adapter la conception, pas contourner.
+
+### Middleware qui accepte plusieurs formats d'identifiant : essayer le plus permissif en premier
+_Validé — Ticket user-model-refactor-2 (6 sept 2026)_
+
+Quand un header ou un paramètre peut porter plusieurs formats (slug OU
+UUID, id OU email), essayer d'abord le format le plus permissif (celui qui
+ne lève pas d'erreur sur input mal typé). Comparer une chaîne quelconque
+à une colonne UUID fait lever PostgreSQL ; tenter le slug d'abord évite
+ce chemin.
+
+**Point technique subtil** : `filter()` est paresseux, l'erreur PostgreSQL
+s'exécute à l'évaluation. Le try/except doit englober `.first()` ou
+l'itération, pas la construction du queryset.
+
+```python
+# Correct : slug d'abord (permissif), UUID en fallback
+tenant = (
+    Tenant.objects.filter(slug=header_value).first()  # évalue ici
+    or Tenant.objects.filter(id=header_value).first()  # peut lever ValueError
+)
+```
+
+### Un middleware résout, il ne refuse pas
+_Validé — Ticket user-model-refactor-2 (6 sept 2026)_
+
+Laisser `request.tenant = None` et confier le refus aux permissions garde
+une seule chaîne de décision. Un middleware qui bloque une requête parce
+qu'il ne peut pas résoudre le tenant fragmente la logique de contrôle
+d'accès.
+
+**Corollaire découvert au débrief USR-2** : tout backend d'authentification
+qui se déclare autoritaire sur `request.tenant` doit le **réinitialiser à
+l'entrée**. Sinon une résolution amont (middleware) survit à son refus.
+
+Exemple vécu : `PlatformApiKeyAuthentication` refusait pour abonnement
+manquant, mais l'audit log conservait le `tenant_context` visualisé par le
+middleware. Fix : deux lignes qui remettent `request.tenant = None` dès
+l'entrée de l'auth, avant tout contrôle.
+
+### Anti-pattern : dupliquer un jeu de données de référence entre deux seeders
+_Découvert — Tickets notifications-refonte-A et user-model-refactor-2 (5-6 sept 2026)_
+
+Deux commandes de seed qui créent les mêmes entités (gabarits de
+notification, rôles de démo, catégories métier) divergent au premier ajout
+unilatéral. Vécu : `seed_demo` et `seed_notification_templates` recopiaient
+des gabarits sous des clés légèrement différentes — collision d'unicité
+évitée par chance (même `get_or_create`), mais divergence de contenu.
+
+Règle : un seeder est primaire, les autres l'appellent au lieu de recopier.
+`seed_demo` délègue désormais à `seed_notification_templates`. À généraliser
+à tout jeu de données de référence.
+
+### Les noms de variables d'un gabarit sont un contrat
+_Découvert — Ticket user-model-refactor-2 (6 sept 2026)_
+
+Le catalogue déclare les variables autorisées par event (`otp`,
+`expires_in_minutes`, `device_label`). Les employer de mémoire ou par
+supposition dans un gabarit produit un message aux trous silencieux : le
+rendu Django `{{code}}` sur un contexte sans `code` renvoie chaîne vide,
+aucune erreur, `manage.py check` reste vert, les tests d'envoi passent.
+L'utilisateur reçoit son OTP sans code.
+
+Règle : relire la déclaration `variables_schema` de l'event avant d'écrire
+le template ou l'appel au service. `validate_context()` du catalog
+attraperait l'omission au niveau contexte, pas au niveau template.
+
+---
+
+## Contraintes DB et cycle de vie modele
+
+### `unique=True + null=True` > UniqueConstraint partielle sur PostgreSQL
+_Validé — Ticket user-model-refactor-1 (6 sept 2026)_
+
+PostgreSQL traite deux `NULL` comme distincts dans un index unique par
+défaut (`NULLS DISTINCT`). Un champ `EmailField(unique=True, null=True,
+blank=True)` donne donc « unique quand renseigné » nativement, sans
+contrainte partielle, sans opération de migration supplémentaire.
+
+**Piege spécifique Django** : une `UniqueConstraint` conditionnelle sur
+`USERNAME_FIELD` déclenche `auth.W004` (« USERNAME_FIELD is not unique »).
+`manage.py check` devient rouge. La vérification exige une unicité
+garantie ; une contrainte conditionnelle ne satisfait pas.
+
+Solution simple : `unique=True` au niveau champ + `null=True`. `USERNAME_FIELD`
+accepte les valeurs nulles (l'authentification par ce champ ne trouvera pas
+le user, ce qui est le comportement attendu si l'utilisateur ne s'auth pas
+par cette voie).
+
+### `CheckConstraint` comme support de doctrine produit
+_Validé — Ticket user-model-refactor-1 (6 sept 2026)_
+
+Une règle métier structurante (« un client est client de TOUPAC, pas d'une
+compagnie ») doit tenir contre tout code oublieux : `bulk_create`,
+`update()`, migration de données, SQL direct. La vérifier dans `clean()`
+ne suffit pas — `clean()` n'est appelé que par les formulaires.
+
+Règle : `clean()` produit le message lisible pour l'utilisateur, la base
+tient la règle via `CheckConstraint`. Les tester séparément (le second en
+SQL brut / `bulk_create` qui bypasse `clean()`) prouve que le filet
+existe.
+
+Appliqué aux 4 contraintes de cohérence rôle × tenant × email × phone sur
+`User`.
+
+### Anti-pattern : contrainte de modèle sans auditer les tiers qui écrivent en base
+_Découvert — Ticket user-model-refactor-1 (6 sept 2026)_
+
+`django-guardian` matérialise un utilisateur `AnonymousUser` via un signal
+`post_migrate`, avec le rôle par défaut du modèle et sans tenant — exactement
+ce que la nouvelle contrainte `user_tenant_matches_role` interdisait.
+
+Séquence : migrations → contrainte posée → `post_migrate` → IntegrityError.
+Aurait cassé chaque exécution de pytest sur base neuve, la CI, et tout
+nouveau clone. La base de dev déjà peuplée ne l'aurait pas révélé.
+
+Règle : avant d'ajouter une contrainte structurante, lister les paquets
+tiers qui écrivent en base via `post_migrate` (`django-guardian`,
+`django-axes`, `django-notifications-hq`, etc.) et prévoir une fabrique
+qui génère des valeurs conformes.
+
+Appliqué via `iam/guardian.py` — branché par `GUARDIAN_GET_INIT_ANONYMOUS_USER`,
+donne le rôle `SERVICE_ACCOUNT` à l'AnonymousUser.
+
+### Anti-pattern : `Model.clean()` qui lève sur un champ absent du formulaire
+_Découvert — Ticket user-model-refactor-1 (6 sept 2026)_
+
+Quand un mixin d'admin (`TenantAdminMixin`) retire un champ du formulaire
+(non-superadmin ne voit pas `tenant`) et le renseigne dans `save_model`,
+`Model.clean()` peut voir l'instance sans le champ, lever une erreur
+accrochée à ce champ absent. `ModelForm._post_clean` ne sait pas où
+l'accrocher et propage un `ValueError` opaque au lieu d'un message.
+
+Règle : quand un mixin d'admin renseigne un champ dans `save_model`,
+poser la valeur **avant validation** (via `get_form` override qui
+pré-remplit l'instance).
+
+### Un helper `get_or_create` sur des champs uniques doit refuser de voler un identifiant
+_Validé — Ticket user-model-refactor-1 (6 sept 2026)_
+
+Combler un champ vide sur un compte existant est sûr ; écrire une valeur
+déjà portée par un autre compte est soit un crash (IntegrityError à la
+prochaine save), soit une prise de contrôle d'un compte tiers.
+
+Règle : un helper `get_or_create` qui enrichit un compte existant saute
+silencieusement un identifiant déjà pris. Fusionner deux comptes exige
+une preuve de propriété qu'un helper ne peut pas établir — c'est le rôle
+d'un endpoint dédié avec OTP de confirmation.
+
+Appliqué à `User.get_or_create_client()`.
+
+---
+
 ## Registries et catalogues déclaratifs
 
 ### Validation à l'import, pas au premier envoi
