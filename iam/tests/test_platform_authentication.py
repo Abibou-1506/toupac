@@ -19,7 +19,6 @@ from iam.tests.platform_helpers import (
     TEST_IP,
     make_credential,
     platform_client,
-    subscribe,
 )
 
 pytestmark = pytest.mark.django_db
@@ -30,7 +29,6 @@ HEALTH_URL = "/api/v1/platform/health/"
 
 def test_valid_key_authenticates_and_resolves_tenant(tenant_a):
     _, secret = make_credential()
-    subscribe(tenant_a)
 
     response = platform_client(secret, tenant_a.slug).get(ROUTES_URL, REMOTE_ADDR=TEST_IP)
 
@@ -39,7 +37,6 @@ def test_valid_key_authenticates_and_resolves_tenant(tenant_a):
 
 def test_authenticated_request_carries_platform_bot_and_credential(tenant_a):
     credential, secret = make_credential()
-    subscribe(tenant_a)
 
     response = platform_client(secret, tenant_a.slug).get(ROUTES_URL, REMOTE_ADDR=TEST_IP)
 
@@ -112,14 +109,26 @@ def test_ip_not_in_allowlist_refused():
     assert "8.8.8.8" in response.json()["detail"]
 
 
-def test_empty_allowlist_accepted_in_debug_only(settings):
+def test_empty_allowlist_accepts_any_origin_in_production(settings):
+    """
+    Une clé sans restriction d'origine fonctionne partout, y compris en production.
+
+    Le garde-fou d'origine reste recommandé, mais il ne peut pas être obligatoire :
+    un service partenaire sans adresse de sortie stable n'a rien à déclarer.
+    """
+    settings.DEBUG = False
     _, secret = make_credential(allowed_ips=[])
 
-    settings.DEBUG = True
     assert platform_client(secret).get(HEALTH_URL, REMOTE_ADDR="8.8.8.8").status_code == 200
+    assert platform_client(secret).get(HEALTH_URL, REMOTE_ADDR="1.2.3.4").status_code == 200
 
-    settings.DEBUG = False
-    assert platform_client(secret).get(HEALTH_URL, REMOTE_ADDR="8.8.8.8").status_code == 403
+
+def test_key_without_expiry_never_expires():
+    """Le cas nominal : la clé vit jusqu'à sa révocation."""
+    credential, secret = make_credential()
+    assert credential.expires_at is None
+
+    assert platform_client(secret).get(HEALTH_URL, REMOTE_ADDR=TEST_IP).status_code == 200
 
 
 def test_forwarded_for_header_is_used_as_source_ip():
@@ -163,8 +172,6 @@ def test_inactive_key_refused():
 def test_tenant_context_resolved_from_header(tenant_a, tenant_b):
     """Le slug du header choisit le tenant — et lui seul."""
     _, secret = make_credential()
-    subscribe(tenant_a)
-    subscribe(tenant_b)
 
     platform_client(secret, tenant_a.slug).get(ROUTES_URL, REMOTE_ADDR=TEST_IP)
 
@@ -174,7 +181,6 @@ def test_tenant_context_resolved_from_header(tenant_a, tenant_b):
 
 def test_unknown_tenant_slug_refused(tenant_a):
     _, secret = make_credential()
-    subscribe(tenant_a)
 
     response = platform_client(secret, "compagnie-fantome").get(ROUTES_URL, REMOTE_ADDR=TEST_IP)
 
@@ -185,7 +191,6 @@ def test_unknown_tenant_slug_refused(tenant_a):
 def test_suspended_tenant_refused(tenant_suspended):
     """SUSPENDED est le levier de coupure commercial : il ferme aussi la plateforme."""
     _, secret = make_credential()
-    subscribe(tenant_suspended)
 
     response = platform_client(secret, tenant_suspended.slug).get(ROUTES_URL, REMOTE_ADDR=TEST_IP)
 
@@ -194,7 +199,6 @@ def test_suspended_tenant_refused(tenant_suspended):
 
 def test_last_used_at_is_updated(tenant_a):
     credential, secret = make_credential()
-    subscribe(tenant_a)
     assert credential.last_used_at is None
 
     platform_client(secret, tenant_a.slug).get(ROUTES_URL, REMOTE_ADDR=TEST_IP)
@@ -209,7 +213,6 @@ def test_platform_bot_is_the_authenticated_user(tenant_a):
 
     User.objects.filter(email=PLATFORM_BOT_EMAIL).delete()
     _, secret = make_credential()
-    subscribe(tenant_a)
 
     response = platform_client(secret, tenant_a.slug).get(ROUTES_URL, REMOTE_ADDR=TEST_IP)
 

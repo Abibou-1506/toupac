@@ -54,28 +54,33 @@ def test_portal_links_to_swagger(portal_html):
     assert 'href="/api/docs/"' in portal_html
 
 
-def test_portal_contains_no_real_credentials(portal_html):
-    """Les exemples doivent rester des placeholders, jamais une vraie clé.
+#: Suffixe des clés d'exemple. Une clé réellement émise porte 8 hexa après son
+#: préfixe : tout identifiant de cette forme qui ne serait pas celui-ci aurait
+#: été recopié depuis la production.
+FICTITIOUS_KEY_SUFFIXES = {"a1b2c3d4"}
 
-    La règle portait auparavant sur le nombre d'occurrences de `tpc_`, ce qui
-    valait tant que la page ne montrait qu'une clé d'exemple. La section
-    plateforme en a ajouté d'autres (un exemple `tpc_platform_`, et des mentions
-    des deux préfixes dans le tableau comparatif) : on vérifie donc directement
-    ce que la règle voulait dire, à savoir qu'aucun identifiant de clé affiché
-    n'est autre chose qu'un exemple fictif connu.
+
+def assert_no_real_credentials(html):
+    """Aucun identifiant de clé affiché n'est autre chose qu'un exemple fictif.
+
+    La règle portait à l'origine sur le nombre d'occurrences de `tpc_`, ce qui
+    ne valait que tant qu'une seule clé d'exemple figurait sur la page. On
+    vérifie désormais ce qu'elle voulait dire — partagé par les deux portails,
+    qui montrent chacun leur famille de clé.
     """
-    assert "PREFIX.SECRET" in portal_html
-    assert "TOUPAC_API_KEY" in portal_html
-    # Exemples explicitement fictifs, un par famille de clé.
-    assert "tpc_a1b2c3d4" in portal_html
-    assert "tpc_platform_a1b2c3d4" in portal_html
-
-    # Une clé réellement émise porte 8 hexa après son préfixe. Tout identifiant
-    # de cette forme qui ne serait pas l'un des exceptions ci-dessus serait une
-    # vraie clé recopiée dans la documentation.
-    fictitious = {"a1b2c3d4"}
-    for match in re.finditer(r"tpc_(?:platform_)?([0-9a-f]{8})\b", portal_html):
-        assert match.group(1) in fictitious, f"clé potentiellement réelle : {match.group(0)}"
+    for match in re.finditer(r"tpc_(?:platform_)?([0-9a-f]{8})\b", html):
+        assert match.group(1) in FICTITIOUS_KEY_SUFFIXES, (
+            f"clé potentiellement réelle : {match.group(0)}"
+        )
 
     # Et jamais de secret : une clé complète s'écrit prefix.secret.
-    assert not re.search(r"tpc_(?:platform_)?[0-9a-f]{8}\.[A-Za-z0-9_\-]{20,}", portal_html)
+    assert not re.search(r"tpc_(?:platform_)?[0-9a-f]{8}\.[A-Za-z0-9_\-]{20,}", html)
+
+
+def test_portal_contains_no_real_credentials(portal_html):
+    """Les exemples doivent rester des placeholders, jamais une vraie clé."""
+    assert "PREFIX.SECRET" in portal_html
+    assert "TOUPAC_API_KEY" in portal_html
+    assert "tpc_a1b2c3d4" in portal_html  # exemple explicitement fictif
+
+    assert_no_real_credentials(portal_html)

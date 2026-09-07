@@ -17,7 +17,7 @@ from rest_framework import serializers
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from iam.models import PlatformCredential, TenantSubscription
+from iam.models import PlatformCredential, Tenant
 from iam.platform_scopes import GLOBAL_SCOPE
 
 _TAG = ["Plateforme"]
@@ -34,32 +34,36 @@ class PlatformTenantsResponseSerializer(serializers.Serializer):
 
 class PlatformHealthResponseSerializer(serializers.Serializer):
     platform_service = serializers.CharField()
-    expires_at = serializers.DateTimeField()
-    days_until_expiry = serializers.IntegerField()
+    # Nuls tous les deux pour une clé sans échéance, ce qui est le cas nominal.
+    expires_at = serializers.DateTimeField(allow_null=True)
+    days_until_expiry = serializers.IntegerField(allow_null=True)
     scopes = serializers.ListField(child=serializers.CharField())
 
 
 @extend_schema(tags=_TAG, responses=PlatformTenantsResponseSerializer)
 class PlatformTenantsView(APIView):
     """
-    GET /api/v1/platform/tenants/ — tenants abonnés au service de la clé.
+    GET /api/v1/platform/tenants/ — compagnies auxquelles la clé donne accès.
 
-    C'est la découverte dynamique promise à l'équipe partenaire : un nouveau
-    tenant abonné apparaît ici sans qu'elle redéploie quoi que ce soit.
+    C'est la découverte dynamique promise à l'équipe partenaire : une compagnie
+    nouvellement créée apparaît ici sans qu'elle redéploie quoi que ce soit, et
+    sans démarche d'habilitation.
     """
 
     platform_endpoint_type = "global"
     platform_required_scope = GLOBAL_SCOPE
 
     def get(self, request):
-        subscriptions = (
-            TenantSubscription.objects
-            .filter(platform_service=request.auth.platform_service, is_active=True)
-            .select_related("tenant")
-            .order_by("tenant__name")
-        )
-        tenants = [{"slug": s.tenant.slug, "name": s.tenant.name} for s in subscriptions]
-        return Response({"tenants": tenants})
+        # Toutes les compagnies actives, sans habilitation préalable : un
+        # service plateforme est une fonctionnalité de TOUPAC, disponible dès
+        # qu'une compagnie existe. Les suspendues sont exclues — les proposer
+        # reviendrait à annoncer un service qui refusera les appels.
+        tenants = Tenant.objects.filter(
+            status__in=[Tenant.Status.ACTIVE, Tenant.Status.TRIAL],
+        ).order_by("name")
+        return Response({
+            "tenants": [{"slug": t.slug, "name": t.name} for t in tenants],
+        })
 
 
 @extend_schema(tags=_TAG, responses=PlatformHealthResponseSerializer)

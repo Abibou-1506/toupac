@@ -468,8 +468,6 @@ PLATFORM_KEY_PREFIX = "tpc_platform_"
 #: qui expire dans l'heure est toujours une erreur de saisie, jamais une intention.
 PLATFORM_MIN_LIFETIME = timedelta(hours=12)
 
-#: Durée de vie par défaut proposée à l'émission (rotation forcée).
-PLATFORM_DEFAULT_LIFETIME = timedelta(days=90)
 
 
 class PlatformCredential(TimestampMixin, models.Model):
@@ -494,11 +492,15 @@ class PlatformCredential(TimestampMixin, models.Model):
     allowed_ips = models.JSONField(
         "IP autorisées (CIDR)", default=list, blank=True,
         help_text="Liste de CIDR autorisés, ex : [\"52.34.10.5/32\", \"10.0.0.0/24\"]. "
-                  "Liste vide = accepté uniquement en DEBUG.",
+                  "Vide = aucun filtrage d'origine. Fortement recommandé quand le "
+                  "service partenaire dispose d'une IP de sortie stable.",
     )
     is_active = models.BooleanField("Active", default=True)
     expires_at = models.DateTimeField(
-        "Expire le", help_text="Rotation forcée. Défaut à la création : +90 jours.",
+        "Expire le", null=True, blank=True,
+        help_text="Facultatif. Sans date, la clé reste valable jusqu'à sa révocation "
+                  "(is_active). Une expiration impose de repartager le secret au "
+                  "partenaire — à ne programmer que si le contrat l'exige.",
     )
     last_used_at = models.DateTimeField("Dernier usage", null=True, blank=True)
     created_by = models.ForeignKey(
@@ -531,13 +533,14 @@ class PlatformCredential(TimestampMixin, models.Model):
         if unknown:
             errors["platform_scopes"] = f"Scope(s) plateforme inconnu(s) : {', '.join(unknown)}"
 
-        # Contrôlé seulement à la création : durcir une clé existante dont
-        # l'expiration approche empêcherait de la désactiver depuis l'admin.
+        # L'expiration est facultative ; quand elle est posée, elle doit laisser
+        # une vraie durée de vie. Contrôlé seulement à la création : durcir une
+        # clé existante dont l'échéance approche empêcherait de la modifier.
         if self._state.adding and self.expires_at is not None:
             if self.expires_at < timezone.now() + PLATFORM_MIN_LIFETIME:
                 errors["expires_at"] = (
-                    "Une clé plateforme doit être valide au moins 12 heures après son "
-                    "émission. Utilisez la valeur par défaut (+90 jours) sauf raison contraire."
+                    "Une clé plateforme datée doit rester valide au moins 12 heures "
+                    "après son émission. Laissez le champ vide pour une clé sans échéance."
                 )
 
         for cidr in self.allowed_ips or []:
@@ -554,18 +557,24 @@ class PlatformCredential(TimestampMixin, models.Model):
         return scope_name in (self.platform_scopes or [])
 
     def is_usable(self):
-        return self.is_active and self.expires_at > timezone.now()
+        return self.is_active and not self.is_expired()
 
-    def allows_ip(self, ip, *, debug=False):
+    def is_expired(self):
+        """Une clé sans échéance n'expire jamais : seule la révocation la ferme."""
+        return self.expires_at is not None and self.expires_at <= timezone.now()
+
+    def allows_ip(self, ip):
         """
         True si `ip` est couverte par l'allowlist.
 
-        Une allowlist vide n'ouvre l'accès qu'en DEBUG : en production elle
-        signale une clé mal configurée, et laisser passer serait exactement la
-        mitigation qu'on croyait avoir posée. Le refus est donc le défaut.
+        Une liste vide signifie « pas de filtrage d'origine », et non « refuser
+        tout » : un service partenaire sans serveur (fonctions managées,
+        multi-région) n'a pas d'IP de sortie stable à déclarer. Le portail
+        partenaires recommande de la renseigner quand c'est possible ; le
+        cloisonnement repose alors sur les scopes, la révocation et l'audit.
         """
         if not self.allowed_ips:
-            return bool(debug)
+            return True
         try:
             candidate = ip_address(ip)
         except ValueError:
@@ -582,6 +591,9 @@ class PlatformCredential(TimestampMixin, models.Model):
 
     @property
     def days_until_expiry(self):
+        """Jours restants, ou None pour une clé sans échéance."""
+        if self.expires_at is None:
+            return None
         return (self.expires_at - timezone.now()).days
 
     @classmethod
@@ -607,7 +619,9 @@ class PlatformCredential(TimestampMixin, models.Model):
             allowed_ips=list(allowed_ips or []),
             key_prefix=prefix,
             key_hash=make_password(secret),
-            expires_at=expires_at or (timezone.now() + PLATFORM_DEFAULT_LIFETIME),
+            # Pas de défaut : une clé sans échéance est le cas nominal, et
+            # imposer une rotation force à repartager le secret au partenaire.
+            expires_at=expires_at,
             created_by=created_by,
         )
         credential.full_clean(exclude=["created_by"])
@@ -615,63 +629,18 @@ class PlatformCredential(TimestampMixin, models.Model):
         return credential, f"{prefix}.{secret}"
 
 
-class TenantSubscription(models.Model):
-    """
-    Abonnement d'un tenant à un service plateforme.
-
-    C'est la seule autorisation qui ouvre les données d'un tenant à une
-    `PlatformCredential`. Créé par superadmin TOUPAC — un tenant ne s'abonne pas
-    lui-même, l'abonnement relève du contrat commercial.
-    """
-
-    id = UUIDv7Field()
-    tenant = models.ForeignKey(
-        Tenant, on_delete=models.CASCADE, related_name="platform_subscriptions", verbose_name="Tenant",
-    )
-    platform_service = models.CharField("Service plateforme", max_length=50)
-    is_active = models.BooleanField("Actif", default=True)
-    granted_at = models.DateTimeField("Accordé le", auto_now_add=True)
-    revoked_at = models.DateTimeField("Révoqué le", null=True, blank=True)
-    granted_by = models.ForeignKey(
-        User, on_delete=models.SET_NULL, null=True, blank=True,
-        related_name="subscriptions_granted", verbose_name="Accordé par",
-    )
-    notes = models.TextField("Notes", blank=True)
-
-    class Meta:
-        db_table = "iam_tenant_subscriptions"
-        verbose_name = "Abonnement plateforme"
-        verbose_name_plural = "Abonnements plateforme"
-        ordering = ["tenant__name", "platform_service"]
-        constraints = [
-            models.UniqueConstraint(
-                fields=["tenant", "platform_service"],
-                name="unique_tenant_service_subscription",
-            ),
-        ]
-
-    def __str__(self):
-        return f"{self.tenant} → {self.platform_service}"
-
-    def clean(self):
-        from iam.platform_services import is_valid_platform_service
-
-        if not is_valid_platform_service(self.platform_service):
-            raise ValidationError({
-                "platform_service": (
-                    f"Service plateforme inconnu : {self.platform_service!r}. "
-                    "Les services sont déclarés dans iam/platform_services.py."
-                ),
-            })
-
-
 class PlatformAuditLog(models.Model):
     """
     Trace d'un appel API porté par une `PlatformCredential`.
 
-    Une entrée par requête, succès comme échec : un refus d'IP ou un accès à un
-    tenant non abonné est précisément ce qu'on veut voir passer. La volumétrie
+    Une entrée par requête, succès comme échec : un refus d'IP ou un accès
+    hors périmètre est précisément ce qu'on veut voir passer. La volumétrie
     justifie un BigAutoField plutôt qu'un UUID (cf. `tracking.Position`).
+
+    Trois colonnes situent l'appel : quelle clé (`credential`), pour quelle
+    compagnie (`tenant_context`), et au nom de qui (`acting_user`). Sans la
+    dernière, on saurait que le partenaire a lu des réservations sans savoir
+    celles de qui — une trace inexploitable en cas d'incident.
     """
 
     id = models.BigAutoField(primary_key=True)
@@ -682,6 +651,12 @@ class PlatformAuditLog(models.Model):
         Tenant, on_delete=models.SET_NULL, null=True, blank=True,
         related_name="platform_audit_logs", verbose_name="Tenant visé",
         help_text="Tenant résolu depuis X-Tenant-ID. Vide pour les endpoints globaux.",
+    )
+    acting_user = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name="platform_audit_logs_as_acting", verbose_name="Client représenté",
+        help_text="Client au nom duquel la requête a été faite (X-Acting-User-Email). "
+                  "Vide pour les endpoints globaux, qui n'agissent pour personne.",
     )
     endpoint = models.CharField("Endpoint", max_length=200)
     method = models.CharField("Méthode", max_length=10)

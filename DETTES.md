@@ -199,58 +199,23 @@ Portée technique :
         manque.
       → Ref : ticket USR-1, 7 sept 2026.
 
-### Plateforme — hors périmètre V1 de `PlatformCredential`
+### Deux endpoints listent les mêmes compagnies
 
-Cinq chantiers volontairement écartés du ticket d'implémentation initial
-(ticket `iam-platform-credentials`, 6 sept 2026). Chacun devient nécessaire à un
-seuil identifié, pas « un jour ».
-
-- [ ] **Rotation automatique programmée des `PlatformCredential`**
-      → État : `expires_at` est obligatoire (défaut +90 j) et vérifié à chaque
-        authentification, mais la rotation est entièrement manuelle. Un oubli se
-        solde par une coupure du service partenaire.
-      → Fix : cron ou Celery beat, alerte e-mail à J-30, émission de la clé
-        suivante à J-7 en mode recouvrement (les deux clés valides le temps que
-        le partenaire bascule).
-      → Effort : ~1 j
-      → Seuil : dès la première rotation réelle en production.
-
-- [ ] **Alertes d'usage anormal**
-      → État : `PlatformAuditLog` enregistre tout, personne ne le lit. Un
-        partenaire compromis qui exfiltre passe inaperçu jusqu'à l'audit manuel.
-      → Fix : job Celery quotidien, baseline glissante 7 jours par
-        (tenant, endpoint, heure), alerte superadmin sur écart > 3σ ou pic > 5×.
-      → Effort : ~1,5 j
-      → Seuil : ≥ 3 services plateforme actifs, ou premier partenaire en prod
-        avec volumétrie réelle.
-
-- [ ] **Purge / archivage des `PlatformAuditLog` au-delà de 90 jours**
-      → État : table en croissance non bornée. Estimation à maturité :
-        3 services × 5 000 requêtes/jour × 365 ≈ 5,5 M lignes/an.
-      → Fix : commande de management + tâche périodique, avec export préalable
-        si une exigence de rétention apparaît côté contrat.
-      → Effort : ~0,5 j
-      → Seuil : > 1 M lignes, ou première alerte d'espace disque.
-
-- [ ] **Migration vers OAuth 2.0 client credentials**
-      → État : Option A retenue (clé statique + `X-Tenant-ID`), cf.
-        `docs/design/platform-credentials.md`. Le risque cardinal — compromission
-        du secret partagé — est identique aux deux options ; OAuth apporte
-        surtout des jetons courts et l'interopérabilité SDK.
-      → Fix : `OAuthClient` + `OAuthAccessToken`, endpoints `/oauth/token/` et
-        `/oauth/revoke/`, backend DRF dédié. La `PlatformCredential` actuelle se
-        lit déjà comme un couple `client_id` / `client_secret`.
-      → Effort : ~2 j
-      → Seuil : 3+ services plateforme avec politiques de rotation distinctes,
-        ou exigence d'audit sécurité.
-
-- [ ] **Portail `/developers/platform/` séparé**
-      → État : la documentation plateforme est une section du portail tenant
-        existant. Elle mélange deux publics dont les contrats diffèrent.
-      → Fix : vue et gabarit dédiés, avec le contrat partenaire (allowlist IP,
-        rotation coopérative, gestionnaire de secrets) en première page.
-      → Effort : ~0,5 j
-      → Seuil : 2+ partenaires plateforme distincts.
+- [ ] **`/platform/tenants/` et `/customer/companies/` renvoient le même contenu**
+      → État : depuis la suppression des abonnements (USR-4), les deux listent
+        les compagnies actives ou en essai. Ils diffèrent seulement par leur
+        public — le partenaire pour l'un, le client pour l'autre — et par une
+        colonne (`country_code`, absente du premier).
+      → Pourquoi c'est resté : les fusionner obligerait un des deux publics à
+        appeler un chemin qui ne lui parle pas, ou à conserver un alias. Le
+        doublon coûte moins qu'une indirection tant que les deux réponses
+        restent identiques.
+      → Fix : trancher une URL unique et documenter la seconde comme dépréciée,
+        ou assumer la divergence en enrichissant l'une des deux (statut
+        d'abonnement, disponibilité par service).
+      → Effort : ~2 h
+      → Seuil : dès que les deux réponses cessent d'être identiques.
+      → Ref : ticket USR-4, 7 sept 2026.
 
 ---
 

@@ -21,14 +21,26 @@ Deux règles de doctrine, tenues par les tests :
 #: Scope des endpoints sans contexte tenant. Le seul qui refuse `X-Tenant-ID`.
 GLOBAL_SCOPE = "platform:global:read"
 
+#: Scope des endpoints qui répondent au nom d'un client. Ils exigent
+#: `X-Acting-User-Email` (ou `X-Acting-User-Phone`) : sans client désigné, il
+#: n'y a pas de « mes réservations » à servir.
+CUSTOMER_SCOPE = "platform:customer:read"
+
 PLATFORM_AVAILABLE_SCOPES = {
     "platform:voyage:read": "Lecture des données voyage (routes, réservations, sièges)",
+    "platform:voyage:write": "Écriture voyage (réservations, annulations) au nom d'un client",
     "platform:colis:read": "Lecture des données colis (commandes, livraisons)",
+    "platform:colis:write": "Écriture colis (commandes, mises à jour) au nom d'un client",
     "platform:tracking:read": "Lecture des positions GPS",
     "platform:billing:read": "Lecture de la facturation",
+    "platform:billing:write": "Écriture facturation (paiements initiés, remboursements)",
     "platform:notifications:read": "Lecture du centre d'alertes",
-    GLOBAL_SCOPE: "Endpoints globaux (liste des tenants abonnés, santé de la clé) — refuse X-Tenant-ID",
-    # Ne PAS ajouter de `platform:*:write` ni de `platform:*` en V1.
+    CUSTOMER_SCOPE: "Lecture de l'espace d'un client (X-Acting-User-Email requis)",
+    GLOBAL_SCOPE: "Endpoints globaux (liste des compagnies, santé de la clé) — refuse X-Tenant-ID",
+    # Toujours pas de super-scope `platform:*` : chaque clé porte une liste
+    # explicite. Toujours pas de `platform:notifications:emit` non plus —
+    # émettre une notification produit un effet réel (vibration d'un
+    # téléphone, SMS facturé) et reste réservé au code métier interne.
 }
 
 
@@ -50,14 +62,21 @@ def is_global_endpoint_scope(scope: str) -> bool:
     return scope == GLOBAL_SCOPE
 
 
-def platform_scope_for_domain(domain: str) -> str:
+def requires_acting_user(scope: str) -> bool:
+    """Ce scope n'a de sens qu'avec un client désigné par en-tête."""
+    return scope == CUSTOMER_SCOPE
+
+
+def platform_scope_for_domain(domain: str, *, write: bool = False) -> str:
     """
-    Traduit un domaine de scope tenant en scope plateforme de lecture.
+    Traduit un domaine de scope tenant en scope plateforme.
 
     Les ViewSets métier déclarent déjà `api_scope_domain = "voyage"` pour les
     clés tenant. Les réannoter un par un pour la plateforme dupliquerait la même
-    information et laisserait dériver les deux listes ; on dérive le scope
-    plateforme du domaine déjà déclaré. En lecture seule, faute de scope
-    d'écriture en V1 — c'est `HasPlatformScope` qui refuse les verbes d'écriture.
+    information et laisserait dériver les deux listes ; on dérive donc le scope
+    plateforme du domaine déjà déclaré.
+
+    Un domaine sans scope d'écriture déclaré produit une chaîne qui n'est dans
+    aucune clé : le refus est automatique, sans liste d'exceptions à maintenir.
     """
-    return f"platform:{domain}:read"
+    return f"platform:{domain}:{'write' if write else 'read'}"

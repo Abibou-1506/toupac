@@ -37,6 +37,22 @@ class PlatformAuditMiddleware:
         return response
 
     @staticmethod
+    def _acting_user(request):
+        """
+        Le client représenté, ou None.
+
+        Reconnu par son rôle et non par comparaison au porteur technique : le
+        rôle est la propriété qui compte, et s'y fier évite de coder en dur
+        l'adresse du bot à un deuxième endroit.
+        """
+        from iam.models import User
+
+        user = getattr(request, "user", None)
+        if user is None or not user.is_authenticated:
+            return None
+        return user if user.role == User.Role.CLIENT else None
+
+    @staticmethod
     def _record(request, response, credential, started):
         from iam.models import PlatformAuditLog
 
@@ -45,6 +61,7 @@ class PlatformAuditMiddleware:
         try:
             PlatformAuditLog.objects.create(
                 credential=credential,
+                acting_user=PlatformAuditMiddleware._acting_user(request),
                 # request.tenant n'est posé que si la résolution a abouti : sur
                 # un refus d'abonnement le contexte reste vide, ce qui est
                 # l'information utile (« a tenté sans y avoir droit »).

@@ -12,7 +12,6 @@ from iam.tests.platform_helpers import (
     TEST_IP,
     make_credential,
     platform_client,
-    subscribe,
 )
 
 pytestmark = pytest.mark.django_db
@@ -25,35 +24,37 @@ ROUTES_URL = "/api/v1/voyage/routes/"
 
 # ─── Endpoints globaux ───
 
-def test_platform_tenants_lists_subscribed_only(tenant_a, tenant_b, tenant_trial):
+def test_platform_tenants_lists_every_active_company(tenant_a, tenant_b, tenant_trial):
+    """
+    Aucune habilitation préalable : toute compagnie active est accessible.
+
+    C'est le cœur du correctif d'USR-4 — un service plateforme est une
+    fonctionnalité de TOUPAC, pas une option à souscrire compagnie par compagnie.
+    """
     _, secret = make_credential()
-    subscribe(tenant_a)
-    subscribe(tenant_b, is_active=False)   # abonnement révoqué
-    # tenant_trial : jamais abonné
 
     response = platform_client(secret).get(TENANTS_URL, REMOTE_ADDR=TEST_IP)
 
     assert response.status_code == 200
-    assert response.json() == {"tenants": [{"slug": tenant_a.slug, "name": tenant_a.name}]}
+    slugs = {t["slug"] for t in response.json()["tenants"]}
+    assert {tenant_a.slug, tenant_b.slug, tenant_trial.slug} <= slugs
 
 
-def test_platform_tenants_is_scoped_to_the_key_service(tenant_a, tenant_b):
-    """Une clé ne découvre que les tenants abonnés à *son* service."""
-    from iam.models import TenantSubscription
+def test_platform_tenants_excludes_suspended_companies(tenant_a, tenant_suspended):
+    """Annoncer une compagnie suspendue promettrait un service qui refusera les appels."""
+    _, secret = make_credential()
 
-    _, secret = make_credential(service="chatbot-bi")
-    subscribe(tenant_a, service="chatbot-bi")
-    TenantSubscription.objects.create(
-        tenant=tenant_b, platform_service="autre-service", is_active=True,
-    )
+    slugs = {
+        t["slug"] for t in
+        platform_client(secret).get(TENANTS_URL, REMOTE_ADDR=TEST_IP).json()["tenants"]
+    }
 
-    response = platform_client(secret).get(TENANTS_URL, REMOTE_ADDR=TEST_IP)
-
-    slugs = [t["slug"] for t in response.json()["tenants"]]
-    assert slugs == [tenant_a.slug]
+    assert tenant_a.slug in slugs
+    assert tenant_suspended.slug not in slugs
 
 
-def test_platform_health_returns_expiry_info():
+def test_platform_health_reports_no_expiry_by_default():
+    """Le cas nominal depuis USR-4 : une clé vit jusqu'à sa révocation."""
     credential, secret = make_credential(scopes=["platform:global:read"])
 
     response = platform_client(secret).get(HEALTH_URL, REMOTE_ADDR=TEST_IP)
@@ -62,8 +63,23 @@ def test_platform_health_returns_expiry_info():
     body = response.json()
     assert body["platform_service"] == credential.platform_service
     assert body["scopes"] == ["platform:global:read"]
-    assert 89 <= body["days_until_expiry"] <= 90
+    assert body["expires_at"] is None
+    assert body["days_until_expiry"] is None
+
+
+def test_platform_health_reports_expiry_when_set():
+    from datetime import timedelta
+
+    from django.utils import timezone
+
+    _, secret = make_credential(
+        scopes=["platform:global:read"], expires_at=timezone.now() + timedelta(days=90),
+    )
+
+    body = platform_client(secret).get(HEALTH_URL, REMOTE_ADDR=TEST_IP).json()
+
     assert body["expires_at"] is not None
+    assert 89 <= body["days_until_expiry"] <= 90
 
 
 def test_platform_health_requires_global_scope():
@@ -90,7 +106,6 @@ def test_platform_notifications_returns_tenant_items_only(tenant_a, tenant_b, us
     make(tenant_b, user_admin_b, "Pour B")
 
     _, secret = make_credential()
-    subscribe(tenant_a)
 
     response = platform_client(secret, tenant_a.slug).get(NOTIFICATIONS_URL, REMOTE_ADDR=TEST_IP)
 
@@ -102,7 +117,6 @@ def test_platform_notifications_returns_tenant_items_only(tenant_a, tenant_b, us
 
 def test_audit_log_created_on_each_call(tenant_a):
     credential, secret = make_credential()
-    subscribe(tenant_a)
 
     platform_client(secret, tenant_a.slug).get(ROUTES_URL, REMOTE_ADDR=TEST_IP)
 
@@ -131,11 +145,11 @@ def test_audit_log_created_even_on_403_ip_refusal():
     assert log.tenant_context_id is None
 
 
-def test_audit_log_created_on_missing_subscription(tenant_a):
-    """« A tenté d'accéder à un tenant non abonné » doit rester visible."""
+def test_audit_log_created_on_unknown_company(tenant_a):
+    """« A visé une compagnie qui n'existe pas » doit rester visible."""
     _, secret = make_credential()
 
-    response = platform_client(secret, tenant_a.slug).get(ROUTES_URL, REMOTE_ADDR=TEST_IP)
+    response = platform_client(secret, "compagnie-fantome").get(ROUTES_URL, REMOTE_ADDR=TEST_IP)
 
     assert response.status_code == 403
     log = PlatformAuditLog.objects.get()
@@ -172,35 +186,32 @@ def test_no_audit_log_for_non_platform_requests(tenant_a, user_admin_a, authenti
 
 def test_e2e_chatbot_flow(tenant_a, tenant_b):
     """
-    Le parcours complet promis à l'équipe chatbot.
+    Le parcours complet promis à l'équipe partenaire.
 
-    Émettre une clé, abonner un tenant, découvrir les tenants, puis lire leurs
-    données — sans jamais transmettre de secret par tenant ni redéployer.
+    Une clé, aucune démarche par compagnie : découvrir les compagnies, lire
+    celles qu'on veut, sans redéployer ni transmettre de secret supplémentaire.
     """
     from voyage.models import Route
 
     _, secret = make_credential()
-    subscribe(tenant_a)
 
-    # 1. Découverte : sur quels tenants puis-je travailler ?
+    # 1. Découverte : quelles compagnies puis-je servir ?
     discovery = platform_client(secret).get(TENANTS_URL, REMOTE_ADDR=TEST_IP)
     assert discovery.status_code == 200
-    slugs = [t["slug"] for t in discovery.json()["tenants"]]
-    assert slugs == [tenant_a.slug]
+    slugs = {t["slug"] for t in discovery.json()["tenants"]}
+    assert {tenant_a.slug, tenant_b.slug} <= slugs
 
-    # 2. Lecture des données du tenant découvert.
+    # 2. Lecture des données d'une compagnie découverte.
     routes = platform_client(secret, tenant_a.slug).get(ROUTES_URL, REMOTE_ADDR=TEST_IP)
     assert routes.status_code == 200
     returned = {row["id"] for row in routes.json()["results"]}
-    assert returned == {str(pk) for pk in Route.objects.filter(tenant=tenant_a).values_list("id", flat=True)}
+    assert returned == {
+        str(pk) for pk in Route.objects.filter(tenant=tenant_a).values_list("id", flat=True)
+    }
 
-    # 3. Un tenant non abonné reste fermé, avec la même clé.
-    assert platform_client(secret, tenant_b.slug).get(
-        ROUTES_URL, REMOTE_ADDR=TEST_IP,
-    ).status_code == 403
-
-    # 4. L'onboarding du tenant B est un abonnement, rien d'autre.
-    subscribe(tenant_b)
-    assert platform_client(secret, tenant_b.slug).get(
-        ROUTES_URL, REMOTE_ADDR=TEST_IP,
-    ).status_code == 200
+    # 3. La compagnie suivante s'atteint avec la même clé, sans étape préalable.
+    other = platform_client(secret, tenant_b.slug).get(ROUTES_URL, REMOTE_ADDR=TEST_IP)
+    assert other.status_code == 200
+    other_ids = {row["id"] for row in other.json()["results"]}
+    # Le cloisonnement tient malgré tout : chaque appel ne rend qu'une compagnie.
+    assert returned & other_ids == set()

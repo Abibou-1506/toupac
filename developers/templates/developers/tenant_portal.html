@@ -45,8 +45,6 @@
       <p class="sidebar-title">Aller plus loin</p>
       <ul>
         <li><a href="#examples">Exemples de code</a></li>
-        <li><a href="#platform">Mode plateforme</a></li>
-        <li><a href="#platform-scopes">Scopes plateforme</a></li>
         <li><a href="#swagger">Référence complète</a></li>
         <li><a href="#contact">Contact</a></li>
       </ul>
@@ -54,6 +52,15 @@
   </aside>
 
   <main class="content" id="content">
+    <p class="note">
+      <strong>Cette documentation s'adresse aux intégrations d'une compagnie</strong> —
+      votre ERP, votre CRM, une application que vous développez pour vos propres
+      équipes. Votre clé est rattachée à une compagnie et ne voit qu'elle.
+      Vous développez un service destiné à <em>plusieurs</em> compagnies (assistant
+      conversationnel, informatique décisionnelle, application officielle TOUPAC) ?
+      Voyez le <a href="{{ partner_portal_url }}">portail partenaires</a>.
+    </p>
+
     {% include "developers/partials/_intro.html" %}
     {% include "developers/partials/_quickstart.html" %}
     {% include "developers/partials/_auth.html" %}
@@ -63,8 +70,6 @@
     {% include "developers/partials/_pagination.html" %}
     {% include "developers/partials/_filters.html" %}
     {% include "developers/partials/_examples.html" %}
-    {% include "developers/partials/_platform_intro.html" %}
-    {% include "developers/partials/_platform_scopes.html" %}
     {% include "developers/partials/_contact.html" %}
 
     <footer class="foot">

@@ -19,7 +19,6 @@ from .models import (
     PlatformAuditLog,
     PlatformCredential,
     Tenant,
-    TenantSubscription,
     User,
     UserDevice,
 )
@@ -390,7 +389,10 @@ class PlatformCredentialAdmin(SuperadminOnlyAdminMixin, ModelAdmin):
                 "platform_scopes": credential.platform_scopes,
                 "allowed_ips": credential.allowed_ips,
                 "key_prefix": credential.key_prefix,
-                "expires_at": credential.expires_at.isoformat(),
+                # Nul pour une clé sans échéance, désormais le cas nominal.
+                "expires_at": (
+                    credential.expires_at.isoformat() if credential.expires_at else None
+                ),
             },
             ip_address=request.META.get("REMOTE_ADDR"),
             user_agent=request.META.get("HTTP_USER_AGENT", "")[:500],
@@ -471,27 +473,6 @@ class PlatformCredentialAdmin(SuperadminOnlyAdminMixin, ModelAdmin):
         return TemplateResponse(request, "admin/iam/platformcredential/reveal.html", context)
 
 
-@admin.register(TenantSubscription)
-class TenantSubscriptionAdmin(SuperadminOnlyAdminMixin, ModelAdmin):
-    """
-    Abonnements des tenants aux services plateforme.
-
-    C'est le geste d'onboarding : créer la ligne suffit pour que le service
-    plateforme accède au tenant dès sa requête suivante, sans redéploiement de
-    son côté. Réservé au superadmin — l'abonnement relève du contrat commercial,
-    pas d'un réglage qu'une compagnie s'accorde elle-même.
-    """
-
-    list_display = ["tenant", "platform_service", "is_active", "granted_at", "granted_by"]
-    list_filter = ["platform_service", "is_active"]
-    search_fields = ["tenant__name", "tenant__slug", "platform_service"]
-    readonly_fields = ["granted_at", "granted_by"]
-
-    def save_model(self, request, obj, form, change):
-        if not change:
-            obj.granted_by = request.user
-        super().save_model(request, obj, form, change)
-
 
 @admin.register(PlatformAuditLog)
 class PlatformAuditLogAdmin(SuperadminOnlyAdminMixin, ModelAdmin):
@@ -499,10 +480,10 @@ class PlatformAuditLogAdmin(SuperadminOnlyAdminMixin, ModelAdmin):
 
     list_display = [
         "created_at", "credential", "method", "endpoint", "tenant_context",
-        "status_code", "latency_ms",
+        "acting_user", "status_code", "latency_ms",
     ]
-    list_filter = ["status_code", "method", "credential", "tenant_context"]
-    search_fields = ["endpoint", "ip"]
+    list_filter = ["status_code", "method", "credential", "tenant_context", "acting_user"]
+    search_fields = ["endpoint", "ip", "acting_user__email", "acting_user__phone"]
     readonly_fields = [f.name for f in PlatformAuditLog._meta.fields]
 
     def has_add_permission(self, request):

@@ -21,31 +21,77 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from iam.authentication import DenylistJWTAuthentication
 from iam.customer_serializers import (
     MyOrderSerializer,
     MyPaymentSerializer,
     MyReservationSerializer,
 )
 from iam.models import Tenant, User
+from iam.platform_authentication import PlatformApiKeyAuthentication
+from iam.platform_throttles import ActingCustomerRateThrottle, PlatformKeyRateThrottle
 
 _TAG = ["Client"]
+
+#: Deux voies mènent à ces vues : le client par son jeton, ou un service
+#: plateforme agissant pour lui. La clé plateforme est testée en premier — son
+#: préfixe la distingue sans requête, et l'ordre garantit qu'une clé plateforme
+#: n'est jamais interprétée autrement.
+_CUSTOMER_AUTH = [PlatformApiKeyAuthentication, DenylistJWTAuthentication]
+
+#: Deux compteurs, cumulés : la clé pour la plateforme, le client représenté
+#: pour l'individu. Chacun rend `None` hors de son cas, donc ne compte rien.
+_CUSTOMER_THROTTLES = [PlatformKeyRateThrottle, ActingCustomerRateThrottle]
 
 
 class IsAuthenticatedCustomer(IsAuthenticated):
     """
-    Authentifié **et** client TOUPAC.
+    Authentifié **et** client TOUPAC, par l'une des deux voies possibles.
 
-    Le rôle est vérifié en plus de l'authentification : ces vues répondent sans
-    aucun filtre de compagnie, les ouvrir à un membre du personnel lui donnerait
-    une vue transverse qu'aucun autre endpoint ne lui accorde.
+    - **Le client lui-même**, par son jeton JWT (connexion par code, USR-2). Son
+      rôle suffit : il ne consulte que son propre espace.
+    - **Un service plateforme agissant pour lui**, par clé plateforme et
+      `X-Acting-User-Email`. Le rôle ne suffit alors plus : la clé doit porter
+      `platform:customer:read`. Sans cette condition, n'importe quelle clé
+      plateforme lirait l'espace de n'importe quel client en ajoutant un
+      en-tête — l'accès aux personnes serait accordé par défaut plutôt que
+      concédé explicitement.
+
+    Ces vues répondent sans aucun filtre de compagnie ; les ouvrir à un membre
+    du personnel lui donnerait une vue transverse qu'aucun autre endpoint ne
+    lui accorde.
     """
 
     message = "Réservé aux comptes clients TOUPAC."
 
     def has_permission(self, request, view):
+        from iam.models import PlatformCredential
+        from iam.platform_scopes import CUSTOMER_SCOPE
+
         if not super().has_permission(request, view):
             return False
-        return getattr(request.user, "role", None) == User.Role.CLIENT
+
+        if getattr(request.user, "role", None) != User.Role.CLIENT:
+            # Un service plateforme sans en-tête `X-Acting-User-Email` arrive
+            # ici porté par le compte technique : le lui dire évite de le
+            # laisser chercher un scope manquant qui ne manque pas.
+            if isinstance(getattr(request, "auth", None), PlatformCredential):
+                self.message = (
+                    "Cet endpoint répond au nom d'un client : indiquez-le avec "
+                    "l'en-tête X-Acting-User-Email (ou X-Acting-User-Phone)."
+                )
+            return False
+
+        credential = getattr(request, "auth", None)
+        if isinstance(credential, PlatformCredential):
+            if not credential.has_platform_scope(CUSTOMER_SCOPE):
+                self.message = (
+                    f"Cette clé plateforme n'a pas le scope {CUSTOMER_SCOPE}, "
+                    "requis pour agir au nom d'un client."
+                )
+                return False
+
+        return True
 
 
 class CustomerStatsSerializer(serializers.Serializer):
@@ -87,6 +133,8 @@ class CustomerMeView(APIView):
     """
 
     permission_classes = [IsAuthenticatedCustomer]
+    authentication_classes = _CUSTOMER_AUTH
+    throttle_classes = _CUSTOMER_THROTTLES
 
     def get(self, request):
         from colis.models import Order
@@ -128,6 +176,8 @@ class CustomerCompaniesListView(APIView):
     """
 
     permission_classes = [IsAuthenticatedCustomer]
+    authentication_classes = _CUSTOMER_AUTH
+    throttle_classes = _CUSTOMER_THROTTLES
 
     def get(self, request):
         tenants = Tenant.objects.filter(
@@ -168,6 +218,8 @@ class MyReservationsView(APIView):
     """
 
     permission_classes = [IsAuthenticatedCustomer]
+    authentication_classes = _CUSTOMER_AUTH
+    throttle_classes = _CUSTOMER_THROTTLES
 
     def get(self, request):
         from voyage.models import Reservation
@@ -210,6 +262,8 @@ class MyOrdersView(APIView):
     """
 
     permission_classes = [IsAuthenticatedCustomer]
+    authentication_classes = _CUSTOMER_AUTH
+    throttle_classes = _CUSTOMER_THROTTLES
 
     def get(self, request):
         from colis.models import Order
@@ -246,6 +300,8 @@ class MyPaymentsView(APIView):
     """
 
     permission_classes = [IsAuthenticatedCustomer]
+    authentication_classes = _CUSTOMER_AUTH
+    throttle_classes = _CUSTOMER_THROTTLES
 
     def get(self, request):
         from billing.models import CUSTOMER_TYPE_CLIENT_USER, Payment

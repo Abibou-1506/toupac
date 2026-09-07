@@ -3,11 +3,10 @@ from datetime import timedelta
 from ipaddress import ip_network
 
 from django import forms
-from django.conf import settings
 from django.utils import timezone
 
 from core.admin import TenantAdminMixin
-from iam.models import PLATFORM_DEFAULT_LIFETIME, ApiCredential, PlatformCredential
+from iam.models import ApiCredential, PlatformCredential
 from iam.platform_scopes import get_platform_scope_choices
 from iam.platform_services import PLATFORM_SERVICES, get_platform_service_choices
 from iam.scopes import ADMIN_SCOPE, get_scope_choices
@@ -82,10 +81,11 @@ class PlatformCredentialCreateForm(forms.ModelForm):
     Les champs générés — préfixe, hash — sont absents : ils sont produits par
     `PlatformCredential.issue()`, pas saisis.
 
-    Trois garde-fous du ticket sont ici plutôt que sur le modèle, parce qu'ils
-    encadrent le geste d'émission et non l'état de la ligne : le service doit
-    être déclaré en code, l'expiration doit laisser une vraie durée de vie, et
-    l'allowlist IP ne peut être vide qu'en DEBUG.
+    Deux garde-fous vivent ici plutôt que sur le modèle, parce qu'ils encadrent
+    le geste d'émission et non l'état de la ligne : le service doit être déclaré
+    en code, et une expiration renseignée doit laisser une vraie durée de vie.
+    L'allowlist IP, elle, peut rester vide — tous les partenaires n'ont pas
+    d'adresse de sortie stable.
     """
 
     platform_service = forms.ChoiceField(
@@ -99,15 +99,17 @@ class PlatformCredentialCreateForm(forms.ModelForm):
         choices=get_platform_scope_choices,
         widget=forms.CheckboxSelectMultiple,
         label="Scopes plateforme",
-        help_text="Accorder au plus juste. Il n'existe volontairement ni super-scope "
-                  "`platform:*` ni scope d'écriture en V1.",
+        help_text="Accorder au plus juste. Il n'existe volontairement pas de super-scope "
+                  "`platform:*` : chaque clé porte une liste explicite.",
     )
 
     allowed_ips = forms.CharField(
         widget=forms.Textarea(attrs={"rows": 4, "placeholder": "52.34.10.5/32\n10.0.0.0/24"}),
         required=False,
         label="IP autorisées (CIDR)",
-        help_text="Un CIDR par ligne. Une IP seule est acceptée et traitée comme /32.",
+        help_text="Un CIDR par ligne. Une IP seule est acceptée et traitée comme /32. "
+                  "Laisser vide n'applique aucun filtrage d'origine — à réserver aux "
+                  "services sans IP de sortie stable.",
     )
 
     class Meta:
@@ -116,10 +118,14 @@ class PlatformCredentialCreateForm(forms.ModelForm):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        # Rotation forcée : l'opérateur part de +90 jours et raccourcit s'il veut,
-        # plutôt que de devoir composer une date à la main à chaque émission.
-        self.fields["expires_at"].required = True
-        self.fields["expires_at"].initial = timezone.now() + PLATFORM_DEFAULT_LIFETIME
+        # Sans échéance par défaut : imposer une rotation obligerait à
+        # retransmettre le secret au partenaire à chaque échéance, ce qui
+        # multiplie les occasions de le voir fuiter. La révocation immédiate et
+        # la trace d'audit protègent mieux qu'une date.
+        self.fields["expires_at"].required = False
+        self.fields["expires_at"].help_text = (
+            "Facultatif. Sans date, la clé reste valable jusqu'à sa révocation."
+        )
 
     def clean_platform_service(self):
         service = self.cleaned_data["platform_service"]
@@ -146,19 +152,15 @@ class PlatformCredentialCreateForm(forms.ModelForm):
                 f"CIDR invalide(s) : {', '.join(invalid)}. Exemple attendu : 52.34.10.5/32."
             )
 
-        if not cidrs and not settings.DEBUG:
-            raise forms.ValidationError(
-                "L'allowlist IP est obligatoire hors développement : une clé plateforme "
-                "ouvre les données de tous les tenants abonnés, la restreindre à l'IP "
-                "source du service est la mitigation principale. Renseignez au moins un CIDR."
-            )
         return cidrs
 
     def clean_expires_at(self):
-        expires_at = self.cleaned_data["expires_at"]
+        expires_at = self.cleaned_data.get("expires_at")
+        if expires_at is None:
+            return None
         if expires_at < timezone.now() + timedelta(hours=12):
             raise forms.ValidationError(
-                "Une clé plateforme doit être valide au moins 12 heures après son émission. "
-                "Conservez la valeur par défaut (+90 jours) sauf raison contraire."
+                "Une clé datée doit rester valide au moins 12 heures après son émission. "
+                "Laissez le champ vide pour une clé sans échéance."
             )
         return expires_at

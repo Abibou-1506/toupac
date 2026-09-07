@@ -11,7 +11,6 @@ from iam.tests.platform_helpers import (
     TEST_IP,
     make_credential,
     platform_client,
-    subscribe,
 )
 
 pytestmark = pytest.mark.django_db
@@ -26,7 +25,6 @@ NOTIFICATIONS_URL = "/api/v1/platform/notifications/"
 def test_scope_missing_from_credential_refused(tenant_a):
     """Une clé sans `platform:voyage:read` ne lit pas les routes."""
     _, secret = make_credential(scopes=["platform:colis:read", "platform:global:read"])
-    subscribe(tenant_a)
 
     response = platform_client(secret, tenant_a.slug).get(ROUTES_URL, REMOTE_ADDR=TEST_IP)
 
@@ -35,7 +33,6 @@ def test_scope_missing_from_credential_refused(tenant_a):
 
 def test_scope_present_grants_access(tenant_a):
     _, secret = make_credential(scopes=["platform:voyage:read"])
-    subscribe(tenant_a)
 
     response = platform_client(secret, tenant_a.slug).get(ROUTES_URL, REMOTE_ADDR=TEST_IP)
 
@@ -45,7 +42,6 @@ def test_scope_present_grants_access(tenant_a):
 def test_scopes_are_per_domain(tenant_a):
     """Un scope voyage n'ouvre pas colis : pas de fuite entre domaines."""
     _, secret = make_credential(scopes=["platform:voyage:read"])
-    subscribe(tenant_a)
     client = platform_client(secret, tenant_a.slug)
 
     assert client.get(ROUTES_URL, REMOTE_ADDR=TEST_IP).status_code == 200
@@ -66,29 +62,31 @@ def test_tenant_scopes_do_not_satisfy_platform_checks(tenant_a):
     PlatformCredential.objects.filter(pk=credential.pk).update(
         platform_scopes=["voyage:read", "admin:*"],
     )
-    subscribe(tenant_a)
 
     response = platform_client(secret, tenant_a.slug).get(ROUTES_URL, REMOTE_ADDR=TEST_IP)
 
     assert response.status_code == 403
 
 
-def test_write_is_refused_even_with_every_scope(tenant_a):
-    """Aucun scope d'écriture n'existe en V1 : la surface est en lecture seule."""
+def test_write_without_an_acting_user_is_refused_even_with_every_scope(tenant_a):
+    """
+    Tous les scopes ne suffisent pas : une écriture exige un client désigné.
+
+    L'écriture est ouverte depuis USR-4, mais toujours au nom de quelqu'un —
+    l'attribuer au porteur technique produirait une commande sans titulaire.
+    """
     _, secret = make_credential()
-    subscribe(tenant_a)
 
     response = platform_client(secret, tenant_a.slug).post(
         ORDERS_URL, {}, format="json", REMOTE_ADDR=TEST_IP,
     )
 
     assert response.status_code == 403
-    assert "lecture seule" in response.json()["detail"].lower()
+    assert "X-Acting-User-Email" in response.json()["detail"]
 
 
 def test_global_endpoint_refuses_x_tenant_id(tenant_a):
     _, secret = make_credential()
-    subscribe(tenant_a)
 
     response = platform_client(secret, tenant_a.slug).get(TENANTS_URL, REMOTE_ADDR=TEST_IP)
 
@@ -113,36 +111,30 @@ def test_tenant_endpoint_refuses_missing_x_tenant_id():
     assert "X-Tenant-ID" in str(response.json())
 
 
-def test_tenant_endpoint_refuses_tenant_without_subscription(tenant_a):
-    _, secret = make_credential()  # aucun TenantSubscription créé
-
-    response = platform_client(secret, tenant_a.slug).get(ROUTES_URL, REMOTE_ADDR=TEST_IP)
-
-    assert response.status_code == 403
-    assert "abonné" in response.json()["detail"]
-
-
-def test_tenant_endpoint_refuses_inactive_subscription(tenant_a):
+def test_tenant_endpoint_refuses_an_unknown_company():
+    """La compagnie doit exister et être active — c'est le seul filtre qui reste."""
     _, secret = make_credential()
-    subscribe(tenant_a, is_active=False)
 
-    response = platform_client(secret, tenant_a.slug).get(ROUTES_URL, REMOTE_ADDR=TEST_IP)
-
-    assert response.status_code == 403
-
-
-def test_subscription_is_per_service(tenant_a):
-    """Un abonnement à un autre service n'ouvre rien à celle-ci."""
-    from iam.models import TenantSubscription
-
-    _, secret = make_credential(service="chatbot-bi")
-    TenantSubscription.objects.create(
-        tenant=tenant_a, platform_service="autre-service", is_active=True,
+    response = platform_client(secret, "compagnie-fantome").get(
+        ROUTES_URL, REMOTE_ADDR=TEST_IP,
     )
 
-    response = platform_client(secret, tenant_a.slug).get(ROUTES_URL, REMOTE_ADDR=TEST_IP)
-
     assert response.status_code == 403
+    assert "compagnie-fantome" in response.json()["detail"]
+
+
+def test_any_active_company_is_reachable_without_prior_authorisation(tenant_a, tenant_b):
+    """
+    Aucune habilitation par compagnie depuis USR-4.
+
+    Une clé atteint toute compagnie active, et le cloisonnement reste porté par
+    ses scopes — pas par une liste d'abonnées.
+    """
+    _, secret = make_credential(scopes=["platform:voyage:read"])
+
+    for tenant in (tenant_a, tenant_b):
+        response = platform_client(secret, tenant.slug).get(ROUTES_URL, REMOTE_ADDR=TEST_IP)
+        assert response.status_code == 200
 
 
 def test_unannotated_endpoint_is_closed_by_default(tenant_a):
@@ -155,7 +147,6 @@ def test_unannotated_endpoint_is_closed_by_default(tenant_a):
     un oubli d'annotation ouvrirait l'endpoint au lieu de le fermer.
     """
     _, secret = make_credential()
-    subscribe(tenant_a)
 
     response = platform_client(secret, tenant_a.slug).get(
         "/api/v1/notifications/templates/", REMOTE_ADDR=TEST_IP,
@@ -175,7 +166,6 @@ def test_unannotated_endpoint_is_closed_by_default(tenant_a):
 )
 def test_platform_key_cannot_reach_endpoints_outside_the_scope_dispositif(tenant_a):
     _, secret = make_credential()
-    subscribe(tenant_a)
 
     response = platform_client(secret, tenant_a.slug).get("/api/v1/auth/me/", REMOTE_ADDR=TEST_IP)
 
@@ -184,7 +174,6 @@ def test_platform_key_cannot_reach_endpoints_outside_the_scope_dispositif(tenant
 
 def test_notifications_endpoint_requires_its_own_scope(tenant_a):
     _, secret = make_credential(scopes=["platform:voyage:read"])
-    subscribe(tenant_a)
 
     response = platform_client(secret, tenant_a.slug).get(NOTIFICATIONS_URL, REMOTE_ADDR=TEST_IP)
 
@@ -196,3 +185,73 @@ def test_permissions_do_not_affect_jwt_users(tenant_a, user_admin_a, authenticat
     response = authenticated_client(user_admin_a).get(ROUTES_URL)
 
     assert response.status_code == 200
+
+
+# ─── Écriture métier (ouverte par USR-4) ───
+
+RESERVATIONS_URL = "/api/v1/voyage/reservations/"
+
+
+def test_write_requires_the_domain_write_scope(tenant_a, client_fatou):
+    _, secret = make_credential(scopes=["platform:voyage:read", "platform:customer:read"])
+
+    response = platform_client(
+        secret, tenant_a.slug, acting_email=client_fatou.email,
+    ).post(RESERVATIONS_URL, {}, format="json", REMOTE_ADDR=TEST_IP)
+
+    assert response.status_code == 403
+    assert "platform:voyage:write" in response.json()["detail"]
+
+
+def test_write_requires_an_acting_user(tenant_a):
+    """
+    Écrire sans savoir pour qui attribuerait l'enregistrement au porteur technique.
+
+    Le refus porte sur l'absence de client désigné, pas sur un scope : le message
+    doit nommer l'en-tête manquant.
+    """
+    _, secret = make_credential(scopes=["platform:voyage:read", "platform:voyage:write"])
+
+    response = platform_client(secret, tenant_a.slug).post(
+        RESERVATIONS_URL, {}, format="json", REMOTE_ADDR=TEST_IP,
+    )
+
+    assert response.status_code == 403
+    assert "X-Acting-User-Email" in response.json()["detail"]
+
+
+def test_write_passes_the_permission_layer_when_both_conditions_hold(tenant_a, client_fatou):
+    """
+    Scope et client désigné réunis, la permission laisse passer.
+
+    Le corps vide échoue ensuite en validation de champs — un 400, et non un
+    403, prouve qu'on a franchi la couche d'autorisation.
+    """
+    _, secret = make_credential(
+        scopes=["platform:voyage:read", "platform:voyage:write", "platform:customer:read"],
+    )
+
+    response = platform_client(
+        secret, tenant_a.slug, acting_email=client_fatou.email,
+    ).post(RESERVATIONS_URL, {}, format="json", REMOTE_ADDR=TEST_IP)
+
+    assert response.status_code == 400
+
+
+def test_a_domain_without_a_write_scope_stays_closed(tenant_a, client_fatou):
+    """
+    `platform:tracking:write` n'existe pas : aucune clé ne peut le porter.
+
+    Le refus est automatique, sans liste d'exceptions à tenir à jour — c'est ce
+    qui rend l'ouverture de l'écriture sûre domaine par domaine.
+    """
+    from iam.platform_scopes import PLATFORM_AVAILABLE_SCOPES
+
+    assert "platform:tracking:write" not in PLATFORM_AVAILABLE_SCOPES
+
+    _, secret = make_credential(scopes=["platform:tracking:read", "platform:customer:read"])
+    response = platform_client(
+        secret, tenant_a.slug, acting_email=client_fatou.email,
+    ).post("/api/v1/tracking/positions/", {}, format="json", REMOTE_ADDR=TEST_IP)
+
+    assert response.status_code == 403

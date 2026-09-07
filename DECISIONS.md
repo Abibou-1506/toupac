@@ -12,6 +12,174 @@ Ordre : les patterns les plus récents en haut, groupés par domaine.
 
 ---
 
+## Acting user & patterns d'intégration B2B2C
+
+### Le principal authentifié n'est pas toujours le porteur du secret
+_Validé — Ticket user-model-refactor-4 (7 sept 2026)_
+
+Un service B2B2C — chatbot, SDK, gateway, adaptateur — agit pour son
+utilisateur final, pas pour lui-même. `request.user` doit être
+l'utilisateur final résolu, pas le porteur du secret d'intégration.
+
+Bénéfices : les vues, les filtres et l'audit parlent alors du bon compte
+sans connaître le partenaire. `TenantManager` filtre correctement. Les
+endpoints CLIENT-scoped fonctionnent identiquement en JWT direct et via
+plateforme. Le porteur technique (platform-bot) ne subsiste que pour ce
+qui ne concerne personne (endpoints globaux : `/platform/tenants/`,
+`/platform/health/`).
+
+Appliqué via `X-Acting-User-Email` / `X-Acting-User-Phone` résolu par
+`PlatformApiKeyAuthentication`. Le CLIENT est créé silencieusement s'il
+n'existe pas (`get_or_create_client` USR-1). Retour du tuple `(user,
+credential)` à DRF avec le user = CLIENT.
+
+Contre-pattern à éviter : `request.user = platform-bot` + logique métier
+qui va chercher le CLIENT dans le body ou un paramètre. Multiplie les
+points où l'identité est extraite, casse les patterns DRF standard,
+rend l'audit inexploitable.
+
+### Deux compteurs de débit pour deux surfaces d'abus
+_Validé — Ticket user-model-refactor-4 (7 sept 2026)_
+
+Un plafond par clé protège la plateforme, pas les individus : une clé à
+1000/h peut dépenser toute son enveloppe sur une seule personne. Un
+second compteur par CLIENT résolu (via acting user) borne l'extraction
+par compte.
+
+Règle : quand deux surfaces d'abus co-existent (partenaire vs individu
+final), les deux compteurs coexistent. DRF applique tous les throttles,
+le plus contraignant l'emporte sans arbitrage. Aucun code de départage à
+écrire.
+
+Appliqué : `PlatformKeyRateThrottle` (1000/h par clé) +
+`ActingCustomerRateThrottle` (200/h par CLIENT). Le second ne s'active
+que si `request.platform_credential` ET `request.user.role == CLIENT`.
+
+Tester en abaissant les seuils drastiquement (2/h, 1/h) pour ne pas
+avoir à générer 200 appels : la mécanique est prouvée, pas la valeur.
+
+### Une trace d'audit doit répondre « qui, pour qui, où »
+_Validé — Ticket user-model-refactor-4 (7 sept 2026)_
+
+Un journal qui ne dit pas au nom de qui une action a été faite est
+inexploitable en incident. « Le chatbot a lu 50 réservations » ne
+répond pas à « les réservations de quels clients ? ».
+
+Règle : trois champs distincts pour trois questions.
+- **Qui** : `credential` — quelle intégration.
+- **Pour qui** : `acting_user` — au nom de quel compte final.
+- **Où** : `tenant_context` — quelle compagnie / périmètre.
+
+**Corollaire technique** : `on_delete=SET_NULL` (pas `CASCADE`) sur
+`acting_user`. Effacer un compte ne doit jamais effacer la trace des
+accès dont il a fait l'objet — c'est justement à ce moment-là que
+la trace devient utile.
+
+Appliqué à `PlatformAuditLog(credential, acting_user, tenant_context)`.
+
+### Retirer une garantie de sécurité est un arbitrage, pas un relâchement
+_Validé — Ticket user-model-refactor-4 (7 sept 2026)_
+
+La rotation forcée des clés tous les N jours paraît une bonne hygiène.
+En réalité elle oblige à retransmettre le secret à chaque échéance —
+canal officiel, canal secours, backup incident… chaque transmission est
+une occasion de fuite.
+
+Retirer la rotation forcée supprime plus d'occasions de fuite qu'il n'en
+crée, **dans la mesure où** :
+- La révocation immédiate reste possible en cas de compromission.
+- L'audit log complet permet de détecter la compromission.
+- L'allowlist IP borne l'attaquant.
+- La rotation manuelle volontaire reste offerte pour ceux qui la veulent.
+
+À documenter comme un raisonnement, pas comme une simplification. Un
+auditeur qui lit le code demain doit voir les 4 conditions cumulatives
+qui rendent le retrait tenable, pas juste « expires_at nullable pour
+souplesse ».
+
+Cohérent avec le modèle GitHub PAT et Stripe API Key qui ont fait ce
+choix il y a des années sur le même raisonnement.
+
+### Anti-pattern : sentinelle de refus qui survit à son motif
+_Découvert — Ticket user-model-refactor-4 (7 sept 2026)_
+
+Une constante ou une exception codée en dur qui encode « cette classe
+d'actions est impossible aujourd'hui » devient un piège silencieux le
+jour où l'obstacle disparaît. La restriction survit à son motif dans
+une zone morte du code, invisible aux tests unitaires qui la
+contournent.
+
+Vécu USR-4 : `HasPlatformScope._required_scope` renvoyait un sentinelle
+`_WRITE_REFUSED` pour toute action non-lecture — posé en
+iam-platform-credentials quand aucun scope d'écriture n'existait.
+USR-4 introduit `platform:voyage:write`, `platform:colis:write`,
+`platform:billing:write`. Le sentinelle refusait toutes ces actions
+avant même de regarder les scopes. La valeur produit était invisible
+aux tests unitaires (les tests de scopes étaient tous verts sur les
+scopes de lecture).
+
+Règle : préférer une **dérivation qui échoue naturellement** à une
+exception codée en dur. Ex :
+- Bon : `platform_scope_for_domain(domain, write=True)` dérive
+  `platform:{domain}:write`. Un domaine sans scope d'écriture déclaré
+  dérive un nom qui n'est dans aucune clé — refus automatique par
+  absence, sans liste d'exceptions à maintenir.
+- Mauvais : `if action not in READ_ACTIONS: raise WriteRefused()` —
+  survit à son motif.
+
+Un test fige la dérivation (tracking sans write déclaré → refus
+automatique), pas la constante.
+
+---
+
+## Portails et documentation publique
+
+### Un portail public se découpe par public, pas par sujet
+_Validé — Ticket user-model-refactor-4 (7 sept 2026)_
+
+Réunir deux modes d'intégration (tenant / plateforme) sur une même page
+oblige chaque lecteur à ignorer la moitié du texte sans savoir laquelle.
+Le développeur d'une compagnie qui cherche sa clé API se demande
+pourquoi on lui parle de `X-Tenant-ID`. Le développeur chatbot qui
+cherche `X-Acting-User-Email` se demande pourquoi on lui parle d'un
+admin de compagnie.
+
+Règle : deux publics distincts = deux pages. Renvoi croisé d'une phrase
+en tête de chacune, pas un long paragraphe pédagogique. Le lecteur qui
+s'est trompé de page doit voir immédiatement où aller sans lire la
+page complète.
+
+Appliqué : `/developers/` (mode tenant, ApiCredential) et
+`/partners/developers/` (mode plateforme, PlatformCredential).
+
+### Anti-pattern : une documentation d'API dont les affirmations ne sont pas testées
+_Découvert — Ticket user-model-refactor-4 (7 sept 2026)_
+
+Une page de documentation qui affirme des règles (« rotation obligatoire
+tous les 90 jours », « compagnies abonnées au service ») devient
+fausse dès que le code évolue. La doc mensonge se détecte tard, en
+général quand un partenaire externe l'invoque en support (« vous nous
+aviez dit que… »).
+
+Règle : chaque affirmation testable d'une page publique mérite un test
+qui l'ancre. Deux formes possibles :
+- Positive : `assert "X-Tenant-ID" in html` — la page dit bien Y.
+- Négative : `assert "rotation" not in html` — la page ne dit plus X.
+
+Les deux formes valent équivalemment ; la seconde est cruciale pour
+traquer les affirmations obsolètes qui résistent à l'évolution.
+
+Vécu USR-4 : les partiels `_platform_intro.html` affirmaient rotation à
+90 jours et compagnies « abonnées ». Six mois après que ni l'une ni
+l'autre n'existent. Sans le test navigateur du débrief, la doc mensongeait
+en prod pour l'équipe partenaire.
+
+Corollaire : l'anti-critère « déplacé, pas refait » sur un texte de doc
+doit céder devant l'obligation de vérité. Un dev qui refuse une consigne
+cosmétique pour ne pas mentir en documentation fait le bon choix.
+
+---
+
 ## Multi-tenant et cross-tenant
 
 ### `all_objects = models.Manager()` explicite à côté de `objects = TenantManager()`

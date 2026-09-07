@@ -171,6 +171,10 @@ REST_FRAMEWORK = {
         # Compteur séparé : une clé plateforme sert N tenants (cf.
         # iam/platform_throttles.py).
         "platform_key_default": "1000/hour",
+        # Second compteur, par client représenté : le plafond par clé protège
+        # la plateforme, pas les individus — une clé pourrait dépenser son
+        # quota entier sur une seule personne.
+        "acting_customer": "200/hour",
     },
     "EXCEPTION_HANDLER": "core.exceptions.toupac_exception_handler",
     "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
@@ -349,12 +353,6 @@ UNFOLD = {
                         "title": "Clés plateforme",
                         "icon": "hub",
                         "link": "/admin/iam/platformcredential/",
-                        "permission": "iam.unfold.is_toupac_superadmin",
-                    },
-                    {
-                        "title": "Abonnements tenants",
-                        "icon": "subscriptions",
-                        "link": "/admin/iam/tenantsubscription/",
                         "permission": "iam.unfold.is_toupac_superadmin",
                     },
                     {

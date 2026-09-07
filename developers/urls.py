@@ -1,7 +1,7 @@
 from django.urls import path
 
-from .views import DeveloperPortalView
+from .views import TenantDeveloperPortalView
 
 urlpatterns = [
-    path("", DeveloperPortalView.as_view(), name="developer-portal"),
+    path("", TenantDeveloperPortalView.as_view(), name="developer-portal"),
 ]

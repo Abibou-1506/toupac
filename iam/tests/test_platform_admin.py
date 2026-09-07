@@ -24,16 +24,21 @@ SESSION_KEY = "_toupac_platform_credential_reveal"
 
 def create_credential(client, name="Chatbot BI prod", service="chatbot-bi",
                       scopes=("platform:voyage:read", "platform:global:read"),
-                      allowed_ips="52.34.10.5/32", expires_in_days=90):
-    expires_at = timezone.now() + timedelta(days=expires_in_days)
-    return client.post(ADD_URL, {
+                      allowed_ips="52.34.10.5/32", expires_in_days=None):
+    """POST le formulaire d'ajout. `expires_in_days=None` n'envoie aucune date."""
+    payload = {
         "name": name,
         "platform_service": service,
         "platform_scopes": list(scopes),
         "allowed_ips": allowed_ips,
-        "expires_at_0": expires_at.strftime("%Y-%m-%d"),
-        "expires_at_1": expires_at.strftime("%H:%M:%S"),
-    })
+        "expires_at_0": "",
+        "expires_at_1": "",
+    }
+    if expires_in_days is not None:
+        expires_at = timezone.now() + timedelta(days=expires_in_days)
+        payload["expires_at_0"] = expires_at.strftime("%Y-%m-%d")
+        payload["expires_at_1"] = expires_at.strftime("%H:%M:%S")
+    return client.post(ADD_URL, payload)
 
 
 def reveal_url(credential):
@@ -60,11 +65,13 @@ def test_tenant_admin_cannot_access_platform_credential_admin(user_admin_a):
     assert client.get(ADD_URL).status_code == 403
 
 
-def test_tenant_admin_cannot_access_subscription_or_audit_admin(user_admin_a):
-    client = admin_client(user_admin_a)
+def test_tenant_admin_cannot_access_the_platform_audit_admin(user_admin_a):
+    assert admin_client(user_admin_a).get("/admin/iam/platformauditlog/").status_code == 403
 
-    assert client.get("/admin/iam/tenantsubscription/").status_code == 403
-    assert client.get("/admin/iam/platformauditlog/").status_code == 403
+
+def test_subscription_admin_no_longer_exists(superadmin):
+    """Le concept d'abonnement est retiré (USR-4) : plus aucune page ne l'expose."""
+    assert admin_client(superadmin).get("/admin/iam/tenantsubscription/").status_code == 404
 
 
 # ─── Révélation du secret ───
@@ -139,19 +146,9 @@ def test_expires_at_too_soon_refused(superadmin):
     assert PlatformCredential.objects.count() == before
 
 
-def test_empty_allowlist_refused_outside_debug(superadmin, settings):
+def test_empty_allowlist_accepted_in_production(superadmin, settings):
+    """Un partenaire sans adresse de sortie stable doit pouvoir recevoir une clé."""
     settings.DEBUG = False
-    before = PlatformCredential.objects.count()
-
-    response = create_credential(admin_client(superadmin), allowed_ips="")
-
-    assert response.status_code == 200
-    assert "allowlist IP est obligatoire" in response.content.decode()
-    assert PlatformCredential.objects.count() == before
-
-
-def test_empty_allowlist_accepted_in_debug(superadmin, settings):
-    settings.DEBUG = True
 
     response = create_credential(admin_client(superadmin), allowed_ips="")
 
@@ -169,13 +166,30 @@ def test_invalid_cidr_refused(superadmin):
     assert PlatformCredential.objects.count() == before
 
 
-def test_add_form_offers_no_write_or_super_scope(superadmin):
+def test_add_form_offers_no_super_scope(superadmin):
     """La doctrine est visible dans le formulaire, pas seulement dans le code."""
     body = admin_client(superadmin).get(ADD_URL).content.decode()
 
     assert 'value="platform:voyage:read"' in body
+    # L'écriture est ouverte depuis USR-4 ; le super-scope ne l'est toujours pas.
+    assert 'value="platform:voyage:write"' in body
+    assert 'value="platform:customer:read"' in body
     assert 'value="platform:*"' not in body
-    assert ":write" not in body
+    assert 'value="platform:notifications:emit"' not in body
+
+
+def test_add_form_does_not_prefill_an_expiry(superadmin):
+    """Le défaut est une clé sans échéance : le champ arrive vide."""
+    body = admin_client(superadmin).get(ADD_URL).content.decode()
+
+    assert 'name="expires_at_0" value=' not in body
+
+
+def test_credential_can_be_issued_without_expiry(superadmin):
+    response = create_credential(admin_client(superadmin), expires_in_days=None)
+
+    assert response.status_code == 302
+    assert PlatformCredential.objects.get(name="Chatbot BI prod").expires_at is None
 
 
 # ─── Journal d'audit plateforme ───
@@ -198,19 +212,16 @@ def test_platform_audit_log_admin_forbids_change_and_delete(superadmin):
     assert model_admin.has_delete_permission(request) is False
 
 
-# ─── Abonnements ───
+# ─── Journal : le client représenté ───
 
-def test_subscription_records_granting_superadmin(superadmin, tenant_a):
-    from iam.models import TenantSubscription
+def test_audit_admin_exposes_the_acting_user(superadmin):
+    """La colonne doit être visible et filtrable : c'est ce qu'on cherche en incident."""
+    from django.contrib import admin as django_admin
 
-    response = admin_client(superadmin).post("/admin/iam/tenantsubscription/add/", {
-        "tenant": str(tenant_a.pk),
-        "platform_service": "chatbot-bi",
-        "is_active": "on",
-        "notes": "",
-    })
+    from iam.models import PlatformAuditLog
 
-    assert response.status_code == 302
-    subscription = TenantSubscription.objects.get(tenant=tenant_a)
-    assert subscription.granted_by_id == superadmin.id
-    assert subscription.is_active is True
+    model_admin = django_admin.site._registry[PlatformAuditLog]
+
+    assert "acting_user" in model_admin.list_display
+    assert "acting_user" in model_admin.list_filter
+    assert admin_client(superadmin).get("/admin/iam/platformauditlog/").status_code == 200

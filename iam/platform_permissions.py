@@ -24,19 +24,22 @@ def _credential(request):
     return auth if isinstance(auth, PlatformCredential) else None
 
 
-class _WriteRefusedSentinel:
-    """Marqueur : action d'écriture sur une surface plateforme en lecture seule."""
-
-
-_WRITE_REFUSED = _WriteRefusedSentinel()
-
-
 class HasPlatformScope(BasePermission):
-    """Vérifie que la clé plateforme porte le scope exigé par la vue."""
+    """
+    Vérifie que la clé plateforme porte le scope exigé par la vue.
+
+    Depuis USR-4, l'écriture métier est ouverte : le partenaire peut réserver,
+    expédier ou payer. Elle est encadrée par deux conditions cumulatives — le
+    scope d'écriture du domaine, et un client désigné. Écrire sans savoir pour
+    qui attribuerait la réservation au porteur technique, c'est-à-dire à
+    personne, et rendrait l'enregistrement irrattachable à son titulaire.
+    """
 
     message = "Cette clé plateforme n'a pas le scope requis pour cet endpoint."
 
     def has_permission(self, request, view):
+        from iam.models import User
+
         credential = _credential(request)
         if credential is None:
             return True
@@ -48,20 +51,31 @@ class HasPlatformScope(BasePermission):
             self.message = "Cet endpoint n'est pas exposé aux clés plateforme."
             return False
 
-        if required is _WRITE_REFUSED:
-            # Aucun scope d'écriture n'existe en V1 : plutôt que de renvoyer un
-            # « scope manquant » trompeur pour un scope qu'on ne peut pas
-            # accorder, on dit que la surface est en lecture seule.
+        if not credential.has_platform_scope(required):
             self.message = (
-                "Les clés plateforme sont en lecture seule en V1 : aucun scope "
-                "d'écriture n'existe."
+                f"Cette clé plateforme n'a pas le scope {required}, requis pour "
+                "cet endpoint."
             )
             return False
 
-        return credential.has_platform_scope(required)
+        if self._is_write(view) and getattr(request.user, "role", None) != User.Role.CLIENT:
+            self.message = (
+                "Une écriture se fait toujours au nom d'un client : indiquez-le avec "
+                "l'en-tête X-Acting-User-Email (ou X-Acting-User-Phone)."
+            )
+            return False
+
+        return True
 
     @staticmethod
-    def _required_scope(view):
+    def _is_write(view):
+        domain = getattr(view, "api_scope_domain", None)
+        if not domain:
+            return False
+        return getattr(view, "action", None) not in READ_ACTIONS
+
+    @classmethod
+    def _required_scope(cls, view):
         explicit = getattr(view, "platform_required_scope", None)
         if explicit:
             return explicit
@@ -72,8 +86,11 @@ class HasPlatformScope(BasePermission):
         domain = getattr(view, "api_scope_domain", None)
         if not domain:
             return None
-        if getattr(view, "action", None) not in READ_ACTIONS:
-            return _WRITE_REFUSED
+        if cls._is_write(view):
+            # Un domaine sans scope d'écriture déclaré (tracking, par exemple)
+            # produit ici un scope qu'aucune clé ne peut porter : le refus est
+            # alors automatique, sans liste à tenir à jour.
+            return platform_scope_for_domain(domain, write=True)
         return platform_scope_for_domain(domain)
 
 

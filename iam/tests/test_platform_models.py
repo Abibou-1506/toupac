@@ -1,25 +1,24 @@
 """
-TOUPAC IAM — Modèles plateforme : émission, garde-fous, abonnements.
+TOUPAC IAM — Modèles plateforme : émission et garde-fous.
 
-Les contraintes vérifiées ici sont les mitigations sécurité de la note de design
-(rotation forcée, allowlist IP, scopes explicites) : elles ne sont pas
-décoratives, chacune ferme un chemin d'abus concret.
+Ce qui protège une clé plateforme depuis USR-4 : des scopes explicites sans
+super-scope, une restriction d'origine quand le partenaire peut la fournir, et
+une révocation immédiate. L'expiration programmée a été retirée — elle imposait
+de retransmettre le secret à chaque échéance pour un gain nul.
 """
 from datetime import timedelta
 
 import pytest
 from django.core.exceptions import ValidationError
-from django.db import IntegrityError, transaction
 from django.utils import timezone
 
 from iam.models import (
     PLATFORM_BOT_EMAIL,
     PLATFORM_KEY_PREFIX,
     PlatformCredential,
-    TenantSubscription,
     User,
 )
-from iam.tests.platform_helpers import SERVICE, make_credential, subscribe
+from iam.tests.platform_helpers import SERVICE, make_credential
 
 pytestmark = pytest.mark.django_db
 
@@ -43,14 +42,30 @@ def test_platform_credential_secret_is_hashed_not_stored():
     assert credential.key_hash.startswith("pbkdf2_")
 
 
-def test_platform_credential_default_expires_at_is_90_days():
-    """Rotation forcée : sans date fournie, `issue()` en pose une à +90 jours."""
+def test_platform_credential_has_no_expiry_by_default():
+    """
+    Sans date fournie, la clé n'expire pas.
+
+    Une rotation programmée obligerait à retransmettre le secret au partenaire à
+    chaque échéance : autant d'occasions de le voir fuiter, pour un gain nul —
+    ce qui protège est la révocation immédiate, pas le calendrier.
+    """
     credential, _ = PlatformCredential.issue(
         name="Sans échéance explicite", platform_service=SERVICE,
         platform_scopes=["platform:global:read"], allowed_ips=["10.0.0.0/8"],
     )
 
-    assert 89 <= credential.days_until_expiry <= 90
+    assert credential.expires_at is None
+    assert credential.days_until_expiry is None
+    assert credential.is_usable()
+    assert not credential.is_expired()
+
+
+def test_platform_credential_accepts_an_explicit_expiry():
+    """Programmer une échéance reste possible pour qui en a besoin."""
+    credential, _ = make_credential(expires_at=timezone.now() + timedelta(days=30))
+
+    assert 29 <= credential.days_until_expiry <= 30
 
 
 def test_platform_credential_rejects_expires_at_too_soon():
@@ -69,9 +84,26 @@ def test_platform_credential_rejects_unknown_platform_service():
 
 def test_platform_credential_rejects_unknown_scope():
     with pytest.raises(ValidationError) as excinfo:
-        make_credential(scopes=["platform:voyage:write"])
+        make_credential(scopes=["platform:voyage:destroy"])
 
     assert "platform_scopes" in excinfo.value.message_dict
+
+
+def test_platform_credential_rejects_a_super_scope():
+    """`platform:*` n'existe pas et ne doit pas pouvoir être émis."""
+    with pytest.raises(ValidationError) as excinfo:
+        make_credential(scopes=["platform:*"])
+
+    assert "platform_scopes" in excinfo.value.message_dict
+
+
+def test_platform_credential_accepts_the_write_scopes():
+    """USR-4 ouvre l'écriture métier : réserver, expédier, payer pour un client."""
+    credential, _ = make_credential(
+        scopes=["platform:voyage:write", "platform:colis:write", "platform:billing:write"],
+    )
+
+    assert credential.has_platform_scope("platform:voyage:write")
 
 
 def test_platform_credential_rejects_invalid_cidr():
@@ -99,16 +131,22 @@ def test_allows_ip_matches_cidr_range():
     assert not credential.allows_ip("8.8.8.8")
 
 
-def test_empty_allowlist_refused_outside_debug():
-    """Une allowlist vide est une clé mal configurée, pas une clé permissive."""
+def test_empty_allowlist_accepts_every_origin():
+    """
+    Vide signifie « pas de filtrage d'origine », pas « refuser tout ».
+
+    Un service partenaire sans serveur ou multi-région n'a pas d'adresse de
+    sortie stable à déclarer ; lui refuser l'accès reviendrait à lui fermer la
+    plateforme.
+    """
     credential, _ = make_credential(allowed_ips=[])
 
-    assert not credential.allows_ip("8.8.8.8", debug=False)
-    assert credential.allows_ip("8.8.8.8", debug=True)
+    assert credential.allows_ip("8.8.8.8")
+    assert credential.allows_ip("10.0.0.7")
 
 
 def test_is_usable_covers_expiry_and_revocation():
-    credential, _ = make_credential()
+    credential, _ = make_credential(expires_at=timezone.now() + timedelta(days=30))
     assert credential.is_usable()
 
     credential.is_active = False
@@ -116,23 +154,16 @@ def test_is_usable_covers_expiry_and_revocation():
 
     credential.is_active = True
     credential.expires_at = timezone.now() - timedelta(seconds=1)
+    assert credential.is_expired()
     assert not credential.is_usable()
 
 
-def test_tenant_subscription_unique_per_tenant_service(tenant_a):
-    subscribe(tenant_a)
+def test_a_key_without_expiry_is_never_expired():
+    credential, _ = make_credential()
 
-    with pytest.raises(IntegrityError), transaction.atomic():
-        TenantSubscription.objects.create(tenant=tenant_a, platform_service=SERVICE)
-
-
-def test_tenant_subscription_rejects_unknown_service(tenant_a):
-    subscription = TenantSubscription(tenant=tenant_a, platform_service="foobar")
-
-    with pytest.raises(ValidationError) as excinfo:
-        subscription.full_clean()
-
-    assert "platform_service" in excinfo.value.message_dict
+    assert credential.expires_at is None
+    assert not credential.is_expired()
+    assert credential.is_usable()
 
 
 def test_platform_bot_user_created_by_migration():

@@ -20,19 +20,26 @@
   </table>
 
   <p class="note note-warn">
-    <strong>Il n'existe ni super-scope <code>platform:*</code>, ni scope d'écriture.</strong>
-    Les deux absences sont délibérées. Le super-scope est refusé aux partenaires externes
-    par principe — votre clé porte une liste explicite, revue périodiquement. L'écriture
-    est fermée en V1 : un service qui traduit du langage naturel en appels API ne doit pas
-    pouvoir déclencher d'effets réels (notification à un chauffeur, SMS facturé) au bout
-    d'une formulation inattendue. Si un besoin d'écriture apparaît, il passera par un
-    mécanisme dédié et contraint, pas par l'ouverture d'un scope générique.
+    <strong>Il n'existe pas de super-scope <code>platform:*</code>.</strong>
+    L'absence est délibérée : votre clé porte une liste explicite, revue
+    périodiquement. Il n'existe pas non plus de scope d'émission de notification —
+    faire vibrer le téléphone d'un chauffeur ou déclencher un SMS facturé reste
+    déclenché par nos propres traitements métier, jamais par une formulation
+    interprétée.
+  </p>
+
+  <p class="note">
+    Les scopes en écriture agissent <strong>au nom d'un client</strong> : réserver,
+    expédier ou payer suppose de savoir pour qui. Ils s'utilisent donc avec
+    <code>X-Acting-User-Email</code>, comme les endpoints
+    <code>/customer/*</code>.
   </p>
 
   <h3>Services plateforme déclarés</h3>
   <p>
-    Votre clé est rattachée à un service, qui détermine les compagnies auxquelles elle
-    donne accès — celles qui y sont abonnées.
+    Votre clé est rattachée à l'un de ces services, qui identifie votre intégration dans
+    nos journaux. Il ne restreint pas les compagnies accessibles : toute compagnie active
+    l'est, sans démarche préalable.
   </p>
 
   <table class="table">

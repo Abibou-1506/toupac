@@ -1,20 +1,20 @@
 <section id="platform" class="section">
   <h2>Mode plateforme</h2>
   <p>
-    TOUPAC distingue deux familles d'intégration. La documentation ci-dessus décrit la
-    première ; cette section décrit la seconde, réservée aux partenaires mandatés par
-    TOUPAC.
+    Votre intégration sert plusieurs compagnies avec une seule clé, émise par TOUPAC.
+    Elle indique à chaque requête la compagnie visée, et le cas échéant la personne au
+    nom de laquelle elle agit.
   </p>
 
   <table class="table">
     <thead>
-      <tr><th>&nbsp;</th><th>Intégration du tenant</th><th>Service plateforme</th></tr>
+      <tr><th>&nbsp;</th><th>Intégration d'une compagnie</th><th>Service plateforme</th></tr>
     </thead>
     <tbody>
       <tr>
         <th>Pour qui</th>
-        <td>Une compagnie qui branche son propre SI</td>
-        <td>Un service central TOUPAC servant toutes les compagnies abonnées</td>
+        <td>Une compagnie qui branche son propre système</td>
+        <td>Un service TOUPAC servant toutes les compagnies</td>
       </tr>
       <tr>
         <th>Qui émet la clé</th>
@@ -29,20 +29,19 @@
       <tr>
         <th>Portée</th>
         <td>Une compagnie, fixée dans la clé</td>
-        <td>Toutes les compagnies abonnées, choisies par requête</td>
+        <td>Toute compagnie active, choisie par requête</td>
       </tr>
       <tr>
         <th>Scopes</th>
         <td><code>voyage:read</code>, <code>colis:write</code>…</td>
-        <td><code>platform:voyage:read</code>, <code>platform:colis:read</code>…</td>
+        <td><code>platform:voyage:read</code>, <code>platform:customer:read</code>…</td>
       </tr>
     </tbody>
   </table>
 
   <p class="note">
-    Si votre clé commence par <code>tpc_</code> sans <code>platform</code>, cette section
-    ne vous concerne pas : vous êtes une intégration de compagnie, référez-vous à
-    l'authentification décrite plus haut.
+    Si votre clé commence par <code>tpc_</code> <em>sans</em> <code>platform</code>,
+    vous êtes une intégration de compagnie : cette page ne vous concerne pas.
   </p>
 
   <h3>Deux en-têtes au lieu d'un</h3>
@@ -57,8 +56,8 @@
 
   <p>
     Le slug est celui retourné par <code>GET /api/v1/platform/tenants/</code>. Ne le
-    devinez pas et ne le mettez pas en dur : la liste des compagnies abonnées évolue sans
-    que vous ayez à redéployer.
+    devinez pas et ne le mettez pas en dur : une compagnie nouvellement créée y apparaît
+    aussitôt, sans démarche d'habilitation ni redéploiement de votre côté.
   </p>
 
   <h3>Endpoints globaux</h3>
@@ -74,7 +73,7 @@
     <tbody>
       <tr>
         <td><code>GET /api/v1/platform/tenants/</code></td>
-        <td>Les compagnies abonnées à votre service : <code>slug</code> et <code>name</code></td>
+        <td>Les compagnies accessibles : <code>slug</code> et <code>name</code></td>
       </tr>
       <tr>
         <td><code>GET /api/v1/platform/health/</code></td>
@@ -89,27 +88,37 @@
     sans que rien ne signale l'oubli. Le <code>400</code> est donc explicite.
   </p>
 
-  <h3>Allowlist IP</h3>
+  <h3>Restriction par adresse IP</h3>
   <p>
-    Chaque clé plateforme est restreinte aux adresses IP que vous nous communiquez
-    (adresse élastique, plage CIDR d'une passerelle NAT). Un appel depuis une autre
-    origine reçoit un <code>403</code> et déclenche une entrée d'audit. Prévenez-nous
-    <em>avant</em> tout changement d'infrastructure qui déplacerait votre IP de sortie.
+    Communiquez-nous vos adresses de sortie (adresse élastique, plage CIDR d'une
+    passerelle NAT) et nous restreindrons votre clé à celles-ci : un appel venu d'ailleurs
+    reçoit alors un <code>403</code> et laisse une entrée d'audit. C'est la protection la
+    plus efficace contre l'usage d'un secret dérobé — demandez-la dès que votre
+    infrastructure le permet, et prévenez-nous <em>avant</em> tout changement qui
+    déplacerait ces adresses.
+  </p>
+  <p>
+    Si votre service n'a pas d'adresse stable (exécution sans serveur, multi-région),
+    la clé fonctionne sans restriction d'origine. Le cloisonnement repose alors
+    entièrement sur vos scopes et sur le journal d'audit.
   </p>
 
-  <h3>Rotation</h3>
+  <h3>Durée de vie</h3>
   <p>
-    Une clé plateforme expire au bout de 90 jours — la rotation n'est pas optionnelle.
-    Surveillez <code>days_until_expiry</code> sur
-    <code>/api/v1/platform/health/</code> plutôt que d'attendre la vague de
-    <code>401</code>. Nous vous transmettons la clé suivante avant l'échéance ; les deux
-    restent valides le temps que vous basculiez.
+    Votre clé reste valable jusqu'à sa révocation : nous n'imposons pas d'expiration
+    programmée, qui obligerait à retransmettre le secret à chaque échéance et
+    multiplierait les occasions de le voir fuiter. Une date d'expiration peut être posée
+    à votre demande — <code>GET /api/v1/platform/health/</code> renvoie alors
+    <code>days_until_expiry</code>, et <code>null</code> sinon.
+  </p>
+  <p>
+    En contrepartie, la révocation est immédiate et sans préavis en cas de suspicion.
   </p>
 
   <p class="note note-warn">
-    <strong>Une clé plateforme ouvre les données de toutes les compagnies abonnées.</strong>
+    <strong>Une clé plateforme ouvre les données de toutes les compagnies actives.</strong>
     Stockez-la dans un gestionnaire de secrets — jamais en variable d'environnement en
     clair, jamais dans un dépôt. Signalez-nous immédiatement toute compromission
-    suspectée : la révocation est instantanée de notre côté.
+    suspectée : nous révoquons dans la minute et vous en émettons une nouvelle.
   </p>
 </section>

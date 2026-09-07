@@ -1,0 +1,110 @@
+{% load static %}<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>API TOUPAC — Portail partenaires plateforme</title>
+  <meta name="description" content="Documentation des intégrations multi-compagnies TOUPAC : clé plateforme, en-têtes X-Tenant-ID et X-Acting-User-Email, scopes, quotas.">
+  <link rel="stylesheet" href="{% static 'developers/css/portal.css' %}">
+</head>
+<body>
+
+<a class="skip-link" href="#content">Aller au contenu</a>
+
+<header class="topbar">
+  <div class="topbar-inner">
+    <a class="brand" href="#top">
+      <span class="brand-mark">T</span>
+      <span class="brand-text">TOUPAC <span class="brand-sub">Partenaires</span></span>
+    </a>
+    <nav class="topbar-links">
+      <a href="/api/docs/">Référence Swagger</a>
+      <a href="#contact">Support</a>
+    </nav>
+  </div>
+</header>
+
+<div class="layout" id="top">
+
+  <aside class="sidebar">
+    <nav aria-label="Sommaire">
+      <p class="sidebar-title">Démarrer</p>
+      <ul>
+        <li><a href="#platform">Mode plateforme</a></li>
+        <li><a href="#acting-user">Agir au nom d'un client</a></li>
+      </ul>
+      <p class="sidebar-title">Référence</p>
+      <ul>
+        <li><a href="#platform-scopes">Scopes plateforme</a></li>
+        <li><a href="#platform-limits">Quotas</a></li>
+        <li><a href="#errors">Erreurs</a></li>
+        <li><a href="#pagination">Pagination</a></li>
+        <li><a href="#filters">Filtres &amp; tri</a></li>
+      </ul>
+      <p class="sidebar-title">Aller plus loin</p>
+      <ul>
+        <li><a href="#swagger">Référence complète</a></li>
+        <li><a href="#contact">Contact</a></li>
+      </ul>
+    </nav>
+  </aside>
+
+  <main class="content" id="content">
+    <p class="note">
+      <strong>Cette documentation s'adresse aux services destinés à plusieurs
+      compagnies</strong> — assistant conversationnel, informatique décisionnelle,
+      application officielle TOUPAC. Vous intégrez l'API pour <em>votre propre</em>
+      compagnie (ERP, CRM interne) ? Voyez le
+      <a href="{{ tenant_portal_url }}">portail développeurs</a>.
+    </p>
+
+    {% include "developers/partials/_platform_intro.html" %}
+    {% include "developers/partials/_platform_acting_user.html" %}
+    {% include "developers/partials/_platform_scopes.html" %}
+
+    <section id="platform-limits" class="section">
+      <h2>Quotas</h2>
+      <p>
+        Deux compteurs s'appliquent ensemble ; le premier atteint renvoie un
+        <code>429</code> avec un en-tête <code>Retry-After</code>.
+      </p>
+      <table class="table">
+        <thead><tr><th>Compteur</th><th>Limite</th><th>Portée</th></tr></thead>
+        <tbody>
+          <tr>
+            <td>Clé plateforme</td>
+            <td>{{ rate_platform }} requêtes / heure</td>
+            <td>Toute votre intégration, compagnies et clients confondus.</td>
+          </tr>
+          <tr>
+            <td>Client représenté</td>
+            <td>{{ rate_acting_customer }} requêtes / heure</td>
+            <td>
+              Par personne désignée par <code>X-Acting-User-Email</code>. Sans cette
+              seconde limite, une boucle sur un seul compte consommerait tout votre
+              quota et extrairait bien plus de données que nécessaire.
+            </td>
+          </tr>
+        </tbody>
+      </table>
+      <p>
+        Ces deux plafonds sont indépendants : atteindre celui d'un client ne bloque pas
+        les requêtes concernant les autres.
+      </p>
+    </section>
+
+    {% include "developers/partials/_errors.html" %}
+    {% include "developers/partials/_pagination.html" %}
+    {% include "developers/partials/_filters.html" %}
+    {% include "developers/partials/_contact.html" %}
+
+    <footer class="foot">
+      <p>TOUPAC — Transport Management System. Documentation à jour au moment du déploiement de cette instance.</p>
+    </footer>
+  </main>
+
+</div>
+
+<script src="{% static 'developers/js/portal.js' %}" defer></script>
+</body>
+</html>
