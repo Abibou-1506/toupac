@@ -12,7 +12,136 @@ Ordre : les patterns les plus récents en haut, groupés par domaine.
 
 ---
 
+## Multi-tenant et cross-tenant
+
+### `all_objects = models.Manager()` explicite à côté de `objects = TenantManager()`
+_Validé — Ticket user-model-refactor-3 (7 sept 2026)_
+
+Dès qu'un modèle expose `objects = TenantManager()` (filtre automatique par
+`request.tenant`), lui ajouter en même temps `all_objects = models.Manager()`.
+Le coût est de 2 lignes ; le bénéfice est que tout futur endpoint
+cross-tenant (CLIENT global, superadmin, rapport agrégé) peut bypasser le
+filtre proprement sans monkey-patch ni accès au manager privé
+`Model._base_manager`.
+
+Vécu USR-3 : plusieurs modèles métier n'avaient pas `all_objects`, les vues
+CLIENT-scoped ont dû l'ajouter au fur et à mesure. Chaîne décaissée :
+reprendre chaque modèle concerné, changer sa déclaration, regarder les
+tests qui dépendaient du comportement de `objects.all()` par défaut. Faire
+en amont au moment de déclarer le manager coute rien.
+
+### `limit_choices_to` != validation modèle
+_Confirmé — Ticket user-model-refactor-3 (7 sept 2026)_
+
+`limit_choices_to={"role": "client"}` filtre les dropdowns dans l'admin
+Django et le formfield par défaut, mais **ne bloque pas** un
+`Passenger.objects.create(customer_user=<staff>)` en Python, `bulk_create`,
+ou une manipulation directe via l'ORM.
+
+Règle : `limit_choices_to` = ergonomie du formulaire, `CheckConstraint` DB
+= doctrine. Les deux ensemble pour une contrainte structurante ; le seul
+`limit_choices_to` pour un simple confort UX qui peut être contourné par
+un admin techniquement légitime.
+
+Exemples cohabitants dans le code aujourd'hui :
+- `User.tenant × role` : `CheckConstraint` (USR-1) + validation `clean()`.
+- `Passenger.customer_user` : `limit_choices_to` + `CheckConstraint` (USR-3).
+
+### Query union sur FK optionnelles : `.distinct()` obligatoire
+_Découvert — Ticket user-model-refactor-3 (7 sept 2026)_
+
+Une query du type
+`Payment.filter(Q(order__customer=user) | Q(invoice__customer_id=user.id))`
+génère un `LEFT JOIN` sur chaque relation dans le `Q()`. Un paiement lié
+à la fois à une order ET à une invoice (rare mais légitime en cas de
+cash flow complexe) est retourné en double.
+
+Règle : ajouter `.distinct()` en fin de query, ou séparer en 2 querysets
+unis via `.union()`. La distinction est de lisibilité : `.distinct()`
+garde une seule query SQL mais peut être plus coûteux sur de gros
+volumes ; `.union()` est plus explicite mais casse le tri commun.
+
+Vécu USR-3 : `Payment.all_objects.filter(Q(order__customer=user) |
+Q(invoice__customer_id=user.id, invoice__customer_type="client_user")).distinct()`.
+
+### Serializers cross-tenant : `tenant_slug` par item, pas globalement
+_Validé — Ticket user-model-refactor-3 (7 sept 2026)_
+
+Un endpoint qui retourne des données de plusieurs tenants doit inclure
+`tenant_slug` (et souvent `tenant_name`) **sur chaque item** de la
+réponse, pas comme métadonnée globale. Le client final (chatbot, app
+mobile) doit pouvoir dire pour cette réservation-là chez quelle compagnie
+elle a été achetée.
+
+Contre-pattern à éviter : `{"tenants": {...}, "reservations": [...]}`
+avec un tenant_id sur chaque réservation qui référence l'entrée globale.
+Plus compact en JSON mais impose au client de résoudre la référence,
+complique le débug et casse la symétrie item-per-item.
+
+Vécu USR-3 : `MyReservationSerializer`, `MyOrderSerializer`,
+`MyPaymentSerializer` incluent tous `tenant_slug` et `tenant_name` par
+item, via `source="tenant.slug"`.
+
+### Serializers CLIENT stricts : liste blanche des champs, pas liste noire
+_Validé — Ticket user-model-refactor-3 (7 sept 2026)_
+
+Un endpoint CLIENT ne doit pas exposer les champs internes staff
+(`created_by`, `boarded_by`, `metadata`, `qr_code_jwt`, `provider_tx_id`,
+`provider_response`, `refusal_reason`, `internal_notes`, etc.). Utiliser
+`serializers.Serializer` avec la liste explicite des champs à exposer
+plutôt que `serializers.ModelSerializer` avec `fields = "__all__"` ou
+`exclude = [...]`.
+
+Raisons :
+- Ajouter un champ interne sur le modèle (ex : nouveau `metadata`) ne le
+  fait pas fuiter automatiquement.
+- La liste blanche documente explicitement ce que voit le client.
+- Une revue de code détecte immédiatement un champ suspect ajouté.
+
+Appliqué aux 3 serializers CLIENT USR-3.
+
+### Compter les queries d'un serializer avant de déclarer `select_related`
+_Validé — Ticket user-model-refactor-3 (7 sept 2026)_
+
+Écrire le serializer d'abord, puis compter les `.get()` implicites via
+`django_debug_toolbar` en dev ou via un test qui utilise
+`assertNumQueries` autour de la sérialisation. Ajuster `select_related` en
+conséquence.
+
+Vécu USR-3 : `MyReservationSerializer` sérialisait
+`route.origin_place.name` et `route.destination_place.name` qui généraient
+chacune une query N+1. Ajout de
+`select_related("trip__route__origin_place", "trip__route__destination_place")`.
+Sans le test `test_query_count`, la régression serait passée en revue.
+
+Pattern général : tout endpoint qui liste avec un serializer imbriqué
+mérite un test qui borne le nombre de queries. Pas de seuil absolu —
+fixer le nombre observé initialement, le test devient un canari des
+futurs ajouts silencieux.
+
+---
+
 ## Auth, secrets et cache
+
+### Le logger `notifications` doit être en INFO en dev
+_Validé — Déploiement USR-2 (7 sept 2026)_
+
+`ConsoleProvider` (l'unique provider actif tant que les vrais canaux ne
+sont pas branchés) émet `logger.info(...)` avec le corps rendu du message.
+Le `LOGGING` Django par défaut est `WARNING` — le message est envoyé,
+tracé en base (`NotificationLog.status=sent`), mais invisible dans les
+logs Docker. Un dev qui teste un OTP ou une notif ne voit rien passer et
+croit à un bug.
+
+Règle : `config/settings/dev.py` (et tout environnement de développement)
+configure un handler `console` sur le logger `notifications` en niveau
+`INFO`. Le `NotificationLog.content` reste le référentiel des messages
+envoyés (utile pour extraire un OTP par script en cas d'urgence de débug),
+mais le logger console est ce qu'un développeur regarde en flux continu.
+
+En prod, `INFO` sur `notifications` reste raisonnable : les vrais
+providers (FCM, SMTP, providers SMS) auront leurs propres logs et
+métriques. On n'y perd pas de signal en gardant `INFO` global.
 
 ### Un secret à usage unique se stocke haché, jamais en clair
 _Validé — Ticket user-model-refactor-2 (6 sept 2026)_

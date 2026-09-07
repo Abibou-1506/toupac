@@ -44,6 +44,28 @@ def test_customer_me_reports_missing_contact_channels(authenticated_client):
     assert body["email"] is None
 
 
+def test_customer_me_counts_reservations_and_orders(
+    authenticated_client, client_fatou, tenant_a, tenant_b,
+):
+    """Les compteurs agrègent toutes les compagnies — c'est leur intérêt."""
+    from iam.tests.customer_factories import make_order, make_reservation
+
+    make_reservation(tenant_a, customer_user=client_fatou)
+    make_reservation(tenant_b, customer_user=client_fatou)
+    make_order(tenant_a, customer=client_fatou)
+
+    stats = authenticated_client(client_fatou).get(ME_URL).json()["stats"]
+
+    assert stats["total_reservations"] == 2
+    assert stats["total_orders"] == 1
+
+
+def test_customer_me_counters_start_at_zero(authenticated_client, client_fatou):
+    stats = authenticated_client(client_fatou).get(ME_URL).json()["stats"]
+
+    assert stats == {"total_reservations": 0, "total_orders": 0}
+
+
 def test_customer_me_reflects_notification_preferences(authenticated_client, client_fatou):
     client_fatou.notification_preferences = {"marketing": False}
     client_fatou.save(update_fields=["notification_preferences"])

@@ -71,9 +71,17 @@ class TripAdmin(TenantAdminMixin, ModelAdmin):
 
 @admin.register(Passenger)
 class PassengerAdmin(TenantAdminMixin, ModelAdmin):
-    list_display = ["first_name", "last_name", "phone", "email", "nationality", "tenant"]
-    list_filter = ["nationality", "tenant"]
-    search_fields = ["first_name", "last_name", "phone", "email", "id_number"]
+    list_display = [
+        "first_name", "last_name", "phone", "email", "nationality", "customer_user", "tenant",
+    ]
+    # `customer_user__isnull` sépare les passagers rattachés à un compte TOUPAC
+    # des invités — c'est la question qu'on se pose devant cette liste.
+    list_filter = ["nationality", ("customer_user", admin.EmptyFieldListFilter), "tenant"]
+    search_fields = [
+        "first_name", "last_name", "phone", "email", "id_number",
+        "customer_user__email", "customer_user__phone",
+    ]
+    autocomplete_fields = ["customer_user"]
 
 
 @admin.register(Reservation)

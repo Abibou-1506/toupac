@@ -121,6 +121,36 @@ Portée technique :
 
 À planifier après la refonte notifications.
 
+### Order.recipient_user — le destinataire n'est pas modélisé
+
+- [ ] **Un client destinataire d'un colis ne le voit pas dans son espace**
+      → État : seul le commanditaire est relié (`Order.customer`).
+        `/customer/my-orders/` ne retourne donc que les colis qu'on a expédiés,
+        jamais ceux qu'on attend. Le destinataire n'existe qu'en texte libre sur
+        la tâche de livraison (`recipient_name`, `recipient_phone`).
+      → Cas d'usage manquant : Fatou envoie un colis à sa fille Aïcha, qui a un
+        compte ; Aïcha ne voit pas son colis arriver.
+      → Fix : `Order.recipient_user` facultatif, puis union
+        `customer=user | recipient_user=user` dans la vue. Prévoir la
+        distinction à l'affichage — « envoyé » et « à recevoir » ne se lisent
+        pas pareil.
+      → Effort : ~0,5 j
+      → Ref : ticket USR-3, 7 sept 2026.
+
+### Endpoints d'écriture pour le client (POST)
+
+- [ ] **Le client ne peut rien créer depuis son espace**
+      → État : USR-3 ne livre que de la lecture. Réserver ou expédier passe
+        encore par un guichet ou le chatbot.
+      → Fix : `POST /customer/reservations/` et `POST /customer/orders/`,
+        exigeant `X-Tenant-Id` (le client désigne la compagnie chez qui il
+        achète) et posant `Passenger.customer_user = request.user` à la
+        création. Attention au cas « je réserve pour un proche » : le formulaire
+        doit permettre de ne pas se désigner soi-même comme voyageur.
+      → Effort : ~1 j
+      → Seuil : démarrage de l'intégration de l'app mobile client.
+      → Ref : ticket USR-3, 7 sept 2026.
+
 ### Rattacher un second canal à un compte client existant
 
 - [ ] **Un client « e-mail seul » qui se connecte par téléphone crée un doublon**

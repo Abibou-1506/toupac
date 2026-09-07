@@ -119,6 +119,11 @@ CLIENTS = [
     ("khadija.diallo@example.sn", "+221770000104", "Khadija", "Diallo"),
 ]
 
+#: Nombre de clients auxquels on rattache billets et colis chez *chaque*
+#: compagnie, pour donner un cas transverse démontrable. Les autres restent des
+#: comptes sans historique — un client fraîchement inscrit est un cas normal.
+DEMO_CLIENT_COUNT = 2
+
 VEHICLE_TYPES = [
     ("Autocar 45 places", 45, "diesel", {"rows": 12, "cols": 4}),
     ("Minicar 30 places", 30, "diesel", {"rows": 10, "cols": 3}),
@@ -714,6 +719,43 @@ class Command(BaseCommand):
                 },
             )
 
+        self._seed_client_passengers(tenant)
+
+    @staticmethod
+    def _demo_clients():
+        """Les comptes clients auxquels la démo rattache un historique."""
+        wanted = [email for email, _, _, _ in CLIENTS[:DEMO_CLIENT_COUNT] if email]
+        return list(
+            User.objects.filter(email__in=wanted, role=User.Role.CLIENT).order_by("email")
+        )
+
+    @staticmethod
+    def _seed_client_passengers(tenant):
+        """Rattache les premiers clients de démo à une fiche passager par compagnie.
+
+        C'est ce qui rend la vue transverse démontrable : le même compte client
+        voyage chez Sahel Express et chez Dem Dikk, et retrouve ses deux billets
+        dans `/customer/my-reservations/`. Une fiche par compagnie, un seul
+        compte — c'est exactement la distinction que porte `customer_user`.
+        """
+        for email, client_phone, first, last in CLIENTS[:DEMO_CLIENT_COUNT]:
+            client = User.objects.filter(
+                email=email or None, role=User.Role.CLIENT,
+            ).first() if email else User.objects.filter(
+                phone=client_phone, role=User.Role.CLIENT,
+            ).first()
+            if client is None:
+                continue
+            Passenger.objects.get_or_create(
+                tenant=tenant, first_name=first, last_name=last,
+                defaults={
+                    "phone": client_phone or phone(),
+                    "email": email or "",
+                    "nationality": "SN",
+                    "customer_user": client,
+                },
+            )
+
     def _trip_plan(self, tenant, now):
         """(route_code, scheduled_at, status, fill_ratio) des voyages à générer."""
         rng = self.rng(f"trips-{tenant.slug}")
@@ -991,16 +1033,29 @@ class Command(BaseCommand):
         orders = parcels = tasks = proofs = 0
         counter = 0
 
+        demo_clients = self._demo_clients()
+
         for tenant in self.tenants():
             prefix = self.prefix_for(tenant)
             specs = self._colis_specs(tenant)
             for index, (status, trip, pickup, dropoff, amount) in enumerate(specs):
                 internal_id = f"CMD-{prefix}-{timezone.now():%Y%m%d}-{index:02d}"
+                # Les premières commandes de chaque compagnie sont rattachées à
+                # un compte client, le reste garde le repli texte : les deux cas
+                # coexistent en production, la démo doit montrer les deux.
+                client = demo_clients[index % len(demo_clients)] if (
+                    demo_clients and index < len(demo_clients)
+                ) else None
                 order, was_created = Order.objects.get_or_create(
                     tenant=tenant, internal_id=internal_id,
                     defaults={
-                        "customer_name": f"{random.choice(PASSENGER_FIRST)} {random.choice(PASSENGER_LAST)}",
-                        "customer_phone": phone(), "pickup_place": pickup, "dropoff_place": dropoff,
+                        "customer": client,
+                        "customer_name": (
+                            client.full_name if client
+                            else f"{random.choice(PASSENGER_FIRST)} {random.choice(PASSENGER_LAST)}"
+                        ),
+                        "customer_phone": (client.phone if client else "") or phone(),
+                        "pickup_place": pickup, "dropoff_place": dropoff,
                         "trip": trip, "status": status, "total_amount_xof": amount,
                         "priority": Order.Priority.STANDARD,
                         "payment_status": Order.PaymentStatus.PAID

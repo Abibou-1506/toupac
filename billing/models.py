@@ -68,8 +68,23 @@ class PriceRule(TenantModel):
         return f"{self.get_calculation_method_display()} — {self.base_amount_xof} XOF"
 
 
+#: Valeurs attendues de `Invoice.customer_type`. Le couple
+#: (`customer_id`, `customer_type`) est une référence polymorphe sans clé
+#: étrangère : lire `customer_id` sans vérifier `customer_type` reviendrait à
+#: traiter l'identifiant d'un client externe comme celui d'un compte TOUPAC.
+CUSTOMER_TYPE_CLIENT_USER = "client_user"
+CUSTOMER_TYPE_EXTERNAL = "external"
+
+
 class Invoice(TenantModel):
-    """Facture — client inscrit ou externe, voyage ou colis."""
+    """Facture — client inscrit ou externe, voyage ou colis.
+
+    Le client facturé est désigné par `customer_id` + `customer_type`, et non
+    par une clé étrangère : une facture peut viser un compte TOUPAC comme une
+    entité qui n'en a pas (entreprise, administration). Toute lecture de
+    `customer_id` doit donc filtrer sur `customer_type` — voir les constantes
+    `CUSTOMER_TYPE_*` en tête de module.
+    """
     class Status(models.TextChoices):
         DRAFT = "draft", "Brouillon"
         SENT = "sent", "Envoyée"
@@ -78,8 +93,15 @@ class Invoice(TenantModel):
         CANCELLED = "cancelled", "Annulée"
 
     invoice_number = models.CharField("N° facture", max_length=20)
-    customer_id = models.UUIDField("ID client", null=True, blank=True)
-    customer_type = models.CharField("Type de client", max_length=20, blank=True)
+    customer_id = models.UUIDField(
+        "ID client", null=True, blank=True,
+        help_text="Interprété selon customer_type : 'client_user' désigne un "
+                  "iam.User de rôle client, 'external' un client non inscrit.",
+    )
+    customer_type = models.CharField(
+        "Type de client", max_length=20, blank=True,
+        help_text="'client_user' | 'external' | vide (factures antérieures à la convention).",
+    )
     customer_name = models.CharField("Nom client", max_length=200)
     issue_date = models.DateField("Date d'émission")
     due_date = models.DateField("Date d'échéance", null=True, blank=True)

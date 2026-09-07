@@ -203,7 +203,26 @@ class TripStop(TenantModel):
 
 
 class Passenger(TenantModel, SoftDeleteMixin):
-    """Passager — port direct Sprint 2. Soft-delete pour le droit RGPD à l'effacement."""
+    """Passager — port direct Sprint 2. Soft-delete pour le droit RGPD à l'effacement.
+
+    Le passager reste une fiche propre à la compagnie : c'est celui qui embarque,
+    identifié par ses coordonnées, indépendamment de tout compte. `customer_user`
+    n'est qu'un rattachement facultatif au compte TOUPAC de la personne, quand
+    elle en a un — il ne remplace jamais les champs d'identité.
+    """
+    customer_user = models.ForeignKey(
+        "iam.User",
+        on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name="passenger_records",
+        verbose_name="Compte client TOUPAC",
+        help_text=(
+            "Compte client global rattaché à ce passager. Facultatif : on voyage "
+            "souvent pour quelqu'un d'autre — un parent, un collègue — qui n'a pas "
+            "de compte. Ce passager reste alors un invité."
+        ),
+        limit_choices_to={"role": "client"},
+    )
     first_name = models.CharField("Prénom", max_length=100)
     last_name = models.CharField("Nom", max_length=100)
     phone = models.CharField("Téléphone", max_length=20, blank=True)
