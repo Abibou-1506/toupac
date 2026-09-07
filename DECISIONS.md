@@ -12,6 +12,51 @@ Ordre : les patterns les plus récents en haut, groupés par domaine.
 
 ---
 
+### Un provider de développement qui log en clair s'auto-restreint hors DEBUG
+_Validé — Correctif post-Ticket B (7 sept 2026)_
+
+Tout provider dont le mécanisme d'observation (log, print, écriture disque
+non chiffrée) expose la charge utile doit s'auto-restreindre sous
+`settings.DEBUG=False`, indépendamment de la config `LOGGING`.
+
+Raisonnement : `LOGGING` est un outil d'exploitation qui peut être modifié
+sans mesurer les conséquences sur la confidentialité. Un opérateur qui
+abaisse un logger à `INFO` pour déboguer un flux ne pense pas à vérifier
+quels payloads y transitent. Le provider, lui, sait ce qu'il transporte.
+
+Appliqué au `ConsoleProvider` :
+
+```python
+if settings.DEBUG:
+    logger.info(f"[NOTIFICATION] → {recipient}: {body[:100]}…")
+else:
+    logger.info(f"[NOTIFICATION] → {recipient}: [contenu masqué hors développement] ({len(body)} caractères)")
+```
+
+Le destinataire et la longueur restent visibles — ils répondent à « le
+message est-il parti ? », seule question légitime d'un log d'exploitation.
+Le contenu, lui, appartient au destinataire seul.
+
+**Incident évité** : `prod.py` déclarait le même logger `INFO` que
+`dev.py`, `ConsoleProvider` était actif pour tous canaux en prod par
+défaut du service. Les OTP sortaient en clair en stdout du conteneur web,
+agrégés et conservés par l'infrastructure. L'entrée DETTES.md qui
+classait ce point « à traiter au Ticket B » décrivait en réalité un
+incident actif, pas une amélioration future.
+
+**Corollaire ferme** : ne jamais se reposer sur `LOGGING` pour masquer
+un secret. Masquer à la source (dans le provider), ou ne pas le logger
+du tout. La config LOGGING est une frontier d'observabilité, pas de
+sécurité.
+
+**Corollaire de méthode** : une entrée DETTES.md étiquetée « traiter au
+Ticket X » sans avoir été re-checkée depuis son ajout peut décrire un
+incident actif. Auditer périodiquement les entrées DETTES qui portent
+sur la sécurité ou la confidentialité — le classement en dette n'est
+pas neutre, il retarde une action qui devrait être urgente.
+
+---
+
 ## Services et flow d'émission
 
 ### Fail-log symétrique — couvrir toutes les branches d'échec, pas juste celle qui a motivé le ticket

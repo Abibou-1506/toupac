@@ -32,7 +32,12 @@ LOGGING = {
         },
     },
     "loggers": {
-        "notifications": {
+        # « toupac » et non « notifications » : le code écrit dans
+        # `toupac.notifications`, `toupac.iam.otp`, `toupac.iam.platform`. La
+        # hiérarchie des loggers Python suit les points — `toupac.notifications`
+        # remonte vers `toupac`, jamais vers `notifications`, qui en est un
+        # frère. Déclarer la racine « toupac » capte donc tout le projet.
+        "toupac": {
             "handlers": ["console"],
             "level": "INFO",
             "propagate": False,

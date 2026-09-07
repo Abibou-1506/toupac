@@ -172,18 +172,30 @@ Portée technique :
       → Ref : ticket USR-2, 7 sept 2026.
 
 - [ ] **Le code de connexion est stocké en clair dans `NotificationLog.content`**
-      → État : `send_notification()` journalise le message rendu, code compris.
-        Le catalogue déclare pourtant `confidentiality_masks=("otp",)` sur
-        `notif.auth.otp_signin.v1` — le masquage N-05 n'est pas encore appliqué,
-        il arrive au Ticket B/C de la refonte notifications.
+      → État : le journal d'envoi conserve le message tel qu'il a été livré,
+        code compris. **Le Ticket B n'a pas corrigé ce point**, contrairement à
+        ce qui était annoncé ici : les `confidentiality_masks` s'appliquent au
+        *rendu poussé* vers l'utilisateur, pas à ce que le serveur écrit sur
+        lui-même. Les masquer dans `content` reviendrait d'ailleurs à ne plus
+        savoir ce qui a réellement été envoyé — ce à quoi ce champ sert.
       → Portée réelle : le code n'est exploitable que 5 minutes, et les lignes
         sans compagnie ne sont visibles que du superadmin (le mixin d'admin
         filtre par tenant). Mais la ligne, elle, est conservée indéfiniment.
-      → Fix : appliquer `confidentiality_masks` au rendu journalisé dans le
-        service refondu — le message envoyé garde le code, la trace ne le garde
-        pas.
-      → Effort : intégré au Ticket B
-      → Ref : ticket USR-2, 7 sept 2026.
+      → Fix envisagé : purge courte des `NotificationLog` de catégorie `otp`
+        (quelques heures suffisent à diagnostiquer un envoi), plutôt qu'un
+        masquage qui viderait le champ de son sens. À traiter avec la rétention
+        générale du journal.
+      → Effort : ~0,5 j
+      → Ref : ticket USR-2, révisé au Ticket B, 7 sept 2026.
+
+- [x] **~~Le provider console écrivait le message complet dans les logs~~** —
+      corrigé le 7 sept 2026. `ConsoleProvider` sert partout tant que la
+      fabrique par canal n'existe pas (Ticket C), production comprise, et
+      `prod.py` journalise `toupac` à INFO : codes de connexion, QR de billets
+      et montants partaient en clair dans la sortie standard. Le corps du
+      message n'est désormais écrit que sous `DEBUG` ; hors développement,
+      seuls le destinataire et la longueur subsistent. Le vrai correctif reste
+      le Ticket C, qui remplacera ce provider par de vraies passerelles.
 
 ### JS admin — affichage conditionnel du champ tenant selon le rôle
 
