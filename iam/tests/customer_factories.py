@@ -95,3 +95,39 @@ def make_payment(tenant, order=None, invoice=None, reservation=None, **overrides
         "initiated_at": timezone.now(),
     }
     return Payment.objects.create(**{**payload, **overrides})
+
+
+#: Événements de référence des tests du centre d'alertes. Choisis dans le
+#: catalogue plutôt qu'inventés : le serializer y lit catégorie et
+#: `requires_ack`, un code fictif ne prouverait donc rien.
+EVENT_TICKET = "notif.ticket.issued.v1"        # trip_updates, critical
+EVENT_PAYMENT = "notif.payment.confirmed.v1"   # payments, critical
+EVENT_TRIP_DELAYED = "notif.trip.delayed.v1"   # trip_updates
+EVENT_NEEDS_ACK = "notif.dispatch.assigned.v1"  # seul type déclaré requires_ack
+
+
+def make_notification(tenant, recipient_user, event_code=EVENT_TICKET, **overrides):
+    """Un item de centre d'alertes, écrit directement — sans passer par emit()."""
+    from notifications.catalog import get_event
+    from notifications.models import Notification
+
+    # La priorité suit le catalogue quand il connaît le code. Le repli sert les
+    # tests du code retiré : une ligne écrite sous un code disparu du catalogue
+    # existe forcément en base, et doit pouvoir être fabriquée.
+    try:
+        priority = get_event(event_code).priority.value
+    except KeyError:
+        priority = Notification.Priority.MEDIUM
+
+    payload = {
+        "event_code": event_code,
+        "trigger_scope": Notification.TriggerScope.USER,
+        "priority": priority,
+        "title": f"Alerte {_next()}",
+        "body": "Corps de la notification.",
+        "action_url": "/alertes/",
+    }
+    payload.update(overrides)
+    return Notification.objects.create(
+        tenant=tenant, recipient_user=recipient_user, **payload,
+    )

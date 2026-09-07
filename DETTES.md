@@ -197,6 +197,49 @@ Portée technique :
       fonction `loggable_body()`, et `EmailSmtpProvider` ne journalise jamais
       le corps.
 
+### Notifications — centre d'alertes client
+
+- [ ] **Aucun événement destiné à un client ne demande d'accusé de réception**
+      → État : `/customer/notifications/<id>/ack/` est livré et testé, mais les
+        deux seuls événements que le catalogue déclare `requires_ack=True` —
+        `notif.dispatch.assigned.v1` et `notif.gps.alert.v1` — visent des
+        chauffeurs et des régulateurs, jamais un client. L'endpoint est donc
+        correct et inutilisable en pratique côté client aujourd'hui.
+      → Ce n'est pas un défaut de l'endpoint : c'est le catalogue qui ne
+        déclare encore aucun geste d'acquittement côté voyageur. Le cas viendra
+        (confirmer un changement d'horaire, accepter un report).
+      → Fix : rien à faire tant qu'aucun événement client ne l'exige. À
+        re-regarder au câblage des resolvers métier (Tickets E1/E2), qui est le
+        moment où ces événements se décideront.
+      → Effort : nul aujourd'hui.
+      → Ref : ticket notifications-refonte-D, 7 sept 2026.
+
+- [ ] **L'espace client mélange endpoints paginés et non paginés**
+      → État : `/customer/notifications/` pagine (20 par page, 50 au plus) ;
+        `/my-reservations/`, `/my-orders/` et `/my-payments/` rendent la
+        collection entière. Un client de l'API doit donc traiter deux formes de
+        réponse selon l'endroit.
+      → Pourquoi c'est ainsi : le centre d'alertes est le seul dont le volume
+        croît sans borne — un client accumule des alertes sans jamais en
+        supprimer, là où ses réservations restent en dizaines.
+      → Fix : paginer les trois autres avec la même classe, en gardant la
+        collection nommée. Rupture de contrat pour les consommateurs existants
+        (le chatbot Toupac BI), donc à annoncer, pas à glisser.
+      → Effort : ~0,5 j + coordination avec les consommateurs.
+      → Ref : ticket notifications-refonte-D, 7 sept 2026.
+
+- [ ] **Rien ne purge les notifications lues**
+      → État : `Notification.expires_at` existe et n'est lu par personne. Une
+        ligne reste en base indéfiniment, lue ou non.
+      → Portée : le centre d'alertes d'un client actif grossira sans limite, et
+        le filtre `?category=` traduit déjà la catégorie en liste de codes —
+        requête dont le coût suivra le volume.
+      → Fix : tâche périodique de purge, à traiter avec la rétention générale
+        du journal d'envoi (voir la dette sur `NotificationLog.content`), les
+        deux relevant de la même décision de conservation.
+      → Effort : ~0,5 j pour les deux ensemble.
+      → Ref : ticket notifications-refonte-D, 7 sept 2026.
+
 ### Notifications — passerelles réelles
 
 - [ ] **Trois canaux sur cinq ne délivrent rien**

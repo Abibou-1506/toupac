@@ -12,6 +12,122 @@ Ordre : les patterns les plus récents en haut, groupés par domaine.
 
 ---
 
+### `spectacular --validate` fait partie de la routine pre-merge
+_Découvert — Ticket notifications-refonte-D (7 sept 2026)_
+
+Un `SerializerMethodField` sans annotation de retour produit un type `string`
+dans le schéma OpenAPI, quelle que soit la vraie valeur retournée. Un
+client SDK généré depuis le schéma testera alors la vérité d'une chaîne
+— **toujours vraie** — au lieu du booléen attendu.
+
+Bug invisible en tests unitaires Python et en tests d'intégration REST : ne
+se voit qu'en consommant le schéma généré. Un chatbot ou une app mobile qui
+génère son client depuis notre `/schema/` (patron courant) aurait affiché
+un bouton « acquitter » sur des notifications qui ne le demandent pas.
+
+Règle : `python manage.py spectacular --validate --fail-on-warn` doit être
+vert avant merge, au même titre que `manage.py check`, `ruff check .`, et
+`makemigrations --check`.
+
+Application concrète : annoter le type de retour de tout
+`SerializerMethodField` avec `-> bool`, `-> str`, `-> list[dict]`, etc.
+DRF-spectacular utilise l'annotation pour typer le schéma.
+
+```python
+# Faux
+def get_requires_ack(self, obj):
+    return catalog.get_event(obj.event_code).requires_ack
+
+# Correct
+def get_requires_ack(self, obj) -> bool:
+    return catalog.get_event(obj.event_code).requires_ack
+```
+
+Vécu Ticket D : deux `SerializerMethodField` sans annotation — fix a fait
+passer `spectacular --validate` de 183 warnings à 181, 0 erreur.
+
+---
+
+### Une ressource qui ne vous appartient pas répond 404, jamais 403
+_Validé — Ticket notifications-refonte-D (7 sept 2026)_
+
+`POST /customer/notifications/<id>/read/` sur la notification d'un autre
+client rend **404**. Un 403 dirait « elle existe, mais pas pour vous » :
+l'identifiant deviendrait alors une sonde, et une énumération distinguerait
+ce qui existe de ce qui n'existe pas sans jamais rien lire.
+
+Mise en œuvre : les deux conditions dans le **même** filtre.
+
+```python
+Notification.objects.filter(pk=pk, recipient_user=request.user).first()
+```
+
+Chercher d'abord puis vérifier le destinataire séparerait les deux cas par
+le chemin de code — donc, à terme, par le temps de réponse.
+
+Portée : vaut pour toute ressource nominative — notification, réservation,
+paiement. Ne vaut **pas** pour un refus de rôle ou de scope, où 403 est la
+bonne réponse : là, l'appelant doit savoir que c'est son habilitation qui
+manque, pas la ressource.
+
+### Une valeur hors bornes se refuse, elle ne se rabote pas
+_Validé — Ticket notifications-refonte-D (7 sept 2026)_
+
+`?page_size=100` avec un plafond à 50 rend **400**, pas cinquante éléments.
+
+Le comportement par défaut de DRF ramène silencieusement au plafond. Le
+client reçoit alors cinquante éléments là où il en demandait cent, sans
+rien qui le lui dise : s'il en attendait moins de cent, il conclut que la
+liste est terminée et perd la moitié des alertes de son utilisateur. Le
+défaut ne perd pas de données en base — il en fait perdre à l'affichage,
+ce qui est plus difficile à voir.
+
+Pattern général : une correction silencieuse d'entrée est acceptable quand
+le client ne peut pas en tirer de conclusion fausse. Dès qu'elle change le
+sens de la réponse — une liste tronquée qui a l'air complète — elle doit
+devenir une erreur.
+
+### Un test de liste blanche compare par égalité, pas par inclusion
+_Validé — Ticket notifications-refonte-D (7 sept 2026)_
+
+```python
+assert set(item) == EXPECTED_FIELDS       # et non : EXPECTED_FIELDS <= set(item)
+```
+
+Vérifier que les champs attendus sont présents ne protège de rien : c'est
+le champ **non attendu** qui fuit. Ajouter demain une colonne au modèle et
+l'exposer par distraction laisserait passer une inclusion, et rendrait
+l'égalité rouge — ce qui est le seul moment où quelqu'un le remarquera.
+
+Corollaire : lister aussi explicitement les champs interdits
+(`trigger_scope`, `idempotency_key`…) dans une seconde assertion. L'égalité
+attrape la fuite ; la liste nommée dit au lecteur *pourquoi* ces champs-là
+sont dehors.
+
+### Ce qui décrit l'événement se lit sur le catalogue, ne se copie pas en base
+_Validé — Ticket notifications-refonte-D (7 sept 2026)_
+
+`category` et `requires_ack` ne sont pas des colonnes de `Notification` :
+le serializer les lit sur le catalogue à partir de `event_code`. Le coût
+est nul — un dictionnaire en mémoire, jamais une requête — et une colonne
+dupliquée figerait sur chaque ligne une valeur qui appartient à
+l'événement, pas à l'envoi.
+
+**Mais toute dérivation doit prévoir le code disparu.** Retirer un
+événement du catalogue laisse forcément derrière lui des lignes déjà
+écrites. Lever à la lecture rendrait le centre d'alertes entier
+inaccessible pour une seule ligne périmée : le serializer retombe donc sur
+un défaut neutre.
+
+L'exception est le geste, pas la lecture : `POST /ack/` sur un code inconnu
+**refuse** en 400. Sans l'événement, rien ne dit si un acquittement était
+attendu — et le doute profite à l'abstention quand il s'agit d'écrire.
+
+Conséquence acceptée : le filtre `?category=` traduit la catégorie en
+liste de codes, puis filtre sur `event_code__in`. Trente-sept événements
+aujourd'hui ; le jour où le catalogue en portera des centaines, une colonne
+dénormalisée deviendra justifiable — pas avant.
+
 ### Le choix du fournisseur appartient aux settings, pas au code
 _Validé — Ticket notifications-refonte-C (7 sept 2026)_
 
