@@ -1,9 +1,10 @@
 # TOUPAC — Transfert de contexte
 
 _Généré le 2 sept 2026 après une longue session de sprint applicatif._
-_Mis à jour le 5 sept 2026 après la série de tickets iam-admin._
-_Mis à jour le 6 sept 2026 après les Tickets notifications-warmup / A / A' — 191 tests verts._
-_Mis à jour le 7 sept 2026 après le chantier CLIENT global (série iam-platform-credentials + USR-1 à USR-4) — 476 tests verts, architecture marketplace B2B2C posée._
+_MàJ 5 sept 2026 après la série iam-admin._
+_MàJ 6 sept 2026 après les Tickets notifications warmup / A / A' — 191 tests._
+_MàJ 7 sept 2026 après le chantier CLIENT global (iam-platform-credentials + USR-1 à USR-4) — 476 tests, architecture marketplace B2B2C posée._
+_MàJ 8 sept 2026 après la refonte notifications complète (Tickets B / C / D) + correctif ConsoleProvider + cross-check charte notifications TOUPAC ONE — 637 tests, plan complet A→F cadré._
 _À coller en premier message du nouveau chat Claude Opus 4.7._
 
 ## Projet et rôle
@@ -15,38 +16,51 @@ malienne (Bamako, corridors Bamako-Ségou-Bla, Bamako-Kayes-Dakar, Bamako-Bouak�
 Je suis **freelance en période d'essai (2 mois)**. Rôle **architecte technique
 principal** côté backend. Une équipe mobile RN travaille sur Toupac Control
 (app contrôleur) en parallèle, une équipe partenaire externe attaque bientôt un
-chatbot IA (Toupac BI) qui consommera notre API — **le chantier CLIENT global
-du 7 sept a posé les fondations de son intégration** (PlatformCredential +
-acting user + endpoints `/customer/my-*`).
+chatbot IA (Toupac BI) qui consommera notre API — les fondations posées au
+chantier CLIENT global (PlatformCredential + acting user) sont prêtes.
 
 Le projet local est à `C:\Dev\toupac_django\toupac` (accessible via
 filesystem MCP). Trois fichiers de vérité à la racine :
 
 - **`CONTEXT_TRANSFERT.md`** (ce fichier) — état du projet à jour
-- **`DECISIONS.md`** — registre des patterns/anti-patterns validés au fil des tickets (42+ entrées, groupé en 10 domaines)
+- **`DECISIONS.md`** — registre des patterns/anti-patterns validés (~50 entrées, 12 domaines)
 - **`DETTES.md`** — dette identifiée + section « Fonctionnel — À venir » pour les gros chantiers cadrés
 
 Une note de design vit à part :
-- **`docs/design/platform-credentials.md`** — architecture PlatformCredential (Type 1 tenant vs Type 2 plateforme), OAuth 2.0 CC écarté, mitigations sécu.
+- **`docs/design/platform-credentials.md`** — architecture PlatformCredential Type 1 / Type 2, OAuth 2.0 CC écarté, mitigations sécu.
 
 ## Stack et décisions d'architecture figées
 
 - **Django 5 + DRF + GeoDjango**
 - **PostgreSQL 16 + PostGIS 3.4**
-- **Redis 7** (cache, throttling, denylist tokens, storage OTP, Celery broker)
-- **Celery 5** (jobs asynchrones, beat)
+- **Redis 7** (cache, throttling, denylist tokens, storage OTP, Celery broker, idempotency notifs)
+- **Celery 5** (jobs asynchrones, beat — beat pas encore utilisé, sera pour scheduler notifs T-24h/J-30)
 - **Channels 4** installé pour WebSocket (pas encore utilisé)
-- **django-unfold** pour l'admin (sidebar déclarée explicitement dans `UNFOLD["SIDEBAR"]["navigation"]`, pas auto-générée)
-- **drf-spectacular** pour OpenAPI/Swagger
+- **django-unfold** pour l'admin (sidebar déclarative dans `UNFOLD["SIDEBAR"]["navigation"]`)
+- **drf-spectacular** pour OpenAPI/Swagger (`spectacular --validate` en routine pre-merge depuis Ticket D)
 - **rest_framework_simplejwt** pour JWT (customisé avec denylist)
 - **django-guardian** installé — `AnonymousUser` provisionné avec rôle `SERVICE_ACCOUNT` via `iam/guardian.py` (USR-1)
 - **Docker Compose** dev (4 conteneurs) + prod (7 services + Caddy)
 - **cryptography** pour RS256 des QR billets
 
 Monolithe modulaire (pas microservices). **Architecture marketplace B2B2C** :
-TOUPAC (plateforme) × compagnies (tenants) × passagers/expéditeurs (CLIENT
-global). Multi-tenant strict pour les rôles opérationnels des compagnies,
+TOUPAC (plateforme centrale) × compagnies (tenants) × passagers/expéditeurs
+(CLIENT global). Multi-tenant strict pour les rôles opérationnels compagnies,
 tenantless pour le rôle CLIENT.
+
+**Stack frontend backoffice (à valider avec le lead avant Chantier BACKOFFICE-BOOTSTRAP)** :
+- **Vite + React 18 + TypeScript strict** (pas Next.js — SPA authentifiée, pas de SSR utile)
+- **Tailwind CSS + shadcn/ui + lucide-react** (composants copiables, dark mode natif)
+- **TanStack Query v5 + Axios** (server state, cache, refetch, JWT + tenant header interceptors)
+- **React Hook Form + Zod** (formulaires performants + validation TS-first)
+- **React Router v6** (stable, connu de tous)
+- **TanStack Table v8** (headless, sort/filter/pagination custom)
+- **react-leaflet + OSM** pour cartes (Phase D Tramingo) — souverain, gratuit
+- **Recharts** pour dashboard (React-first, suffisant)
+- **openapi-typescript-codegen** pour générer un client TS typé depuis `/schema/` — game-changer, aucune erreur de champ manquant possible
+- **react-i18next** (FR par défaut, EN en préparation)
+- **Repo séparé** `toupac_frontend` au même niveau que `toupac_django`
+- **Design pattern** : inspiration Fleetbase console (sidebar sombre, tables denses, actions inline, palette pro) — pas de Figma existant
 
 ## Modules Django et responsabilités
 
@@ -54,410 +68,350 @@ tenantless pour le rôle CLIENT.
 
 | Module | Responsabilité |
 |---|---|
-| `core` | Mixins de base (TenantModel, UUIDv7, SoftDelete), TenantMiddleware (accepte `X-Tenant-ID` en slug OU UUID depuis USR-2), TenantManager, TenantAdminMixin. `SoftDeleteMixin` n'a pas de manager filtrant — chaque queryset pose `deleted_at__isnull=True` explicitement. |
-| `iam` | Tenant, User (custom AbstractBaseUser, 8 rôles + CLIENT tenantless depuis USR-1), `get_or_create_service_account()`, `get_or_create_platform_bot()`, `get_or_create_client()`. **Deux types d'intégrations API** : `ApiCredential` (par tenant, USR-0 iam-admin) + `PlatformCredential` (par service plateforme, série iam-platform + USR-4). `PlatformAuditLog` avec champ `acting_user`. Modules OTP (`otp.py`, `otp_views.py`), endpoints CLIENT (`customer_views.py`). |
+| `core` | Mixins de base (TenantModel, UUIDv7, SoftDelete), TenantMiddleware (accepte `X-Tenant-ID` en slug OU UUID depuis USR-2), TenantManager (ne filtre pas — l'isolation est faite dans les ViewSets), TenantAdminMixin. `SoftDeleteMixin` n'a pas de manager filtrant. |
+| `iam` | Tenant, User (8 rôles + CLIENT tenantless depuis USR-1), `get_or_create_service_account()`, `get_or_create_platform_bot()`, `get_or_create_client()`. **Deux types d'intégrations API** : `ApiCredential` (par tenant, USR-0 iam-admin) + `PlatformCredential` (par service plateforme, série iam-platform + USR-4). `PlatformAuditLog` avec `acting_user`. OTP (`otp.py`, `otp_views.py`), endpoints CLIENT (`customer_views.py`, `customer_notifications_views.py`). |
 | `fleet` | VehicleType, Vehicle, Driver, VehicleDocument, Fleet, FleetVehicle |
 | `geo` | Place (tenant nullable pour places publiques), Zone |
 | `workflow` | WorkflowDefinition, State, Transition, Hook (configurable en DB) |
-| `voyage` | Route, RouteStop, Schedule, SeatMap, Trip, TripStop, **Passenger + Passenger.customer_user (FK vers User CLIENT global, USR-3)**, Reservation, Controller, ControlSession, ControlEvent (batch offline), Anomaly, Incident, CashEntry, PassengerAccessLog, LuggagePolicy |
-| `colis` | Order (`customer` FK réutilisée vers User CLIENT global depuis USR-3), Parcel, DeliveryTask, ProofOfDelivery |
-| `billing` | PriceList, PriceRule, Invoice (`customer_id` UUID générique + `customer_type="client_user"` documenté en USR-3), InvoiceLine, Payment (Intouch mobile money sandbox) |
-| `tracking` | Position (pas TenantModel, BigAutoField pour volumétrie), Geofence, GeofenceEvent, TrackingLink |
-| `notifications` | **Refonte en cours selon charte TOUPAC ONE.** Tickets warmup + A + A' fermés. Modèles : `NotificationTemplate`, `Notification` (item du centre d'alertes), `NotificationLog` (delivery attempts, `tenant` nullable depuis USR-2 pour OTP CLIENT global). Catalog déclaratif 37 events (`catalog.py`), resolvers (`resolvers/`), catégories de préférences (`preferences.py`). `NotificationService.emit()` refondu au Ticket B (à venir). |
-| `developers` | **Portail split (USR-4)** : `/developers/` (mode tenant ApiCredential) + `/partners/developers/` (mode plateforme PlatformCredential + acting user). Renvois croisés en tête de chaque page. |
+| `voyage` | Route, RouteStop, Schedule, SeatMap, Trip, TripStop, **Passenger + Passenger.customer_user (USR-3)**, Reservation, Controller, ControlSession, ControlEvent, Anomaly, Incident, CashEntry, PassengerAccessLog, LuggagePolicy |
+| `colis` | Order (`customer` FK vers User CLIENT global), Parcel, DeliveryTask, ProofOfDelivery |
+| `billing` | PriceList, PriceRule, Invoice (`customer_id` UUID + `customer_type="client_user"`), InvoiceLine, Payment (Intouch mobile money sandbox) |
+| `tracking` | Position, Geofence, GeofenceEvent, TrackingLink (modèles prêts, Tramingo pas encore branché) |
+| `notifications` | **Refonte complète (Tickets warmup/A/A'/B/C/D bouclés).** Modèles : `NotificationTemplate`, `Notification`, `NotificationLog` (tenant nullable depuis USR-2). Catalog 37 events (`catalog.py`), resolvers (`resolvers/`), catégories préférences (`preferences.py`). `NotificationService.emit()` refondu (Ticket B). Factory providers configurable via `settings.NOTIFICATION_PROVIDERS` (Ticket C). 5 endpoints centre d'alertes CLIENT (Ticket D). **~29 resolvers métier restent à câbler (Tickets E1+E2 fusionnés).** |
+| `developers` | **Portail split (USR-4)** : `/developers/` (mode tenant ApiCredential) + `/partners/developers/` (mode plateforme PlatformCredential + acting user). |
 
 ## Périmètre produit confirmé par le lead
 
 Suite "TOUPAC ONE" = 7 apps, mais **notre équipe backend produit uniquement** :
-- **Toupac 360** (backoffice, Django admin aujourd'hui, console React V1.5)
+- **Toupac 360** (backoffice — chantier backoffice frontend à démarrer après Phase B)
 - **Toupac Control** (app mobile contrôleur, dev RN en cours)
 - **Toupac Driver** (app mobile chauffeur, à venir)
-- **App client fusionnée Cargo + Go** (voyages + colis, à venir — auth OTP CLIENT prête, endpoints `/customer/my-*` prêts)
+- **App client fusionnée Cargo + Go** (voyages + colis, à venir — auth OTP CLIENT prête, endpoints `/customer/my-*` prêts, centre d'alertes prêt)
 
 Nous **préparons l'API** consommée par :
 - **Toupac CRM** = intégrations ERP tierces (Sage, Odoo) — Type 2 plateforme
-- **Toupac BI** = chatbot IA développé par équipe externe qui a gagné le marché — Type 2 plateforme, **fondations posées au chantier CLIENT global**
+- **Toupac BI** = chatbot IA développé par équipe externe — Type 2 plateforme, fondations posées
 
-## Décisions produit tranchées par le lead (rendez-vous du 2 sept 2026)
+## Décisions produit tranchées (rendez-vous du 2 sept 2026)
 
-1. **SMS et WhatsApp = strictement OTP-only**. Tous les autres canaux → Push + In-app + Email selon la charte notifications TOUPAC ONE.
-2. **7 apps = vision cible, pas V1**. On construit un backend unifié + 4 fronts (voir périmètre ci-dessus).
-3. **Tramingo = intégration (pas remplacement par Traccar)**. Doc API v1.7 en main, polling REST classique, OAuth 2.0 password grant, événements pré-calculés dispos (excès vitesse, sortie zone, etc.).
-4. **Coordination Dispatcher↔Chauffeur = notifications unidirectionnelles avec accusés de lecture** (pas de messagerie bidirectionnelle en V1). Traçabilité préservée. Porte ouverte architecture pour rabattre vers option messagerie plus tard.
+1. **SMS et WhatsApp = strictement OTP-only**. Push + In-app + Email selon la charte.
+2. **7 apps = vision cible, pas V1**.
+3. **Tramingo = intégration (pas remplacement par Traccar)**. Doc API v1.7 en main.
+4. **Coordination Dispatcher↔Chauffeur = notifications unidirectionnelles avec ack** (pas messagerie bidirectionnelle V1).
 
-## Décisions doctrine IAM tranchées (3-5 sept 2026)
+## Décisions doctrine IAM (3-5 sept 2026)
 
-Clarifications produites en même temps que les 3 tickets iam-admin.
+1. **Scope `admin:*` = TOUPAC interne uniquement**. Fail-closed pour non-superadmin.
+2. **Service account par tenant** provisionné par signal.
+3. **Séquencement gros chantiers IAM** : refonte notifs d'abord, self-service user management ensuite.
 
-1. **Scope `admin:*` = TOUPAC interne uniquement**. Réservé aux intégrations
-   internes TOUPAC (outillage superadmin, adaptateurs Toupac CRM maintenus par
-   TOUPAC). Aucun tenant client n'a de cas d'usage légitime. **Blocage dur**
-   dans `ApiCredentialCreateForm.clean_scopes()` pour tout émetteur
-   non-superadmin. Fail-closed quand `_request` est None. Docstring `iam/scopes.py`
-   et portail `/developers/` alignés.
+## Décisions doctrine architecture marketplace B2B2C (6-7 sept 2026)
 
-2. **Service account par tenant**. Chaque tenant est doté automatiquement
-   (signal `post_save(Tenant)`) d'un compte technique : email
-   `api-bot@<tenant.slug>.internal`, rôle `User.Role.SERVICE_ACCOUNT`,
-   `set_unusable_password()`. Toutes les clés API du tenant pointent vers ce
-   compte. Auto-guérison si supprimé.
+**Le chantier le plus structurant du projet** (série iam-platform-credentials + USR-1 à USR-4).
 
-3. **Séquencement gros chantiers IAM**. Refonte notifications d'abord.
-   Self-service user management pour admins de compagnie après (avec
-   durcissement `UserAdmin` anti-escalade). Tracé en `DETTES.md`.
+1. **TOUPAC est un marketplace B2B2C, pas juste SaaS multi-tenant.** Le CLIENT bascule sur `tenant=None`.
+2. **Deux types d'intégrations API distinctes** : `ApiCredential` (tenant) et `PlatformCredential` (plateforme).
+3. **Le chatbot Toupac BI est disponible pour tous les tenants dès création** (retrait `TenantSubscription`).
+4. **Acting user via `X-Acting-User-Email`** — `request.user` = CLIENT résolu, pas platform-bot.
+5. **Auth CLIENT OTP-only** (email OU phone, Redis, hash SHA256, TTL 5 min).
+6. **Trois rôles CLIENT distincts, non fusionnés** (voyageur, commanditaire colis, payeur).
+7. **Endpoints CLIENT-scoped cross-tenant** (`/api/v1/customer/*`) accessibles JWT direct OU plateforme + acting user + scope.
+8. **Écriture métier ouverte via `platform:*:write`** (deux conditions cumulatives : scope + acting user).
+9. **Double throttle** sur endpoints CLIENT : `PlatformKeyRateThrottle` + `ActingCustomerRateThrottle`.
+10. **Trace audit fine "qui, pour qui, où"** — `PlatformAuditLog(credential, acting_user, tenant_context)` avec `SET_NULL`.
+11. **`PlatformCredential.expires_at` optionnel**, `allowed_ips` vide autorisée (arbitrage documenté, cf. DECISIONS.md).
+12. **Portail dev split** : `/developers/` (tenant) + `/partners/developers/` (plateforme).
+13. **Pas de fusion automatique de comptes** — feature future `POST /customer/add-contact/`.
 
-## Décisions doctrine architecture marketplace B2B2C tranchées (6-7 sept 2026)
+## Décisions doctrine notifications (5-8 sept 2026)
 
-**Le chantier le plus structurant du projet**. Produit en 5 tickets (iam-platform-credentials + USR-1 à USR-4). Redéfinit la nature multi-tenant de TOUPAC.
+1. **Convention `notif.{domaine}.{evenement}.{version}`** — verrouillée charte TOUPAC ONE.
+2. **Push + In-app OBLIGATOIRES** sur tous les événements non-OTP. Email selon cas. SMS/WhatsApp OTP-only.
+3. **EventCatalog en code = source unique de vérité** (`notifications/catalog.py`, 37 events).
+4. **Service explicite `NotificationService.emit()`, jamais signals Django.**
+5. **Une `Notification` = un `recipient_user`.**
+6. **`variables_schema` en format Python natif** (pas JSON Schema, pas Pydantic).
+7. **Préférences user via `User.notification_preferences` JSONField.** NEVER_OPT_OUT : `otp`, `security`, `critical_ops`.
+8. **Confidentialité (N-05) asymétrique par canal** : push+SMS+WhatsApp masqués, in-app+email payload complet.
+9. **Fail-log symétrique** : 8 branches d'échec préfixées standardisées.
+10. **Idempotence 2 niveaux** : Redis pré-résolution + contrainte DB post-résolution.
+11. **Retry différencié par canal** (Push/Email 3 tentatives, SMS/WhatsApp/In-app 0).
+12. **`transaction.on_commit()` obligatoire** pour enqueue Celery référençant une entité nouvellement créée.
+13. **Factory providers configurable via settings** (`NOTIFICATION_PROVIDERS`). Repli asymétrique : canal absent → console silencieux, chemin invalide → ImportError propagée.
+14. **La simulation s'annonce** — préfixes explicites (`[SMS-MOCK]`, `[FAKE-PUSH]`) + `provider` distinct.
 
-1. **TOUPAC est un marketplace B2B2C, pas juste un SaaS multi-tenant.**
-   - Le "B" central = TOUPAC.
-   - Le "B" intermédiaire = les compagnies (tenants — Sahel Express, Dem Dikk).
-   - Le "C" = les passagers/expéditeurs/destinataires — **clients directs de TOUPAC**, pas des tenants.
-   - Conséquence structurelle : le rôle CLIENT bascule sur `tenant=None`. Tous les autres rôles opérationnels (ADMIN, DISPATCHER, AGENT, DRIVER, CONTROLLER) restent tenant-scopés.
+## Décisions produit récentes prises pendant cette session (à ne PAS oublier)
 
-2. **Deux types d'intégrations API distinctes, deux modèles séparés.**
-   - **Type 1 tenant** : `ApiCredential`. Une clé par tenant, émise par l'admin de la compagnie pour ses propres intégrations privées (ERP maison, CRM custom). Modèle en place depuis iam-admin.
-   - **Type 2 plateforme** : `PlatformCredential`. Une clé par service central TOUPAC (chatbot Toupac BI, futures apps mobiles officielles, adaptateur Toupac CRM). Émise par superadmin TOUPAC. Le tenant cible est indiqué par header `X-Tenant-ID` (slug) sur chaque requête. Pas de FK tenant sur la clé.
+**Trois décisions structurantes du 8 sept 2026** :
 
-3. **Le chatbot Toupac BI est disponible pour tous les tenants dès leur création.**
-   - Retrait du concept `TenantSubscription` (sur-engineering écarté en USR-4).
-   - Endpoint `/api/v1/platform/tenants/` liste tous les tenants ACTIVE+TRIAL, sans filtre subscription.
-   - Un nouveau tenant créé → immédiatement accessible au chatbot sans action superadmin.
+1. **Endpoint `/ack/` CLIENT — infrastructure gardée, aucun event supplémentaire passé à `requires_ack=True` avant validation design app mobile CLIENT.** Aujourd'hui les 2 seuls events `requires_ack=True` visent chauffeurs et dispatchers, aucun voyageur. L'endpoint est correct et sans emploi CLIENT — délibéré. **Repose la question au démarrage app mobile CLIENT.** 3 candidats identifiés pour V2 : `notif.trip.cancelled.v1`, `notif.parcel.available_for_pickup.v1`, `notif.payment.failed.v1`.
 
-4. **Acting user : `X-Acting-User-Email` (ou `X-Acting-User-Phone`) pour agir au nom d'un CLIENT via clé plateforme.**
-   - Résolution via `User.get_or_create_client()` — le CLIENT est créé silencieusement s'il n'existe pas.
-   - `request.user` devient ce CLIENT pour toute la vie de la requête (pas le porteur du secret).
-   - Le platform-bot ne sert plus qu'aux endpoints globaux (`/platform/tenants/`, `/platform/health/`).
-   - Priorité `email > phone` (cohérente avec OTP USR-2).
-   - Cross-app : Fatou parle au chatbot WhatsApp avec son phone, télécharge l'app mobile TOUPAC plus tard, se connecte par OTP email — **elle retrouve son historique** grâce à `get_or_create_client` idempotent.
+2. **Option A SMS différé tranchée.** Continuer chantier notifs (E1/E2/F), brancher SMS/WhatsApp réels quand la clé API du lead sera disponible (Africa's Talking ou Twilio ou D7Networks). Cadrage de 6 étapes prêt dans DETTES.md section « Notifications — passerelles réelles ». La connexion CLIENT par SMS ne fonctionne pas en attendant — dette explicite tracée.
 
-5. **Auth CLIENT OTP-only** (pas de mot de passe).
-   - `POST /api/v1/auth/otp/request/` → OTP envoyé par email OU SMS/WhatsApp.
-   - `POST /api/v1/auth/otp/verify/` → JWT émis.
-   - Storage Redis, hash SHA256 du code (jamais en clair, même en cache volatil), TTL 5 min, max 3 tentatives.
-   - **Staff continue en email + password** classique.
-   - **`staff.email` obligatoire** (USR-2) : contrainte DB `user_staff_has_email` + validation `clean()`.
+3. **Stack frontend backoffice — reco Vite+React+TS+Tailwind+shadcn/ui+React Query à valider avec le lead avant Chantier BACKOFFICE-BOOTSTRAP.** Repo séparé `toupac_frontend`. Design inspiration Fleetbase console (pas de Figma). Voir section « Stack et décisions figées » ci-dessus pour le détail complet.
 
-6. **Trois rôles CLIENT distincts, jamais fusionnés.**
-   - **Voyageur** = `Passenger.customer_user` (nouveau FK optionnel USR-3).
-   - **Commanditaire colis** = `Order.customer` (FK existante, sémantique clarifiée).
-   - **Payeur** = `Invoice.customer_id` + `customer_type="client_user"`.
-   - Fatou passagère d'un billet payé par son mari : elle voit son billet dans `my-reservations`, il voit le paiement dans `my-payments`. Aucun croisement.
+**Une décision d'organisation ticket** : **E1 + E2 fusionnés** en un seul ticket au lieu de deux séparés. Plus cohérent, débrief unique, ~29 resolvers en un bloc. Sonnet 4.5, ~1,5-2 jours.
 
-7. **Endpoints CLIENT-scoped cross-tenant** (`/api/v1/customer/*`) :
-   - `/customer/me/`, `/customer/companies/`, `/customer/my-reservations/`, `/customer/my-orders/`, `/customer/my-payments/`.
-   - Bypass `TenantManager` via `all_objects.filter(...)` — `request.tenant` est None pour un CLIENT.
-   - Chaque item retourne `tenant_slug` + `tenant_name` (le CLIENT doit savoir chez qui il a acheté).
-   - Serializers **liste blanche** stricte : jamais de `created_by`, `qr_code_jwt`, `metadata`, `provider_response`.
-   - Filtres optionnels `?tenant=<slug>` pour affiner.
-   - Ces endpoints acceptent **JWT direct** (auth CLIENT app mobile) **ET** `PlatformApiKeyAuthentication + X-Acting-User-Email` (chatbot). Permission composée : scope `platform:customer:read` requis dans le second cas.
+## Cross-check charte notifications TOUPAC ONE (8 sept 2026)
 
-8. **Écriture métier ouverte via `platform:*:write`.** Le chatbot peut réserver un voyage, envoyer un colis, initier un paiement au nom d'un CLIENT résolu (USR-4).
-   - `platform:voyage:write`, `platform:colis:write`, `platform:billing:write`.
-   - **Deux conditions cumulatives** : scope write ET acting user présent. Une écriture sans acting user est refusée (attribuer une réservation au platform-bot produirait un enregistrement sans titulaire).
-   - **Pas** de scope `platform:notifications:emit` : émettre une notification reste un side-effect direct à contrôle strict, réservé au code métier interne.
+Lecture intégrale du fichier `Charte_notifications_TOUPAC_ONE.xlsx` (4 feuilles : Charte, Référentiel plateformes, Matrice notifications, Gabarits messages) et comparaison avec notre implémentation.
 
-9. **Double throttle sur endpoints CLIENT-scoped en mode PlatformCredential.**
-   - `PlatformKeyRateThrottle` (1000/h par clé) — protège la plateforme.
-   - `ActingCustomerRateThrottle` (200/h par CLIENT résolu) — protège l'individu.
-   - DRF applique tous les throttles, le plus contraignant l'emporte.
+**Respecté** : décision de canal (règles 1-5), règles N-01, N-02, N-04, N-06, N-08, N-09, confidentialité masques catalog, convention nommage, référentiel 7 plateformes, 37 events.
 
-10. **Trace audit fine "qui, pour qui, où".**
-    - `PlatformAuditLog(credential, acting_user, tenant_context)` — trois champs pour trois questions.
-    - `on_delete=SET_NULL` sur acting_user : effacer un compte ne doit pas effacer la trace des accès dont il a fait l'objet.
-    - Admin superadmin filtre et cherche par acting_user.
+**Dévié** :
+- N-05 : sujet email n'est pas masqué (fix quick win au Ticket F).
+- INC-01 : resolver plus large que « ack au déclarant » demandé (fix dans chantier conformité Phase E).
 
-11. **`PlatformCredential.expires_at` optionnel, `allowed_ips` optionnelle.**
-    - Rotation forcée à 90 jours écartée (retirer une garantie sécu = arbitrage documenté, pas relâchement — voir DECISIONS.md).
-    - Allowlist IP fortement recommandée mais vide autorisée (chatbot serverless).
-    - Vrais garde-fous : révocation immédiate + audit log + rate limiting.
+**Non traité** (5 points, tracés dans DETTES.md nouvelle section « Notifications — écarts avec la charte TOUPAC ONE ») :
+- N-07 temporisation / agrégation (COL-03, TRJ-03, STK-01, APR-01) — impact spam utilisateur direct, prioritaire dans chantier conformité.
+- N-03 langue utilisateur non résolue (`User.language` manque).
+- Délais programmés / scheduler (TRJ-01 T-24h, FLT-01 J-30, CMP-01 J-30, CMD-02 T-15min) — Celery beat manquant.
+- Ack au déclarant (INC-01, CRM-01).
+- MKT-01 plafonnement + non-relance post-conversion. Rate limiting métier (CMD-02, PAY-02, APR-01).
 
-12. **Portail développeur split par public, pas par sujet.**
-    - `/developers/` — mode tenant. Public : intégrateurs d'une compagnie.
-    - `/partners/developers/` — mode plateforme. Public : équipes partenaires externes (chatbot, apps mobiles officielles).
-    - Renvois croisés d'une phrase en tête de chaque page.
+**Deux quick wins intégrés au Ticket F** :
+- N-05 masquage sujet email (~30 min).
+- Contraintes longueur push validation dans `NotificationTemplate.clean()` (~30 min).
 
-13. **Pas de fusion automatique de comptes.**
-    - Un CLIENT « email seul » qui tente OTP par un phone jamais associé crée un **deuxième** CLIENT. Fusionner exige une preuve de propriété qu'un helper `get_or_create` ne peut pas établir.
-    - Feature future `POST /customer/add-contact/` (auth CLIENT + OTP de confirmation sur le nouveau canal) tracée en dette.
+**Chantier conformité charte complète** : ~5-6 jours, tracé Phase E du plan.
 
-## Décisions doctrine notifications tranchées (5-6 sept 2026)
+## Plan de séquencement complet (validé 8 sept 2026)
 
-Clarifications produites au fil de la refonte (Tickets warmup, A, A').
+**Phase A — Fin refonte notifications (~3-4 jours)**
+- Ticket E1 + E2 fusionnés : câblage ~29 resolvers métier (voyage/paiement/colis + fleet/incidents/GPS/workflow). Sonnet 4.5, ~1,5-2 j.
+- Ticket F : seed 37 templates système + 2 quick wins conformité charte (masquage subject email + validation longueur push) + retrait `send_notification()` legacy + fusion seeders. Sonnet 4.5, ~1 j.
 
-1. **Convention `notif.{domaine}.{evenement}.{version}`** — verrouillée par la charte TOUPAC ONE. Codes canoniques choisis : `notif.order.*` (pas `command.*`), `notif.platform.system_incident.v1` (pas `si.*`).
+**Phase B — Débloqueurs mise en prod (~6-7 jours)**
+- Self-service user management admins compagnie (~3 jours Opus 4.7 — sécurité, durcissement UserAdmin anti-escalade).
+- Endpoints d'écriture CLIENT `POST /customer/reservations/`, `/orders/`, `/payments/` (~3-4 jours). Prépare l'app mobile CLIENT.
+- **SMS réel dès que la clé du lead arrive** — chantier parallèle, ~1 jour code une fois la clé reçue. Cadrage 6 étapes dans DETTES.md.
 
-2. **Push + In-app OBLIGATOIRES** sur tous les événements non-OTP. Email selon cas. SMS/WhatsApp uniquement OTP. 32/37 events en Push, 18/37 en Email, 3/37 en SMS, 3/37 en WhatsApp.
+**Phase C — Backoffice frontend (~13-16 jours)**
+Le gros chantier attendu par le lead. Repo séparé `toupac_frontend`.
+- Chantier BACKOFFICE-BOOTSTRAP (~4-5 j) : setup projet React+Vite+TS+Tailwind+shadcn/ui + auth complète + layout sidebar + client API DRF typé + 1 page fonctionnelle bout-en-bout (liste Trips).
+- Chantier BACKOFFICE-CRUD-CORE (~5-6 j) : Tenants + Users + Vehicles + Drivers + Routes + Trips (avec vue manifeste).
+- Chantier BACKOFFICE-CRUD-BUSINESS (~4-5 j) : Reservations + Orders + Payments + Dashboard (4 compteurs + graphique 7j).
 
-3. **EventCatalog en code = source unique de vérité** (`notifications/catalog.py`). Validation à l'import. Évolution d'un event = nouvelle version (`.v1` → `.v2`).
+**Phase D — Chantiers métier différenciants (~7-10 jours)**
+- Intégration **Tramingo GPS** (~3 j) — polling REST + mapping IMEI→Vehicle + events pré-calculés vers notifs GPS-01/02 déjà câblées Phase A.
+- Intégration **VROOM** dispatching optimisé colis (~2-3 j) — microservice HTTP, appel depuis Django lors création batch commandes colis.
+- Intégration **OSRM** routing + ETA colis (~1-2 j) — auto-hébergé données OSM UEMOA/CEDEAO.
+- Intégration **FCM/APNs** push réel (~1 j) — remplace `FakePushProvider`, dépend compte Firebase.
 
-4. **Service explicite `NotificationService.emit()`, pas signals Django.**
+**Phase E — Conformité charte complète (~5-6 jours)**
+- N-07 agrégation/coalescing.
+- N-03 langue utilisateur.
+- Délais programmés / scheduler Celery beat.
+- Ack au déclarant.
+- MKT-01 plafonnement.
+- Rate limiting métier.
 
-5. **Une `Notification` = un `recipient_user`.** Broadcast rôle génère N Notifications individuelles.
+**Phase F — Polish avant vraie mise en prod (~4-5 jours)**
+- Import Excel client (véhicules, chauffeurs, lignes).
+- HTTPS + Caddy dev.
+- CI/CD GitHub Actions.
+- MFA TOTP admin.
+- Webhooks sortants HMAC pour ERP tiers.
+- Metabase branché reporting.
 
-6. **`variables_schema` en format Python natif** (pas JSON Schema, pas Pydantic). Attention : `isinstance(x, int)` accepte `bool` — exclure explicitement.
+**Bilan global** : ~50-60 jours de travail après cette bascule chat. Sur cadence 1-2 tickets/jour, **8-12 semaines calendaires** pour TOUPAC prod-ready complet avec toutes features différenciantes. Réaliste sur période de contrat.
 
-7. **Préférences user via `User.notification_preferences` (JSONField).** 3 catégories NEVER_OPT_OUT : `otp`, `security`, `critical_ops`.
-
-8. **Confidentialité (N-05) asymétrique par canal** : push masque, in-app et email portent le payload complet. À intégrer explicitement au Ticket B.
-
-## État du sprint applicatif au 7 sept 2026
+## État du sprint applicatif au 8 sept 2026
 
 **Ce qui est fait (base historique)** :
-- Feature `session_id` batch offline (contrat verrouillé avec dev RN)
-- QR billets RS256 end-to-end + endpoint public `/qr-public-key/`
-- Tests critiques : auth (JWT + denylist), multi-tenant isolation API, workflow transitions, paiement Intouch mocké
-- Seed démo réaliste 2 tenants (Sahel Express, Dem Dikk) — commande `seed_demo` idempotente, appelle `seed_notification_templates`
+- Feature `session_id` batch offline
+- QR billets RS256 + endpoint public `/qr-public-key/`
+- Tests critiques : auth, multi-tenant isolation, workflow, paiement mocké
+- Seed démo 2 tenants (Sahel Express, Dem Dikk)
 - Access token denylist Redis
-- **Fondations API publique** : 15 scopes tenant + 10 scopes plateforme
+- Fondations API publique : 15 scopes tenant + 10 scopes plateforme
 
-**Livré dans la série iam-admin (3-5 sept 2026)** :
-- Génération de clé API depuis Django Admin (multi-select scopes, révélation one-shot TTL 5 min, AuditLog sans secret, test end-to-end).
-- Démo-ready (4 permissions `*_apicredential` ajoutées au groupe staff, refus `admin:*` non-superadmin).
-- Service accounts par tenant.
+**Livré dans la série iam-admin (3-5 sept 2026)** — génération clé API, démo-ready, service accounts.
 
-**Livré dans la série notifications (5-6 sept 2026, 191 tests)** :
-- Warm-up : retour None silencieux corrigé, canal IN_APP ajouté.
-- Ticket A : Modèles enrichis, EventCatalog (37 events), Resolvers, `User.notification_preferences`.
-- Ticket A' : Correctifs codes canoniques (order, platform, INC-02).
+**Livré dans la série notifications warm-up + A + A' (5-6 sept 2026, 191 tests)** — canaux enrichis, EventCatalog 37 events, Resolvers, `User.notification_preferences`.
 
-**Livré dans le chantier CLIENT global (6-7 sept 2026, 476 tests, +208 vs pré-chantier)** :
+**Livré dans le chantier CLIENT global (6-7 sept 2026, 476 tests, +208)** — iam-platform-credentials, USR-1 à USR-4 (architecture marketplace B2B2C posée).
 
-- **iam-platform-credentials (6 sept)** — Fondations Type 2 plateforme.
-  - `PlatformCredential`, `TenantSubscription` (retiré en USR-4), `PlatformAuditLog`, scopes `platform:*`, backend d'auth, allowlist IP CIDR (stdlib ipaddress), rate throttle, admin superadmin, endpoints `/platform/tenants/`, `/platform/health/`, portail dev enrichi. 268 → 380 tests.
-  - Bugs préexistants découverts : `/auth/me/` échappe aux scopes (dette tracée xfail strict), collision sémantique `X-Tenant-ID` (traitée en USR-2).
+**Livré dans la fin refonte notifications (7-8 sept 2026, 637 tests, +161)** :
+- **Ticket B** : `NotificationService.emit()` refondu, flow 7 étapes, fail-log symétrique 6 branches (puis 8), idempotence 2 niveaux Redis+DB, retry par canal, confidentialité asymétrique. 3 régressions critiques désamorcées (`title_template=""` NOT NULL, fuite cross-tenant `order_by("-tenant_id")` NULLS FIRST, race Celery eager sur FK via `transaction.on_commit()`). +90 tests.
+- **Correctif ConsoleProvider post-B** : masquage body hors DEBUG (incident actif prod détecté, pas dette future). +5 tests.
+- **Ticket C** : factory providers configurable via `settings.NOTIFICATION_PROVIDERS`, 4 providers (FakePush, EmailSmtp, SmsConsole, WhatsAppConsole), `loggable_body()` partagé, préfixes explicites. +34 tests.
+- **Ticket D** : 5 endpoints CLIENT centre d'alertes (list paginée, unread-count, read, ack, mark-all-read). Serializer liste blanche stricte, isolation 404 pas 403, dérivation catalog en lecture / refus en écriture. Bug OpenAPI SerializerMethodField sans annotation corrigé (`spectacular --validate` en routine pre-merge). +47 tests.
+- **Cross-check charte notifications TOUPAC ONE (8 sept 2026)** : lecture intégrale du fichier Excel (4 feuilles), rapport respecté/dévié/non traité. 2 quick wins intégrés au Ticket F, 5 écarts tracés dans DETTES.md pour chantier Phase E.
 
-- **USR-1 (6 sept)** — Fondation CLIENT tenantless (317 tests).
-  - `User.tenant` nullable pour CLIENT. Contraintes DB : `user_tenant_matches_role`, `user_client_phone_unique`, `user_client_has_contact`, `unique=True + null=True` sur email (pas UniqueConstraint partielle car incompatible `auth.W004` sur USERNAME_FIELD).
-  - `User.get_or_create_client()` idempotent, refuse de voler un identifiant.
-  - Migration `iam/guardian.py` pour AnonymousUser → SERVICE_ACCOUNT (aurait cassé pytest sur base neuve sinon).
-  - 4 clients de démo seedés couvrant email seul / phone seul / les deux.
-
-- **USR-2 (6 sept)** — Auth OTP CLIENT + middleware 3 régimes (380 tests, +63).
-  - `POST /auth/otp/request/` + `/verify/`. Storage Redis TTL 5 min, hash SHA256, secrets.compare_digest, échéance absolue dans payload (pas via TTL Redis inaccessible).
-  - `TenantMiddleware._resolve_from_header` accepte slug ET UUID.
-  - Endpoints `/customer/me/`, `/customer/companies/`.
-  - `staff.email` obligatoire (CheckConstraint + clean()).
-  - Correctif blocage : `NotificationLog.tenant` devient nullable (migration `notifications/0006`) — sinon OTP CLIENT global impossible.
-  - Templates `notif.auth.otp_signin.v1` seedés (SMS, WhatsApp, Email, In-App).
-
-- **USR-3 (7 sept)** — Modèles métier + endpoints CLIENT (404 tests, +24).
-  - `Passenger.customer_user` (FK optionnelle vers User CLIENT).
-  - `Order.customer` réutilisée, sémantique clarifiée. Migration data nettoyage.
-  - `Invoice.customer_type = "client_user"` documenté (constantes exposées).
-  - Endpoints `/customer/my-reservations/`, `/my-orders/`, `/my-payments/` avec union `.distinct()`.
-  - `all_objects = models.Manager()` ajouté aux modèles concernés.
-  - Serializers stricts liste blanche, `tenant_slug` par item.
-  - 2 clients seedés (`client-demo-1@toupac.demo`, `client-demo-2@toupac.demo`) avec réservations et orders réparties sur les 2 tenants.
-
-- **USR-4 (7 sept)** — Correctif chatbot + acting user + portail split (476 tests, +72).
-  - Suppression `TenantSubscription`.
-  - `PlatformCredential.expires_at` nullable, `allowed_ips` liste vide autorisée partout.
-  - 4 nouveaux scopes plateforme (write × 3 + customer:read).
-  - Header `X-Acting-User-Email` / `X-Acting-User-Phone` résolu dans `PlatformApiKeyAuthentication`.
-  - `PlatformAuditLog.acting_user` FK nullable + admin filtre.
-  - Double throttle sur `/customer/*` en mode plateforme (`ActingCustomerRateThrottle` 200/h par CLIENT).
-  - Permission composée `IsAuthenticatedCustomer` (JWT direct OU plateforme + scope).
-  - Portail split : `/developers/` + `/partners/developers/`.
-  - Bug critique corrigé : sentinelle `_WRITE_REFUSED` remplacée par dérivation naturelle.
-  - Doc réécrite (« déplacée pas refaite » cédé face à l'obligation de vérité).
-
-**Ce qui reste (Phase 2 immédiate)** :
-- **Ticket B — NotificationService v2 (Opus 4.7, ~2 jours)** — Refonte du service selon charte. `emit(event_code, actor, context)` remplace `send_notification()`. Validation contexte, résolution destinataires, application préférences (N-02), idempotence (N-06) via Redis, création Notification + NotificationLog, enqueue Celery per delivery. Retry différencié par canal (N-09). Confidentialité asymétrique par canal. Fail-log symétrique (template absent, template cassé, resolver absent, resolver qui lève).
-- **Tickets C/D/E1/E2/F** — Sonnet 4.5 chacun, ~1 jour. C: providers réels (FakePushProvider). D: endpoints in-app centre d'alertes (côté CLIENT, en réutilisant permission composée USR-4). E1/E2: câblage métier (~29 resolvers). F: seed des 37 templates.
-
-**Micro-tickets courts prêts à insérer entre 2 gros tickets** :
-- Route↔RouteStop cohérence (~30 min) — validation `Route.clean()`.
-- `/qr-public-key/` warning au lieu de crash (~20 min).
-- `/auth/me/` scope check harmonisé (~1h) — dette USR-2 avec xfail strict.
-
-**Phases suivantes** (dans l'ordre) :
-- Phase 2 (suite) : intégration Tramingo (polling REST, mapping IMEI→Vehicle, événements pré-calculés → notifs GPS-01/02), intégration FCM/APNs (canal Push réel remplace FakePushProvider), import Excel client, enrichissements modèle, ré-alignement seed (marques YUTONG, corridors Mali).
-- Phase 3 : self-service user management pour admins de compagnie, endpoints d'écriture CLIENT via app mobile directe (`POST /customer/reservations/`, `POST /customer/orders/`), feature `add-contact-to-existing-account`, `Order.recipient_user` (asymétrie destinataire ≠ commanditaire).
-- Phase 4 : webhooks sortants HMAC (Surface B ERP), Metabase branché reporting.
-- Phase 5 : MFA TOTP admin, Import CSV commandes, micro-dettes restantes.
+**Ce qui reste immédiatement (Phase A, 1er ticket du nouveau chat)** :
+- **Ticket E1+E2 fusionnés** — câblage ~29 resolvers métier. Sonnet 4.5, ~1,5-2 j.
+- **Ticket F** — seed 37 templates + 2 quick wins conformité + retrait legacy. Sonnet 4.5, ~1 j.
 
 ## Conventions de code établies
 
 **Tests** :
-- pytest + pytest-django avec `conftest.py` racine ET `iam/tests/conftest.py` local (fixtures partagées : `tenant_a`, `tenant_b`, `user_admin_a`, `user_admin_b`, `user_dispatcher_a`, `user_controller_a`, `authenticated_client`, `client_fatou`, `client_aicha`, `superadmin`, `_isolated_throttle_cache` autouse).
+- pytest + pytest-django avec `conftest.py` racine ET `iam/tests/conftest.py` local (fixtures partagées).
+- `CELERY_TASK_ALWAYS_EAGER=True` autouse en conftest racine.
 - Un package `tests/` par module.
 - Utiliser **de vrais JWT** pour tester l'auth (pas `force_authenticate`).
 - Tests admin : `Client()` + `client.force_login(user)`, PAS `APIClient`.
 - Assertions sur le **contenu**, pas juste le status code.
 - Assertions HTML sur UUID/attributs, pas sur labels affichés.
 - **Test end-to-end obligatoire** pour toute émission de credential/token.
-- **Data migration non triviale = test dédié** via `importlib.import_module` + `apps.get_model` (exceptions documentées dans DECISIONS.md).
-- **Tests data-driven sur invariants** — itérer sur `all_events()`, `all_scopes()`, etc.
-- **Assertions négatives sur doc publique** : `assert "rotation" not in html` pour traquer les affirmations obsolètes.
-- **Compter les queries d'un serializer** (`assertNumQueries`) sur les endpoints listant avec serializer imbriqué, pas de seuil absolu mais canari.
-- **Tester le double throttle** en abaissant les seuils drastiquement (2/h, 1/h) — la mécanique est prouvée, pas la valeur.
+- **Data migration non triviale = test dédié** via `importlib.import_module`.
+- **Tests data-driven sur invariants** — itérer sur `all_events()`, `all_scopes()`.
+- **Assertions négatives sur doc publique** : `assert "rotation" not in html`.
+- **Compter les queries d'un serializer** (`assertNumQueries`).
+- **Tester le double throttle** en abaissant les seuils drastiquement.
+- **`spectacular --validate --fail-on-warn`** en routine pre-merge (annoter `SerializerMethodField` avec `-> bool` etc.).
 
-**Ruff** :
-- Config dans `pyproject.toml` avec `select = ["E", "F", "W", "I", "B", "C4", "UP", "RUF"]`.
-- `RUF012` désactivé, `EXE002` non sélectionné, `E402` ignoré sur `config/settings/*.py`.
-- `UP042` actif — `StrEnum` obligatoire.
+**Ruff** : `select = ["E", "F", "W", "I", "B", "C4", "UP", "RUF"]`, `RUF012` désactivé, `EXE002` non sélectionné, `E402` ignoré sur `config/settings/*.py`, `UP042` actif.
 
-**Répartition des 3 fichiers de vérité** :
-- **DETTES.md** : dette identifiée à traiter.
-- **DECISIONS.md** : patterns/anti-patterns validés (42+ entrées, 10 domaines).
-- **CONTEXT_TRANSFERT.md** (ce fichier) : état du projet, doctrine produit, décisions structurantes, plan de séquencement. Pointe vers DECISIONS.md pour le détail des patterns.
+**Répartition 3 fichiers de vérité** :
+- **DETTES.md** : dette identifiée à traiter, par domaines.
+- **DECISIONS.md** : patterns/anti-patterns validés (~50 entrées, 12 domaines).
+- **CONTEXT_TRANSFERT.md** (ce fichier) : état du projet, doctrine produit, décisions structurantes, plan de séquencement.
 
-**Commits** :
-- Convention `feat(scope): ...`, `fix(scope): ...`, `chore(scope): ...`, `test(scope): ...`, `docs: ...`, `refactor(scope): ...`.
-- Body avec contexte + résultats chiffrés + refs vers tickets/dettes.
-- 1 commit par ticket, atomique.
+**Commits** : `feat(scope): ...`, body avec contexte + résultats chiffrés + refs. 1 commit par ticket.
 
 ## Fichiers-clés à connaître dans le repo
 
 **Racine** :
 - `CONTEXT_TRANSFERT.md`, `DECISIONS.md`, `DETTES.md` — les 3 fichiers de vérité.
-- `conftest.py` — fixtures partagées.
-- `docs/design/platform-credentials.md` — architecture Type 1 vs Type 2, OAuth 2.0 CC écarté.
+- `conftest.py` — fixtures partagées + `CELERY_TASK_ALWAYS_EAGER=True` autouse.
+- `docs/design/platform-credentials.md`.
 
 **Config** :
-- `config/settings/base.py` — REST_FRAMEWORK config (auth chain, throttles, `acting_customer: 200/hour`), TOUPAC_QR_PRIVATE_KEY_PEM, UNFOLD.SIDEBAR.navigation (déclarative, sections « API & Intégrations » avec `Clés plateforme`, `Audit plateforme`).
-- `config/settings/dev.py` — LOGGING doit viser `"toupac"` racine, pas `"notifications"` (hiérarchie loggers Python distincte, cf. débrief USR-3).
+- `config/settings/base.py` — REST_FRAMEWORK, TOUPAC_QR_PRIVATE_KEY_PEM, UNFOLD, **`NOTIFICATION_PROVIDERS`** (Ticket C).
+- `config/settings/dev.py` — LOGGING viser `"toupac"` racine (pas `"notifications"`), EMAIL_BACKEND console.
+- `config/settings/prod.py` — EMAIL_BACKEND SMTP, vars `EMAIL_*` à remplir en `.env.prod`.
 
 **Core** :
-- `core/middleware.py` — TenantMiddleware (attache tenant depuis JWT/session/header, accepte slug ET UUID depuis USR-2).
-- `core/models.py` — TenantModel, TenantManager (**ne filtre pas** — l'isolation est faite dans les ViewSets), UUIDv7Field, SoftDeleteMixin (**pas de manager filtrant** — `deleted_at__isnull=True` à poser explicitement).
+- `core/middleware.py` — TenantMiddleware (slug + UUID).
+- `core/models.py` — TenantModel, TenantManager (ne filtre pas), UUIDv7Field, SoftDeleteMixin.
 - `core/admin.py` — TenantAdminMixin, SuperadminOnlyAdminMixin.
-- `core/management/commands/seed_demo.py` — dataset démo, appelle `seed_notification_templates` en délégation.
+- `core/management/commands/seed_demo.py` — dataset démo, appelle `seed_notification_templates`.
 
-**IAM** :
-- `iam/authentication.py` — DenylistJWTAuthentication (JWT + denylist Redis).
-- `iam/api_key_authentication.py` — ApiKeyAuthentication (Type 1 tenant).
-- `iam/platform_authentication.py` — PlatformApiKeyAuthentication (Type 2 plateforme, résolution X-Acting-User-Email, IP allowlist, reset request.tenant d'entrée).
-- `iam/platform_audit.py` — Middleware phase-réponse (PlatformAuditLog avec acting_user).
-- `iam/permissions.py` — HasApiScope (Type 1).
-- `iam/platform_scopes.py` — PLATFORM_AVAILABLE_SCOPES (10 scopes dont 3 write + customer:read + global:read), `platform_scope_for_domain(domain, write=True)` dérivation naturelle.
-- `iam/platform_services.py` — PLATFORM_SERVICES dict (chatbot-bi, futures apps).
-- `iam/scopes.py` — AVAILABLE_SCOPES, ADMIN_SCOPE, docstring en tête = doctrine `admin:*`.
-- `iam/throttles.py` — ApiKeyRateThrottle, ApiKeyAdminRateThrottle.
-- `iam/platform_throttles.py` — PlatformKeyRateThrottle (1000/h), ActingCustomerRateThrottle (200/h).
-- `iam/forms.py` — ApiCredentialCreateForm, PlatformCredentialCreateForm.
-- `iam/admin.py` — ApiCredentialAdmin, PlatformCredentialAdmin, PlatformAuditLogAdmin (filtre par acting_user), UserAdmin.
-- `iam/signals.py` — provisionne service account.
-- `iam/apps.py` — IamConfig.ready().
-- `iam/otp.py` — helpers OTP (Redis, hash SHA256, mask_target).
-- `iam/otp_views.py` — RequestOTPView, VerifyOTPView.
-- `iam/customer_views.py` — CustomerMeView, CustomerCompaniesListView, MyReservationsView, MyOrdersView, MyPaymentsView, **permission `IsAuthenticatedCustomer` définie ici** (pas dans un fichier `customer_permissions.py` séparé).
-- `iam/platform_views.py`, `iam/platform_urls.py` — PlatformTenantsView, PlatformHealthView.
-- `iam/guardian.py` — fabrique AnonymousUser en SERVICE_ACCOUNT.
-- `iam/tests/conftest.py` — fixture `superadmin` locale (pas dans conftest racine).
-- `iam/tests/test_admin_api_credential_issue.py`, `test_service_accounts.py`, `test_platform_*`, `test_otp_flow.py`, `test_customer_*`, `test_acting_user_resolution.py`, `test_platform_audit_acting_user.py`.
+**IAM** (module massif après chantier CLIENT global) :
+- `iam/authentication.py`, `api_key_authentication.py`, `platform_authentication.py` (X-Acting-User-Email).
+- `iam/platform_audit.py` — middleware avec `acting_user`.
+- `iam/permissions.py`, `platform_scopes.py` (CUSTOMER_SCOPE, platform_scope_for_domain), `scopes.py`.
+- `iam/throttles.py`, `platform_throttles.py`.
+- `iam/forms.py`, `admin.py`.
+- `iam/signals.py`, `guardian.py`.
+- `iam/otp.py`, `otp_views.py`.
+- `iam/customer_views.py` — CustomerMe, CustomerCompanies, MyReservations/Orders/Payments, **`IsAuthenticatedCustomer` définie ici**.
+- `iam/customer_notifications_views.py` — 5 endpoints centre d'alertes (Ticket D).
+- `iam/customer_serializers.py` — My* + MyNotificationSerializer.
+- `iam/customer_urls.py` — monté sur `/api/v1/customer/`.
+- `iam/platform_views.py`, `platform_urls.py`.
 
 **Notifications** :
-- `notifications/catalog.py` — les 37 events déclarés.
-- `notifications/priorities.py`, `channels.py` — enums StrEnum.
-- `notifications/preferences.py` — 10 catégories, NEVER_OPT_OUT.
-- `notifications/resolvers/base.py` — registry + décorateur + KNOWN_UNIMPLEMENTED_RESOLVERS.
-- `notifications/resolvers/examples.py` — 2 exemples testés.
-- `notifications/models.py` — NotificationTemplate, Notification, NotificationLog (`tenant` nullable depuis USR-2).
-- `notifications/services.py` — `send_notification()` legacy, **à refondre au Ticket B**.
+- `notifications/catalog.py` — 37 events, `all_events()` retourne **list** (pas dict).
+- `notifications/priorities.py`, `channels.py`, `preferences.py`.
+- `notifications/resolvers/base.py`, `examples.py` — 2 exemples testés + `KNOWN_UNIMPLEMENTED_RESOLVERS` (~29 clés à câbler Phase A).
+- `notifications/models.py` — NotificationTemplate, Notification, NotificationLog (`tenant` nullable).
+- `notifications/services.py` — `NotificationService.emit()` refondu + adaptateur `send_notification()` legacy avec DeprecationWarning.
+- `notifications/tasks.py` — `send_notification_log(log_id)`.
+- `notifications/retries.py` — `RETRY_POLICIES` par canal.
+- `notifications/rendering.py` — `render_for_channel`, `CHANNELS_MASKING_APPLIED`.
+- `notifications/idempotency.py` — helpers Redis.
+- `notifications/providers/base.py` — `NotificationProvider` ABC + `NotificationResult` + `loggable_body()` partagé.
+- `notifications/providers/factory.py` — `get_provider(channel)`.
+- `notifications/providers/console.py`, `fake_push.py`, `email_smtp.py`, `sms_console.py`, `whatsapp_console.py`.
 
 **Voyage / colis / billing** :
-- `voyage/models.py` — Passenger avec `customer_user` (FK vers CLIENT).
-- `voyage/services/qr_jwt.py` — sign/verify RS256.
-- `colis/models.py` — Order avec `customer` réutilisée.
-- `billing/models.py` — Invoice avec `customer_id` + `customer_type="client_user"`, constantes exposées.
+- `voyage/models.py` — Passenger avec `customer_user`.
+- `voyage/services/qr_jwt.py`.
+- `colis/models.py` — Order avec `customer`.
+- `billing/models.py` — Invoice avec `customer_type="client_user"`.
 
 **Developers** :
-- `developers/views.py` — TenantDeveloperPortalView, PartnerDeveloperPortalView.
-- `developers/urls.py`, `developers/partner_urls.py`.
-- `developers/templates/developers/tenant_portal.html`, `partner_portal.html`, partials adaptés.
+- `developers/views.py`, `urls.py`, `partner_urls.py`.
+- Templates `tenant_portal.html`, `partner_portal.html`.
 
 ## Anti-patterns
 
-**Source de vérité : `DECISIONS.md` à la racine du repo, 42+ entrées, groupé en 10 domaines** (acting user & B2B2C, portails et doc publique, multi-tenant et cross-tenant, auth secrets et cache, contraintes DB et cycle de vie modèle, registries et catalogues, data migrations, Python/Django, API/auth, modes de travail). À consulter avant chaque ticket qui touche à un domaine concerné.
+**Source de vérité : `DECISIONS.md` à la racine — ~50 entrées, 12 domaines.**
 
-Extraits notables souvent revus :
+12 domaines couverts : Idempotence & async, Services et flow, ORM PostgreSQL, Tests, Acting user & B2B2C, Portails & doc publique, Multi-tenant & cross-tenant, Auth secrets & cache, Contraintes DB & cycle de vie modèle, Registries & catalogues, Data migrations, Python/Django, API/auth, Modes de travail.
 
-1. **`force_authenticate` avec middleware pré-DRF** → vrai JWT dans header Authorization.
-2. **`functools.partial` pour form admin dynamique** → sous-classe dynamique.
-3. **`@receiver` sans `dispatch_uid`** → double enregistrement + disconnect impossible en test.
-4. **`isinstance(x, int)` accepte `bool`** → exclure explicitement.
-5. **`class X(str, Enum)`** → `StrEnum` obligatoire (ruff UP042).
-6. **Rename de champ via questionneur interactif** → `RenameField` à la main.
-7. **Data migration ne rattrape que le passé** → lignes créées après restent orphelines.
-8. **Fail-open sur émetteur indéterminable** → refuser par défaut.
-9. **Sentinelle de refus qui survit à son motif** → dérivation qui échoue naturellement.
-10. **`limit_choices_to` ≠ validation modèle** → `CheckConstraint` + limit_choices_to ensemble.
-11. **Un middleware résout, il ne refuse pas** — corollaire : tout backend autoritaire réinitialise le contexte d'entrée.
-12. **Un helper `get_or_create` ne vole pas un identifiant** — enrichit si vide, ignore silencieusement si déjà pris.
-13. **`unique=True + null=True` > UniqueConstraint partielle** sur PostgreSQL (NULLS DISTINCT par défaut).
-14. **`.distinct()` obligatoire sur `Q(...) | Q(...)` traversant des relations**.
-15. **Serializers CLIENT en liste blanche**, jamais `__all__`.
-16. **Contrainte modèle sans auditer tiers post_migrate** (django-guardian écrit un AnonymousUser).
+Extraits critiques :
+1. `force_authenticate` avec middleware pré-DRF → vrai JWT.
+2. `functools.partial` pour form admin → sous-classe dynamique.
+3. `@receiver` sans `dispatch_uid`.
+4. `isinstance(x, int)` accepte `bool`.
+5. `class X(str, Enum)` → `StrEnum` obligatoire.
+6. `RenameField` à la main, jamais interactif.
+7. Fail-open sur émetteur indéterminable → refuser.
+8. Sentinelle de refus qui survit à son motif → dérivation naturelle.
+9. `limit_choices_to` ≠ validation modèle → CheckConstraint.
+10. Un middleware résout, il ne refuse pas.
+11. Un helper `get_or_create` ne vole pas un identifiant.
+12. `unique=True + null=True` > UniqueConstraint partielle sur PostgreSQL.
+13. `.distinct()` obligatoire sur `Q(...) | Q(...)` relations.
+14. Serializers CLIENT en liste blanche, jamais `__all__`.
+15. Contrainte modèle sans auditer tiers post_migrate.
+16. `transaction.on_commit()` obligatoire pour enqueue Celery + FK récente.
+17. Un provider de dev qui log en clair s'auto-restreint hors DEBUG.
+18. La simulation s'annonce (préfixes `[SMS-MOCK]`, `fake_fcm_`).
+19. Un défaut vaut pour l'omission, pas pour la déclaration fautive.
+20. 404 (jamais 403) sur ressource nominative.
+21. Une valeur hors bornes se refuse, elle ne se rabote pas.
+22. Test de liste blanche par égalité, pas inclusion.
+23. Dériver du catalogue avec repli neutre à la lecture / refus à l'écriture.
+24. `spectacular --validate` en routine pre-merge.
 
 ## Modes de travail établis
 
-- Je génère des **prompts Claude Code** exhaustifs (fichier par fichier, critères d'acceptation, anti-critères, commit prêt).
-- Sonnet 4.5 gère très bien les tickets complexes tant que les décisions sont tranchées en amont. **Réserver Opus 4.7** aux tickets où plusieurs décisions produit restent à prendre ou aux refactos multi-modules exploratoires. Le chantier CLIENT global était Opus 4.7 sur les 5 tickets — justifié.
-- Le dev revient avec **débrief structuré** : tableau critères passés/échoués, écarts au prompt (chacun justifié), bugs découverts en route, points à trancher.
-- Je réponds aux débriefs en **valorisant les corrections** (le dev me fait souvent voir des erreurs de ma spec), puis génère le suivant.
-- **Pattern warm-up avant gros chantier** — micro-tickets courts avant refonte pour lever les angles morts. Vécu : chatbot × multi-tenant, portée admin:*, sémantique user porteur, retour None silencieux, sentinelle _WRITE_REFUSED.
-- **Faits présumés en tête du prompt** — 5-10 signatures/patterns supposés, validés ligne par ligne dans le débrief. Attrape mes erreurs de lecture (4+ erreurs par ticket en moyenne, toutes rattrapées avant code).
-- **« N tests minimum » ≠ « exactement N tests »** — le dev complète où il voit un vide. Chantier CLIENT global : +208 tests vs 268 pré-chantier.
-- **Alignement doctrine multi-endroits** — lister TOUS les fichiers où la doctrine apparaît (code, help_text, portail dev, DETTES.md, README).
-- **Pas deux versions d'un même diff dans un prompt**.
+- Je génère des **prompts Claude Code** exhaustifs (fichier par fichier, critères, anti-critères, commit prêt).
+- Sonnet 4.5 pour tickets bien cadrés. **Opus 4.7** pour tickets à décisions produit multiples ou refactos exploratoires. Chantier CLIENT global était Opus 4.7 — justifié.
+- Le dev revient avec **débrief structuré** : critères passés/échoués, écarts justifiés, bugs découverts, points à trancher.
+- **Warm-up avant gros ticket** — lève les angles morts.
+- **Faits présumés en tête de prompt** — 5-10 signatures validées ligne par ligne au débrief. Attrape les erreurs de lecture (4+ par ticket en moyenne, tous rattrapés avant code).
+- **« N tests minimum » ≠ exactement N**. Le dev complète où il voit un vide.
+- **Alignement doctrine multi-endroits** — lister TOUS les fichiers où la doctrine apparaît.
+- **Pas deux versions d'un même diff dans un prompt.**
 - **Fail-log symétrique** — couvrir toutes les branches d'échec.
-- **Discipline de découpage** sur gros chantier — ne pas laisser dériver le périmètre. Trace en dette et continue plutôt qu'élargir. Chantier CLIENT global : 5 tickets serrés au lieu d'un pavé de 5 jours.
-- **Décision produit tranchée avant chantier** — quand la question est produit-critique (marketplace B2B2C vs SaaS multi-tenant), stopper les tickets courants et arbitrer avant de bâtir dessus.
-- **Retirer une garantie de sécurité est un arbitrage documenté**, pas un relâchement. Un futur auditeur doit voir les conditions cumulatives qui rendent le retrait tenable.
-
-Ces patterns et les autres sont capturés en détail dans `DECISIONS.md`.
+- **Discipline de découpage sur gros chantier** — trace en dette et continue plutôt qu'élargir.
+- **Décision produit tranchée avant chantier** — quand la question est produit-critique, stopper et arbitrer.
+- **Retirer une garantie sécu = arbitrage documenté**, pas relâchement.
+- **Auditer périodiquement DECISIONS.md et DETTES.md** — ce ne sont pas des archives mais des documents vivants. Vécu 2× cette session : entrée « masquage ConsoleProvider prod » classée dette alors qu'incident actif, entrée « logger notifications INFO » qui nommait le mauvais logger. À faire idéalement à la fin de chaque gros chantier (fin refonte notifs = maintenant).
 
 ## Ce qui vient dans le nouveau chat
 
-Prochain ticket : **notifications-refonte-B — NotificationService v2** (Opus 4.7, ~2 jours).
+**Prochain ticket : Phase A — Ticket E1+E2 fusionnés (câblage ~29 resolvers métier).** Sonnet 4.5, ~1,5-2 jours.
 
-Le nouveau chat démarre par la lecture des 3 fichiers de vérité (`CONTEXT_TRANSFERT.md`,
-`DECISIONS.md`, `DETTES.md`), puis du module `notifications/` post-Ticket A' :
-- `catalog.py` — les 37 events, comprendre la structure `NotifEvent`.
-- `resolvers/base.py` — comprendre le squelette (registry, `KNOWN_UNIMPLEMENTED_RESOLVERS`).
-- `preferences.py` — les 10 catégories, `NEVER_OPT_OUT`.
-- `models.py` — `NotificationTemplate` enrichi, `Notification`, `NotificationLog` (`tenant` nullable depuis USR-2).
-- `services.py` — `send_notification()` legacy à remplacer.
+Le nouveau chat démarre par :
 
-**Ce que le Ticket B doit livrer** :
+1. **Lecture des 3 fichiers de vérité** (`CONTEXT_TRANSFERT.md`, `DECISIONS.md`, `DETTES.md`).
+2. **Lecture du module `notifications/` post-Ticket D** :
+   - `catalog.py` — les 37 events, structure `NotifEvent`.
+   - `resolvers/base.py` — squelette, `KNOWN_UNIMPLEMENTED_RESOLVERS` (~29 clés à implémenter).
+   - `resolvers/examples.py` — 2 exemples testés (pattern à reproduire).
+   - `services.py` — `emit()` refondu, comprendre comment il consomme les resolvers.
+3. **Confirmation compréhension** avant d'ouvrir le prompt E1+E2.
 
-1. **`NotificationService.emit(event_code, actor, context)`** — flow complet :
-   - Validation contexte contre `EventCatalog[code].variables_schema`.
-   - Résolution destinataires via `get_resolver(event.resolver_key)(context, tenant)`.
-   - Application préférences (`user.notification_preferences.get(event.category, True)` avec bypass sur `NEVER_OPT_OUT`).
-   - Idempotence (N-06) via Redis `SETEX` clé `{event_code}:{actor_id}:{target_hash}`, TTL 24h. Contrainte unique conditionnelle sur `Notification.idempotency_key` renforce au niveau DB.
-   - Création `Notification` (une par destinataire) + `NotificationLog` (une par delivery attempt = destinataire × canal).
-   - Enqueue Celery task par NotificationLog.
+**Ce que E1+E2 fusionnés doit livrer** :
 
-2. **Confidentialité asymétrique par canal (N-05)** — `confidentiality_masks` sur l'event s'applique en push uniquement. In-app et email portent le payload complet. Vérifier explicitement que TKT-01 `qr_payload` reste livrable via in-app/email.
+- Implémenter les ~29 resolvers déclarés dans `KNOWN_UNIMPLEMENTED_RESOLVERS`.
+- Chaque resolver reçoit `(context, tenant)` et retourne `list[ResolvedRecipient]`.
+- Résolution des destinataires selon la sémantique de chaque event (client de la réservation, chauffeur de la mission, dispatchers du tenant, etc.).
+- Retirer chaque clé de `KNOWN_UNIMPLEMENTED_RESOLVERS` au fur et à mesure — validation croisée bidirectionnelle du catalog garantit qu'aucune n'est oubliée.
+- Tests : au moins 1 test par resolver (~29 tests min), + tests d'invariants (tous les events ont un resolver enregistré).
 
-3. **Fail-log symétrique** — `NotificationLog(status=failed)` pour toutes les branches d'échec :
-   - Template absent (`failure_reason="no_template:..."`, déjà couvert par warmup).
-   - Template présent mais cassé (Django `TemplateSyntaxError`) → `"template_error:..."`.
-   - Resolver absent ou dans `KNOWN_UNIMPLEMENTED_RESOLVERS` → `"resolver_unimplemented:..."`.
-   - Resolver qui lève → `"resolver_error:..."`.
-   - Violation préférence NEVER_OPT_OUT → `"preference_violation:..."`.
+**Après E1+E2** : Ticket F (seed 37 templates + 2 quick wins conformité + retrait legacy).
 
-4. **Retry différencié par canal (N-09)** — Push 3 tentatives, Email 3 tentatives, pas de bascule automatique vers SMS/WhatsApp hors OTP. Paramétré déclarativement.
+**Après F** : Phase B — self-service user management + endpoints écriture CLIENT + SMS réel dès clé du lead.
 
-5. **Refactor `send_notification()` en deprecation warning** — appelle en interne le nouveau `emit()` pour compatibilité pendant la migration, retire au Ticket F.
+**Puis Phase C** : Backoffice frontend en repo séparé — nécessite validation du stack avec le lead avant BACKOFFICE-BOOTSTRAP.
 
-6. **Tests** — ~25 tests minimum (idempotence, résolution, préférences, confidentialité par canal, retry, isolation multi-tenant, tous les fail-logs, deprecation warning).
+**Rappels utiles pour le nouveau chat** :
+- **Architecture marketplace B2B2C posée** (voir section dédiée).
+- **Deux types d'intégrations API** : ApiCredential (tenant) et PlatformCredential (plateforme + acting user).
+- **637 tests verts, 0 régression**. Chantier notifications à 3 tickets près d'être bouclé.
+- **Endpoint `/ack/` CLIENT laissé en veille** — pas d'events supplémentaires à `requires_ack=True` avant validation design app mobile CLIENT.
+- **SMS/WhatsApp réels différés** — attente clé API du lead.
+- **Stack frontend à valider avec le lead** avant démarrage Chantier BACKOFFICE-BOOTSTRAP.
+- **Charte notifications cross-checkée** — 2 quick wins pour Ticket F, 5 écarts tracés Phase E.
+- **Auditer DECISIONS.md et DETTES.md** en fin de refonte notifs (bon moment) — ce ne sont pas des archives.
 
-**Après Ticket B** : Tickets C (providers réels + FakePushProvider), D (endpoints in-app centre d'alertes — réutilise `IsAuthenticatedCustomer` de USR-4 pour permission composée JWT+plateforme), E1+E2 (câblage métier ~29 resolvers), F (seed templates + fusion seeders).
+**Phrase de raccrochage à coller après CONTEXT_TRANSFERT.md dans le nouveau chat** :
 
-Puis Phase 3 : self-service user management pour admins, endpoints d'écriture CLIENT via app mobile directe, feature `add-contact-to-existing-account`.
-
-**Rappels utiles** :
-- **Architecture marketplace B2B2C posée**. TOUPAC (central) × compagnies (tenants) × CLIENT global. Le rôle CLIENT n'appartient à aucun tenant.
-- **Deux types d'intégrations API** :
-  - Type 1 tenant (`ApiCredential`) — émission par admin compagnie, scopes tenant.
-  - Type 2 plateforme (`PlatformCredential`) — émission par superadmin TOUPAC, scopes `platform:*`, header `X-Tenant-ID` (slug) + optionnel `X-Acting-User-Email`.
-- **Chatbot Toupac BI** intégrable dès qu'un tenant est créé (zéro friction) via `PlatformCredential` unique avec scopes lecture + écriture métier. Peut agir au nom d'un CLIENT via `X-Acting-User-Email`.
-- **Endpoints CLIENT-scoped** (`/customer/*`) accessibles JWT direct (app mobile CLIENT) OU PlatformCredential + acting user (chatbot).
-- **Portail dev split** : `/developers/` (tenant) + `/partners/developers/` (plateforme).
-- **Auth CLIENT OTP-only** (`/auth/otp/request/`, `/auth/otp/verify/`), Redis, hash SHA256.
-- La démo lead est bloquable en local. Le déploiement prod utilise `docker compose ... exec web python manage.py migrate` **puis** `... seed_demo` (le seed appelle `seed_notification_templates`).
+> On sort d'un chat où on a bouclé la refonte notifs (Tickets B / C / D) et fait le cross-check charte. Prochaine étape : Ticket E1+E2 fusionnés (câblage ~29 resolvers métier). Lis DECISIONS.md et DETTES.md, puis dis-moi ce que tu as compris comme prochaine action, et on démarre.

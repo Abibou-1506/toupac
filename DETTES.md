@@ -240,6 +240,116 @@ Portée technique :
       → Effort : ~0,5 j pour les deux ensemble.
       → Ref : ticket notifications-refonte-D, 7 sept 2026.
 
+### Notifications — écarts avec la charte TOUPAC ONE
+
+Cross-check complété le 8 sept 2026 après lecture intégrale du fichier
+`Charte_notifications_TOUPAC_ONE.xlsx` (4 feuilles : Charte, Référentiel
+plateformes, Matrice notifications, Gabarits messages). Les 37 events sont
+bien tous déclarés au catalog avec bon `charte_id`, priorité, canaux
+principaux. Ce qui suit sont les écarts identifiés, classés par urgence.
+
+#### Deux quick wins intégrés au Ticket F
+
+Regroupés au Ticket F (seed templates) puisqu'ils touchent au même code et
+prennent < 1h chacun. NE PAS OUBLIER en rédigeant le prompt F.
+
+- **N-05 masquage du sujet email**. La charte dit textuellement « Aucun
+  OTP, donnée bancaire, document d'identité ou adresse complète dans le
+  push **ou l'objet e-mail** ». Le Ticket B a assumé « email = payload
+  complet » sans distinguer le sujet du corps. Un email « Confirmation
+  paiement 25 000 FCFA » en sujet est visible en aperçu lockscreen Gmail
+  sur téléphone. Fix : appliquer les `confidentiality_masks` au **sujet**
+  email (pas au corps), en complément de push+SMS+WhatsApp.
+  → Effort : ~30 min dans `notifications/rendering.py`.
+
+- **Contraintes de longueur push**. La charte dit « Titre <= 45 char, corps
+  <= 140 char » pour les push. `NotificationTemplate.title_template` est
+  CharField(200), `template_body` est TextField sans limite. Un template
+  long produit un push qui sera tronqué par FCM/APNs au moment de l'envoi
+  (perte de sens). Fix : validation dans `NotificationTemplate.clean()`
+  qui refuse un template push dépassant les limites au rendu (avec un
+  contexte de test).
+  → Effort : ~30 min.
+
+#### Chantier « conformité charte complète » — Phase E du plan
+
+Gros chantier ~5-6 jours à ouvrir après user management + endpoints
+écriture CLIENT + backoffice frontend. Bloquant pour vraie mise en
+production, non bloquant pour démo lead ou premières compagnies pilotes.
+
+- [ ] **N-07 temporisation / agrégation** — la charte demande « regrouper
+      les changements rapprochés non critiques ».
+      → Concernés : COL-03 (positions GPS colis, non spammer), TRJ-03
+        (mises à jour retard à regrouper si ETA ré-évolue), STK-01
+        (regrouper par site/catégorie), APR-01 (pas de relances
+        excessives), CMD-02 (une relance maximum), PAY-02 (éviter la
+        notification sur simple timeout temporaire).
+      → Fix : mécanisme de déduplication temporelle « une notif toutes les
+        N min pour un même (event, user) » au niveau service. Fenêtre
+        paramétrée dans le catalog (`throttle_minutes: int | None`).
+        Redis clef courte pour tracking. Distinct de l'idempotence 24h.
+      → Effort : ~1-2 j.
+
+- [ ] **N-03 langue utilisateur non résolue**
+      → État : `emit(language="fr")` accepte le paramètre mais il faut le
+        passer manuellement, jamais résolu depuis le destinataire. Un
+        futur CLIENT anglophone (Ghana, Nigéria) recevrait tout en
+        français.
+      → Fix : ajouter `User.language` (CharField(2), défaut "fr"),
+        migration, résolution automatique dans `emit()` à partir du
+        recipient.
+      → Effort : ~1 j (modif modèle + migration + service + tests).
+
+- [ ] **Délais programmés / scheduler manquant**
+      → État : la charte spécifie « Immédiat », « < 1 min », mais aussi
+        « T-15 min » (avant expiration réservation), « T-24 h et T-1h »
+        (rappel départ), « J-30, J-15, J-1 » (maintenance / conformité).
+        Notre `emit()` envoie tout immédiatement.
+      → Concernés : TRJ-01 (rappel départ T-24h/T-1h), FLT-01 (maintenance
+        J-30/J-15/J-1), CMP-01 (document expirant J-30/J-15/J-1), CMD-02
+        (réservation expirant T-15min).
+      → Fix : commande Celery beat qui scanne périodiquement les entités
+        métier et déclenche `emit()` aux bons moments. Pattern lookup :
+        `Trip.objects.filter(departure_at__range=(now+23h, now+25h))`
+        pour le T-24h.
+      → Effort : ~1 j (Celery beat + 4 scheduler tasks + tests).
+
+- [ ] **Ack au déclarant (INC-01, CRM-01)**
+      → État : INC-01 dit « Accusé de réception push au déclarant ».
+        Notre resolver `incident.dispatchers_and_admin` envoie à tous
+        les dispatchers/admins, pas garanti au déclarant spécifiquement.
+        Le déclarant reçoit peut-être la notif s'il est dispatcher, mais
+        c'est fortuit.
+      → Fix : ajouter un event complémentaire `notif.incident.
+        acknowledgment.v1` avec `resolver_key="incident.reporter"` +
+        `requires_ack=True`, déclenché en même temps que INC-01. Même
+        pattern pour CRM-01.
+      → Effort : ~0,5 j (2 events + resolvers + tests).
+
+- [ ] **MKT-01 plafonnement fréquence + non-relance post-conversion**
+      → État : « plafonner la fréquence et ne pas relancer après
+        conversion ou expiration » non traité. Un client qui a utilisé un
+        code promo continue de recevoir des rappels.
+      → Fix : nouveau modèle `MarketingCampaign.excluded_users` ou
+        mécanisme de blacklist temporaire par campagne. À détailler avec
+        le lead — dépend de la stratégie CRM.
+      → Effort : ~1 j.
+
+- [ ] **Rate limiting métier**
+      → État : l'idempotency Redis 24h évite les doublons stricts d'un
+        même event, mais ne bloque pas une nouvelle relance volontaire
+        (CMD-02 « une relance maximum », PAY-02 « éviter timeout
+        temporaire », APR-01 « pas de relances excessives »).
+      → Fix : compteur Redis par (event_code, user_id) avec fenêtre
+        glissante, refusé au-delà d'un plafond déclaré au catalog
+        (`max_sends_per_day: int | None`).
+      → Effort : ~1 j.
+
+**Priorité produit implicite** : les 5 points ci-dessus dans l'ordre
+listé (N-07 en premier car impact utilisateur direct spam). À discuter
+avec le lead avant ouverture du chantier — certains peuvent être
+reportés V2 selon le contexte commercial.
+
 ### Notifications — passerelles réelles
 
 - [ ] **Trois canaux sur cinq ne délivrent rien**
