@@ -48,6 +48,115 @@ passer `spectacular --validate` de 183 warnings à 181, 0 erreur.
 
 ---
 
+### Trois familles de destinataires, et confondre leurs filtres est silencieux
+_Validé — Ticket notifications-refonte-E1E2 (8 sept 2026)_
+
+Le paramètre `tenant` d'un resolver ne s'applique pas à tout le monde.
+
+| Famille | Filtre | Combien |
+|---|---|---|
+| Personnel d'une compagnie | `tenant=tenant, role=…, is_active=True` | la majorité |
+| Client TOUPAC | `tenant=None` — **jamais** `tenant=tenant` | 11 resolvers |
+| Admin SI de la plateforme | `role=SUPERADMIN`, sans compagnie | 2 resolvers |
+
+Un client est global depuis USR-1 : le chercher par `tenant=tenant`, par
+mimétisme avec les resolvers de personnel, rend **toujours** une liste vide.
+Et une liste vide n'est pas une erreur — `emit()` la traite en
+`skipped_no_recipient`, sans une ligne en base. Le défaut est donc invisible :
+les notifications ne partent pas, et rien ne le dit.
+
+D'où trois décisions liées :
+
+- Les filtres de chaque famille vivent dans `resolvers/_helpers.py`, écrits une
+  fois : `staff_with_roles`, `client_by_id`, `platform_admins`.
+- Un resolver qui n'utilise pas `tenant` porte un commentaire disant pourquoi,
+  sinon le prochain lecteur croira à un oubli.
+- Un test dédié vérifie que les resolvers CLIENT trouvent bien un client
+  tenantless. C'est le mode de défaillance le plus probable de tout le câblage.
+
+**Corollaire ferme** : `client_by_id` filtre sur `role=CLIENT`, et
+`staff_by_id` sur la compagnie. Un identifiant glissé dans le mauvais champ ne
+doit jamais faire traverser la frontière entre populations — c'est la règle
+« un identifiant ne sert pas de sonde » appliquée en amont de la frontière HTTP.
+
+### Ce que le gabarit affiche et ce que le resolver cherche sont deux contrats
+_Validé — Ticket notifications-refonte-E1E2 (8 sept 2026)_
+
+`NotifEvent.variables` décrit ce qu'un message affiche. `resolver_variables`
+décrit ce dont la résolution a besoin. Vingt événements ne portaient dans le
+premier aucune prise vers leur destinataire : `holder_label` est un libellé,
+`vehicle_label` aussi.
+
+Un resolver *pouvait* lire une variable non déclarée — `validate_context` est
+permissif sur les clés en trop. Ce contrat-là n'aurait été ni validé, ni testé,
+ni visible pour l'émetteur : exactement ce que la règle « les noms de variables
+d'un gabarit sont un contrat » interdit.
+
+Pourquoi deux dictionnaires plutôt qu'un seul élargi : la charte TOUPAC ONE
+définit une colonne « Variables autorisées » qui ne contient que du contenu de
+message. Elle nomme ses destinataires en clair (« Client », « Dispatcher »)
+sans jamais dire comment les atteindre — la résolution lui est étrangère. Y
+loger des identifiants techniques dénaturerait le contrat qu'elle définit.
+
+Trois règles pour que la séparation tienne :
+
+- Une clé ne peut pas figurer dans les deux, sous peine d'erreur **à l'import**.
+  La même donnée servie par deux contrats divergerait au premier changement.
+- Le contexte reste **un seul dictionnaire** au passage. `resolver_variables`
+  déclare une intention et déclenche une validation ; il n'ouvre pas un second
+  canal.
+- L'omission échoue à l'`emit()`, bruyamment. Sinon elle produirait une
+  résolution vide que rien ne distingue d'un « personne à prévenir » légitime.
+
+Coût constaté : 67 tests sont devenus rouges à l'introduction, tous pour la même
+raison — des contextes incomplets. C'est le prix d'une validation qui mord, et
+la preuve qu'elle mord.
+
+### Une résolution vide se journalise sans devenir un échec
+_Validé — Ticket notifications-refonte-E1E2 (8 sept 2026)_
+
+Personne à prévenir est un résultat légitime : un billet vendu au guichet à
+quelqu'un sans compte, une compagnie sans dispatcher. Le requalifier en
+`_fail_log` remplirait le journal d'incidents qui n'en sont pas.
+
+Mais un resolver muet **par erreur** laisse exactement la même absence de trace
+qu'un resolver muet à raison. Une ligne `logger.info` nommant l'événement, le
+resolver et la compagnie est le seul endroit où les deux deviennent
+distinguables — sans requalifier un comportement normal en défaut.
+
+Pattern général : quand un cas normal et un cas fautif produisent le même état
+observable, la distinction ne se fait pas en changeant la sévérité de l'un des
+deux, mais en ajoutant de l'information là où il n'y en avait pas.
+
+### Un tri décroissant place les nuls en tête, et cela retourne la règle
+_Découvert — Ticket notifications-refonte-E1E2 (8 sept 2026)_
+
+`_find_template` promettait que le gabarit d'une compagnie l'emporte sur le
+générique, et faisait l'inverse :
+
+```python
+.order_by("-tenant_id")                          # NULLS FIRST → le système gagne
+.order_by(F("tenant_id").desc(nulls_last=True))  # correct
+```
+
+PostgreSQL place les nuls **en tête** d'un `ORDER BY … DESC`. Le gabarit
+système, dont `tenant_id` est nul, remontait donc devant la surcharge. Aucun
+test ne le couvrait : tous passaient par un helper qui crée un gabarit système,
+donc le seul cas où le tri n'a rien à départager.
+
+Deux leçons, la seconde plus importante que la première :
+
+1. Tout `order_by` décroissant sur une colonne nullable doit dire explicitement
+   où vont les nuls. Le défaut de PostgreSQL n'est pas celui qu'on suppose.
+2. **Un helper de test qui ne produit qu'un seul cas cache la branche qu'il ne
+   produit pas.** `make_template()` créait toujours `tenant=None` ; la surcharge
+   de compagnie existait en base, n'était jamais servie, et cinquante tests
+   d'émission verts n'en disaient rien.
+
+Le défaut était documenté dans ce fichier comme « découvert et corrigé au
+Ticket B ». Il ne l'était pas — corollaire de méthode : une entrée de registre
+qui affirme qu'un correctif est en place mérite un test avant d'être crue.
+
 ### Une ressource qui ne vous appartient pas répond 404, jamais 403
 _Validé — Ticket notifications-refonte-D (7 sept 2026)_
 

@@ -20,7 +20,14 @@ from notifications.channels import Channel
 from notifications.models import NotificationTemplate
 from notifications.preferences import ALL_CATEGORIES
 
-VALID_PAYMENT_CONTEXT = {"reference": "REF-001", "amount_xof": 15000}
+#: `payment_id` n'est pas une variable de gabarit — c'est ce dont le resolver a
+#: besoin pour atteindre le payeur. `validate_context` vérifie les deux schémas
+#: ensemble : un contexte valide porte donc les deux.
+VALID_PAYMENT_CONTEXT = {
+    "reference": "REF-001",
+    "amount_xof": 15000,
+    "payment_id": "0d1a2b3c-4d5e-4f70-8192-a3b4c5d6e7f8",
+}
 
 
 # ─── Complétude et unicité ───
@@ -162,6 +169,7 @@ def test_validate_context_checks_datetime_type():
     context = {
         "trip_code": "TRP-1", "route_label": "Dakar → Bamako",
         "change_summary": "Départ avancé", "departure_at": "2026-09-10",
+        "trip_id": "0d1a2b3c-4d5e-4f70-8192-a3b4c5d6e7f8",
     }
     with pytest.raises(ValueError, match="expected datetime"):
         validate_context("notif.trip.updated.v1", context)

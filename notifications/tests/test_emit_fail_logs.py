@@ -15,6 +15,7 @@ from notifications.catalog import get_event
 from notifications.models import NotificationLog
 from notifications.services import NotificationService
 from notifications.tests.emit_helpers import (
+    OTP_CONTEXT,
     TICKET_EVENT,
     make_template,
     make_templates_for_all_channels,
@@ -87,8 +88,23 @@ def test_an_unclosed_brace_is_not_an_error(tenant_a, client_fatou):
     assert not reasons_by_prefix("template_error:").exists()
 
 
-def test_an_unimplemented_resolver_is_traced(tenant_a):
-    """Les resolvers métier du Ticket E ne sont pas encore écrits : on le dit."""
+def test_a_resolver_declared_but_not_yet_written_is_traced(tenant_a, monkeypatch):
+    """
+    La branche « annoncé, pas encore écrit » — distincte de « introuvable ».
+
+    Elle n'a plus de cas naturel depuis le câblage métier : les vingt-neuf clés
+    de la matrice sont implémentées et `KNOWN_UNIMPLEMENTED_RESOLVERS` est vide.
+    Elle reste néanmoins du code vivant, parce que déclarer un événement dont le
+    resolver viendra plus tard reste permis — la liste est là pour ça. D'où
+    l'aveu simulé ci-dessous, plutôt qu'un test supprimé.
+    """
+    from notifications import services
+    from notifications.resolvers.base import _RESOLVERS
+
+    monkeypatch.setattr(
+        services, "KNOWN_UNIMPLEMENTED_RESOLVERS", frozenset({TICKET_RESOLVER}),
+    )
+    monkeypatch.delitem(_RESOLVERS, TICKET_RESOLVER)
     make_templates_for_all_channels()
 
     result = NotificationService.emit(
@@ -98,6 +114,30 @@ def test_an_unimplemented_resolver_is_traced(tenant_a):
     assert result.logs_created == 0
     assert result.failure_reasons == [f"resolver_unimplemented:{TICKET_RESOLVER}"]
     assert reasons_by_prefix("resolver_unimplemented:").exists()
+
+
+def test_a_resolver_missing_without_being_declared_is_traced_differently(
+    tenant_a, monkeypatch,
+):
+    """
+    Le cas qui compte désormais : un module de resolvers non importé.
+
+    Le symptôme serait exactement celui-ci — une clé du catalogue que le
+    registre ne connaît pas, sans qu'aucun aveu ne l'annonce. Les deux préfixes
+    se distinguent pour que le journal dise s'il s'agit d'un travail à venir ou
+    d'un défaut de câblage.
+    """
+    from notifications.resolvers.base import _RESOLVERS
+
+    monkeypatch.delitem(_RESOLVERS, TICKET_RESOLVER)
+    make_templates_for_all_channels()
+
+    result = NotificationService.emit(
+        event_code=TICKET_EVENT, context=ticket_context(), tenant=tenant_a,
+    )
+
+    assert result.failure_reasons == [f"resolver_missing:{TICKET_RESOLVER}"]
+    assert reasons_by_prefix("resolver_missing:").exists()
 
 
 def test_a_resolver_that_raises_is_traced(tenant_a):
@@ -124,7 +164,7 @@ def test_a_preference_violation_is_traced_and_still_delivers(tenant_a, client_fa
     ):
         result = NotificationService.emit(
             event_code=otp_event,
-            context={"otp": "123456", "expires_in_minutes": 5},
+            context=OTP_CONTEXT,
             tenant=tenant_a,
         )
 

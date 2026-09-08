@@ -22,7 +22,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from django.db import IntegrityError, transaction
-from django.db.models import Q
+from django.db.models import F, Q
 
 from . import catalog
 from .channels import Channel
@@ -153,7 +153,16 @@ class NotificationService:
             recipient_override=recipient_override, result=result,
         )
         if not recipients:
+            # Pas un échec : personne à prévenir est un résultat légitime, et le
+            # requalifier en `_fail_log` remplirait le journal d'incidents qui
+            # n'en sont pas. Mais un resolver muet par erreur donne exactement la
+            # même absence de trace qu'un resolver muet à raison — d'où cette
+            # ligne, seul endroit où les deux cas deviennent distinguables.
             result.skipped_no_recipient = True
+            logger.info(
+                "emit %s : aucun destinataire résolu (resolver=%s, tenant=%s)",
+                event.code, event.resolver_key, getattr(tenant, "slug", None),
+            )
             return result
 
         target_channels = NotificationService._target_channels(event, channels)
@@ -409,16 +418,21 @@ class NotificationService:
         """
         Gabarit de la compagnie s'il existe, sinon celui du système.
 
-        `TenantManager` ne filtre rien de lui-même : le filtre est explicite,
-        et `order_by("-tenant_id")` fait passer le gabarit de la compagnie
-        devant le gabarit générique (`tenant` nul).
+        `TenantManager` ne filtre rien de lui-même : le filtre est explicite.
+
+        `nulls_last` n'est pas cosmétique. PostgreSQL place les nuls **en tête**
+        d'un tri décroissant : `order_by("-tenant_id")` faisait donc remonter le
+        gabarit système, dont `tenant_id` est nul, devant la surcharge de la
+        compagnie — l'inverse exact de ce que cette méthode promet. Le défaut
+        était silencieux : la surcharge existait en base, restait servie jamais,
+        et rien ne le disait.
         """
         return (
             NotificationTemplate.objects.filter(
                 event_code=event_code, channel=channel, language=language, is_active=True,
             )
             .filter(Q(tenant=tenant) | Q(tenant__isnull=True))
-            .order_by("-tenant_id")
+            .order_by(F("tenant_id").desc(nulls_last=True))
             .first()
         )
 

@@ -32,6 +32,26 @@ class Order(TenantModel, SoftDeleteMixin):
     )
     customer_name = models.CharField("Nom client", max_length=200, blank=True)
     customer_phone = models.CharField("Téléphone client", max_length=20, blank=True)
+    # Le destinataire, distinct du commanditaire. Il n'était modélisé nulle part
+    # avant ce champ : son nom et son téléphone n'apparaissaient que sur la
+    # preuve de livraison, donc **après** la livraison — inutilisables pour le
+    # prévenir que son colis l'attend, et surtout pour lui envoyer le code de
+    # retrait (COL-05), qui est ce qui autorise à repartir avec.
+    #
+    # `limit_choices_to` est du confort de formulaire, pas de la validation
+    # (cf. DECISIONS.md). Pas de contrainte en base : la règle « un destinataire
+    # est un client » n'est pas structurante au point de mériter un filet, et
+    # `user_tenant_matches_role` garantit déjà qu'un CLIENT est sans compagnie.
+    recipient_user = models.ForeignKey(
+        "iam.User", on_delete=models.SET_NULL, null=True, blank=True,
+        related_name="incoming_orders", limit_choices_to={"role": "client"},
+        verbose_name="Destinataire (compte client)",
+    )
+    # Les deux champs texte ne doublonnent pas le compte : un destinataire n'a
+    # souvent pas de compte TOUPAC. Le resolver doit alors pouvoir constater
+    # qu'il n'a personne à joindre plutôt que de deviner.
+    recipient_name = models.CharField("Nom destinataire", max_length=200, blank=True)
+    recipient_phone = models.CharField("Téléphone destinataire", max_length=20, blank=True)
     pickup_place = models.ForeignKey(
         "geo.Place", on_delete=models.PROTECT, related_name="pickup_orders", verbose_name="Lieu d'enlèvement",
     )

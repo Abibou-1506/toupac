@@ -16,6 +16,7 @@ from notifications.retries import NO_RETRY, RETRY_POLICIES, get_retry_policy
 from notifications.services import NotificationService
 from notifications.tasks import send_notification_log
 from notifications.tests.emit_helpers import (
+    OTP_CONTEXT,
     TICKET_EVENT,
     make_template,
     resolver_returning,
@@ -69,7 +70,6 @@ def test_policies_accept_channel_values_as_strings():
 #: Le billet ne passe pas par SMS (réservé aux codes) : les cas SMS s'appuient
 #: donc sur l'événement de connexion, seul à déclarer ce canal.
 OTP_EVENT = "notif.auth.otp_signin.v1"
-OTP_CONTEXT = {"otp": "123456", "expires_in_minutes": 5}
 
 
 def queue_one_log(tenant, recipient, channel, event_code=TICKET_EVENT, context=None):

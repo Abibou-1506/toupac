@@ -49,39 +49,12 @@ def all_resolver_keys() -> set[str]:
     return set(_RESOLVERS.keys())
 
 
-#: Resolvers référencés par le catalogue mais pas encore écrits — ils seront
-#: implémentés un par un au Ticket E (câblage métier), et chaque implémentation
-#: RETIRE sa clé de cette liste. `test_resolvers.py` refuse toute clé de
-#: catalogue qui ne serait ni implémentée ni listée ici : impossible d'inventer
-#: une clé sauvage, impossible d'oublier d'en implémenter une en silence.
-KNOWN_UNIMPLEMENTED_RESOLVERS = frozenset({
-    "auth.self",
-    "auth.self_and_admins",
-    "order.customer",
-    "order.customer_and_agent",
-    "payment.customer",
-    "payment.customer_and_finance",
-    "ticket.customer",
-    "trip.customer_and_driver",
-    "trip.all_stakeholders",
-    "trip.customer_and_station",
-    "dispatch.driver",
-    "dispatch.dispatcher",
-    "control.controller_and_supervisor",
-    "parcel.sender_and_recipient",
-    "parcel.sender",
-    "parcel.recipient",
-    "incident.dispatchers_and_admin",
-    "incident.reporter_and_impacted",
-    "gps.dispatchers_and_fleet",
-    "gps.dispatchers_and_it",
-    "fleet.manager_and_mechanic",
-    "compliance.responsible_and_driver",
-    "finance.finance_and_station",
-    "approval.approver",
-    "stock.warehouse_and_purchase",
-    "crm.customer_and_agent",
-    "marketing.consented_customers",
-    "bi.direction_and_finance",
-    "si.admins_and_support",
-})
+#: Resolvers référencés par le catalogue mais pas encore écrits.
+#:
+#: **Vide depuis le câblage métier (Ticket E1E2)** : les 29 clés de la matrice
+#: TOUPAC ONE sont implémentées. La liste reste, et doit le rester : c'est elle
+#: qui permet de déclarer un événement dont le resolver viendra plus tard sans
+#: que `test_resolvers.py` ne refuse la clé. Y inscrire une clé est un aveu
+#: daté, pas une échappatoire — l'invariant croisé interdit toujours d'inventer
+#: une clé sauvage comme d'oublier d'en implémenter une en silence.
+KNOWN_UNIMPLEMENTED_RESOLVERS = frozenset()

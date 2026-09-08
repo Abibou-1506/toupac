@@ -12,6 +12,7 @@ from notifications.catalog import get_event
 from notifications.models import Notification, NotificationLog
 from notifications.services import NotificationService, RecipientTarget
 from notifications.tests.emit_helpers import (
+    OTP_CONTEXT,
     TICKET_EVENT,
     make_template,
     resolver_raising,
@@ -22,7 +23,6 @@ from notifications.tests.emit_helpers import (
 pytestmark = pytest.mark.django_db
 
 OTP_EVENT = "notif.auth.otp_signin.v1"
-OTP_CONTEXT = {"otp": "123456", "expires_in_minutes": 5}
 
 
 def test_an_email_target_bypasses_the_resolver(tenant_a):

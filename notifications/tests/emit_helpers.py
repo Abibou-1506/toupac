@@ -20,11 +20,37 @@ TICKET_CONTEXT = {
 
 
 def ticket_context(**overrides):
+    """
+    Contexte complet — variables de rendu **et** de résolution.
+
+    `reservation_id` n'est pas une variable de gabarit : c'est ce dont le
+    resolver a besoin, et le catalogue l'exige désormais. Un identifiant tiré au
+    hasard suffit ici, ces tests substituant leur resolver ; ce qui est vérifié,
+    c'est que le contexte est complet, pas qu'il désigne une ligne existante.
+    """
+    import uuid
+
     from django.utils import timezone
 
-    context = {**TICKET_CONTEXT, "departure_at": timezone.now()}
+    context = {
+        **TICKET_CONTEXT,
+        "departure_at": timezone.now(),
+        "reservation_id": str(uuid.uuid4()),
+    }
     context.update(overrides)
     return context
+
+
+#: Le seul événement déclarant SMS et WhatsApp : les tests de canal facturé
+#: n'ont pas d'autre choix que de passer par lui.
+OTP_EVENT = "notif.auth.otp_signin.v1"
+
+#: Contexte conforme pour `OTP_EVENT`. `user_id` est la variable de résolution
+#: de `auth.self` — pas une variable de gabarit, mais le catalogue valide les
+#: deux schémas ensemble. Fixe plutôt que tiré au hasard : ces tests substituent
+#: leur resolver, et un identifiant stable se relit mieux dans un échec.
+OTP_USER_ID = "0d1a2b3c-4d5e-4f70-8192-a3b4c5d6e7f8"
+OTP_CONTEXT = {"otp": "123456", "expires_in_minutes": 5, "user_id": OTP_USER_ID}
 
 
 def make_template(event_code, channel, tenant=None, language="fr", **overrides):

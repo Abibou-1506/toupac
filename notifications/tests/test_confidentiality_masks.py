@@ -20,6 +20,7 @@ from notifications.rendering import (
 )
 from notifications.services import NotificationService
 from notifications.tests.emit_helpers import (
+    OTP_CONTEXT,
     TICKET_EVENT,
     make_templates_for_all_channels,
     resolver_returning,
@@ -93,7 +94,7 @@ def test_sms_delivers_the_one_time_code_unmasked(tenant_a, client_fatou):
 
     with temporary_resolver(get_event(otp_event).resolver_key, resolver_returning(client_fatou)):
         NotificationService.emit(
-            event_code=otp_event, context={"otp": "123456", "expires_in_minutes": 5},
+            event_code=otp_event, context=OTP_CONTEXT,
             tenant=tenant_a, channels=["sms"],
         )
 

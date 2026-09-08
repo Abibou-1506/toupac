@@ -112,6 +112,39 @@ def user_controller_a(tenant_a):
     return user
 
 
+@pytest.fixture
+def user_agent_a(tenant_a):
+    return _make_user(tenant_a, "agent.a@toupac.sn", User.Role.AGENT, "Ndeye", "Gueye")
+
+
+@pytest.fixture
+def user_driver_a(tenant_a):
+    """Compte du chauffeur. Le profil `fleet.Driver` est monté par qui en a besoin."""
+    return _make_user(tenant_a, "driver.a@toupac.sn", User.Role.DRIVER, "Ibrahima", "Sy")
+
+
+@pytest.fixture
+def user_dispatcher_b(tenant_b):
+    """Sert les tests d'isolation : il ne doit jamais apparaître pour `tenant_a`."""
+    return _make_user(tenant_b, "dispatch.b@toupac.sn", User.Role.DISPATCHER, "Oumar", "Sow")
+
+
+@pytest.fixture
+def platform_superadmin():
+    """
+    Admin SI TOUPAC — sans compagnie, par contrainte de base.
+
+    Nommé ainsi et non `superadmin` : `iam/tests/conftest.py` expose déjà une
+    fixture de ce nom pour ses propres tests, et deux fixtures homonymes à des
+    portées différentes est exactement le genre de collision qu'on ne diagnostique
+    pas vite.
+    """
+    return User.objects.create_user(
+        email="si@toupac.sn", password=PASSWORD, first_name="Sokhna", last_name="Ndour",
+        tenant=None, role=User.Role.SUPERADMIN, is_staff=True, is_superuser=True,
+    )
+
+
 # ─── Clients HTTP ───
 
 @pytest.fixture

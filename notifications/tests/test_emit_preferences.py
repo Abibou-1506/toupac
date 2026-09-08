@@ -20,6 +20,8 @@ from notifications.preferences import (
 )
 from notifications.services import NotificationService
 from notifications.tests.emit_helpers import (
+    OTP_CONTEXT,
+    OTP_USER_ID,
     make_templates_for_all_channels,
     resolver_returning,
     temporary_resolver,
@@ -31,7 +33,6 @@ MARKETING_EVENT = "notif.marketing.promo.v1"
 MARKETING_CONTEXT = {"campaign_label": "Promo rentrée"}
 
 OTP_EVENT = "notif.auth.otp_signin.v1"
-OTP_CONTEXT = {"otp": "123456", "expires_in_minutes": 5}
 
 
 def emit(event_code, context, tenant, recipients):
@@ -114,7 +115,10 @@ def test_refusing_a_never_opt_out_category_still_delivers(tenant_a, client_fatou
         (OTP_EVENT, OTP_CONTEXT, CATEGORY_OTP),
         (
             "notif.auth.suspicious_activity.v1",
-            {"ip": "10.0.0.1", "attempted_at": "2026-09-07T10:00:00+00:00"},
+            {
+                "ip": "10.0.0.1", "attempted_at": "2026-09-07T10:00:00+00:00",
+                "user_id": OTP_USER_ID,
+            },
             CATEGORY_SECURITY,
         ),
         (
@@ -122,6 +126,7 @@ def test_refusing_a_never_opt_out_category_still_delivers(tenant_a, client_fatou
             {
                 "trip_code": "TRP-1", "route_label": "Dakar → Bamako",
                 "reason": "Panne", "cancelled_at": "2026-09-07T10:00:00+00:00",
+                "trip_id": OTP_USER_ID,
             },
             CATEGORY_CRITICAL_OPS,
         ),

@@ -123,19 +123,38 @@ Portée technique :
 
 ### Order.recipient_user — le destinataire n'est pas modélisé
 
-- [ ] **Un client destinataire d'un colis ne le voit pas dans son espace**
-      → État : seul le commanditaire est relié (`Order.customer`).
-        `/customer/my-orders/` ne retourne donc que les colis qu'on a expédiés,
-        jamais ceux qu'on attend. Le destinataire n'existe qu'en texte libre sur
-        la tâche de livraison (`recipient_name`, `recipient_phone`).
-      → Cas d'usage manquant : Fatou envoie un colis à sa fille Aïcha, qui a un
-        compte ; Aïcha ne voit pas son colis arriver.
-      → Fix : `Order.recipient_user` facultatif, puis union
-        `customer=user | recipient_user=user` dans la vue. Prévoir la
-        distinction à l'affichage — « envoyé » et « à recevoir » ne se lisent
-        pas pareil.
+- [x] **~~Le destinataire d'un colis n'est modélisé nulle part~~** — le modèle
+      est livré le 8 sept 2026. `Order.recipient_user`, `recipient_name` et
+      `recipient_phone` existent, et les resolvers `parcel.*` s'en servent : le
+      code de retrait (COL-05) a désormais quelqu'un à joindre.
+
+      Correction de l'état décrit ici : `recipient_name` / `recipient_phone`
+      vivaient sur **`ProofOfDelivery`**, pas sur la tâche de livraison — donc
+      créés à la livraison, soit trop tard pour prévenir qui que ce soit.
+
+- [ ] **Le client destinataire ne voit toujours pas le colis dans son espace**
+      → État : le champ existe, `/customer/my-orders/` ne le lit pas. La vue
+        filtre encore sur `customer=request.user` seul.
+      → Fix : union `customer=user | recipient_user=user`, avec `.distinct()`.
+        Prévoir la distinction à l'affichage — « envoyé » et « à recevoir » ne
+        se lisent pas pareil, et les confondre serait pire que de ne rien
+        montrer.
       → Effort : ~0,5 j
-      → Ref : ticket USR-3, 7 sept 2026.
+      → Ref : ticket USR-3, révisé au ticket E1E2, 8 sept 2026.
+
+- [ ] **Aucun écrivain ne renseigne `Order.recipient_user`**
+      → État : le champ est nullable et reste vide sur toutes les commandes. Les
+        resolvers `parcel.recipient` et `parcel.sender_and_recipient` sont donc
+        justes et rendent aujourd'hui une liste vide dans la quasi-totalité des
+        cas.
+      → Conséquence : **le code de retrait de colis (COL-05) ne part à
+        personne**, alors même que la chaîne est complète de bout en bout. Le
+        seul maillon manquant est la saisie.
+      → Fix : renseigner le destinataire à la création — admin colis d'abord,
+        puis les endpoints d'écriture CLIENT. Un destinataire sans compte reste
+        possible : `recipient_name` / `recipient_phone` sont là pour cela.
+      → Effort : ~0,5 j côté admin, davantage côté API cliente.
+      → Ref : ticket E1E2, 8 sept 2026.
 
 ### Endpoints d'écriture pour le client (POST)
 
@@ -247,6 +266,52 @@ Cross-check complété le 8 sept 2026 après lecture intégrale du fichier
 plateformes, Matrice notifications, Gabarits messages). Les 37 events sont
 bien tous déclarés au catalog avec bon `charte_id`, priorité, canaux
 principaux. Ce qui suit sont les écarts identifiés, classés par urgence.
+
+#### Écarts relevés au câblage des resolvers (8 sept 2026)
+
+- [ ] **COL-03 : la charte dit « Client », le catalogue dit `parcel.recipient`**
+      → État : l'événement « ETA mise à jour » est déclaré avec le resolver
+        `parcel.recipient`, donc part au seul destinataire. Or les autres lignes
+        de la feuille assimilent « Client » à l'expéditeur — COL-02 dit
+        explicitement « Client / expéditeur ». Une ETA intéresse
+        vraisemblablement les deux.
+      → Non tranché ici : arbitrer relève du produit, pas du câblage. Le ticket
+        implémente ce que déclare le catalogue.
+      → Fix probable : basculer COL-03 sur `parcel.sender_and_recipient`. Un
+        mot du resolver à changer, aucune migration.
+      → Effort : ~15 min une fois la décision prise.
+      → Ref : ticket E1E2, 8 sept 2026.
+
+- [ ] **`assignment_id` (DSP-01, DSP-02) ne référence aucun modèle**
+      → État : les deux événements déclarent `assignment_id: uuid` en variable
+        de gabarit. **Aucune classe `Assignment` n'existe** dans l'arborescence
+        — l'affectation d'un chauffeur à un voyage se lit sur `Trip.driver`, qui
+        pointe sur `fleet.Driver`, sans entité d'affectation propre.
+      → Conséquence limitée : c'est une variable de rendu, pas de résolution.
+        Le resolver `dispatch.driver` s'appuie sur `driver_user_id`, qui lui
+        désigne bien un compte. L'émetteur devra néanmoins fournir un UUID qui
+        ne référence rien.
+      → Fix : soit modéliser l'affectation (chantier), soit retirer la variable
+        du catalogue en v2 de ces deux événements. À trancher avec le lead.
+      → Effort : selon la décision.
+      → Ref : ticket E1E2, 8 sept 2026.
+
+- [ ] **Dix rôles de la charte n'existent pas dans `User.Role`, et sont repliés**
+      → État : responsable flotte, mécanicien, magasinier, acheteur,
+        approbateur, financier, responsable gare, superviseur, IT et direction
+        sont repliés sur `ADMIN`, `AGENT` ou `DISPATCHER`. Chaque resolver
+        concerné le dit en commentaire, et `test_resolvers_operations_transverse.py`
+        fixe le repli dans un tableau.
+      → Conséquence : plusieurs notifications d'exploitation arrivent chez
+        l'administrateur de la compagnie, qui recevra donc beaucoup. Acceptable
+        pour des compagnies de la taille visée, moins au-delà.
+      → Fix : étendre `User.Role`, chantier produit à part entière — pas un
+        effet de bord d'un ticket de câblage. `gps.dispatchers_and_fleet` et
+        `gps.dispatchers_and_it` sont volontairement restés deux fonctions
+        distinctes malgré une population identique, pour que le redécoupage
+        n'ait qu'un endroit à toucher.
+      → Effort : ~2 j, plus la migration des comptes existants.
+      → Ref : ticket E1E2, 8 sept 2026.
 
 #### Deux quick wins intégrés au Ticket F
 

@@ -55,6 +55,20 @@ class NotifEvent:
     default_channels: tuple[Channel, ...]
     variables: dict[str, VariableSpec]
     resolver_key: str                  # clé du resolver enregistré
+    #: Ce dont le **resolver** a besoin pour atteindre un destinataire, distinct
+    #: de `variables`, qui décrit ce que le **gabarit** affiche.
+    #:
+    #: Les deux ne se confondent pas. La charte TOUPAC ONE définit une colonne
+    #: « Variables autorisées » qui ne contient que du contenu de message —
+    #: référence, code, heure, zone ; elle nomme ses destinataires en clair
+    #: (« Client », « Dispatcher ») sans jamais dire comment les atteindre. Y
+    #: loger des identifiants techniques dénaturerait ce contrat.
+    #:
+    #: Vingt événements ne portaient dans `variables` aucune prise vers leur
+    #: destinataire : `holder_label` est un libellé, pas une clé. Un resolver
+    #: pouvait lire une variable non déclarée — `validate_context` est permissif
+    #: sur les clés en trop — mais ce contrat-là n'aurait été ni validé, ni testé.
+    resolver_variables: dict[str, VariableSpec] = field(default_factory=dict)
     requires_ack: bool = False
     action_buttons: tuple[str, ...] = field(default_factory=tuple)
     confidentiality_masks: tuple[str, ...] = field(default_factory=tuple)  # N-05
@@ -73,9 +87,17 @@ def register(event: NotifEvent) -> None:
         raise ValueError(f"Unknown category '{event.category}' for {event.code}")
     if not event.default_channels:
         raise ValueError(f"{event.code}: at least one default channel required")
-    for var_name, spec in event.variables.items():
+    for var_name, spec in {**event.variables, **event.resolver_variables}.items():
         if spec.type not in SUPPORTED_TYPES:
             raise ValueError(f"{event.code}.{var_name}: unsupported type '{spec.type}'")
+    # Une même clé dans les deux schémas serait servie par deux contrats, qui
+    # divergeraient au premier changement de l'un des deux.
+    overlap = set(event.variables) & set(event.resolver_variables)
+    if overlap:
+        raise ValueError(
+            f"{event.code}: {sorted(overlap)} déclaré à la fois en variable de "
+            "rendu et de résolution",
+        )
     # Un masque qui ne pointe sur aucune variable déclarée est une faute de
     # frappe silencieuse : le champ resterait en clair dans le push (N-05).
     for masked in event.confidentiality_masks:
@@ -105,9 +127,16 @@ def validate_context(event_code: str, context: dict[str, Any]) -> None:
     Permissif sur les clés en trop : le rendu d'un gabarit peut légitimement
     recevoir des variables d'agrément non déclarées. Strict sur les variables
     déclarées (présence, type, longueur).
+
+    Les deux schémas sont vérifiés ensemble : le contexte reste **un seul
+    dictionnaire**, `resolver_variables` déclare une intention et déclenche une
+    validation, il n'ouvre pas un second canal de passage. Un émetteur qui
+    oublie un identifiant obligatoire échoue donc à l'`emit()`, bruyamment,
+    plutôt que de produire une résolution vide que rien ne distingue d'un
+    « personne à prévenir » légitime.
     """
     event = get_event(event_code)
-    for var_name, spec in event.variables.items():
+    for var_name, spec in {**event.variables, **event.resolver_variables}.items():
         if var_name not in context:
             if spec.required:
                 raise ValueError(f"{event_code}: missing required variable '{var_name}'")
@@ -172,6 +201,9 @@ register(NotifEvent(
         "expires_in_minutes": _S(type="int", required=True),
         "device_label": _S(type="string", required=False, max_length=120),
     },
+    resolver_variables={
+        "user_id": _S(type="uuid", required=True),
+    },
     resolver_key="auth.self",
     confidentiality_masks=("otp",),
 ))
@@ -186,6 +218,9 @@ register(NotifEvent(
     variables={
         "otp": _S(type="string", required=True, max_length=8),
         "expires_in_minutes": _S(type="int", required=True),
+    },
+    resolver_variables={
+        "user_id": _S(type="uuid", required=True),
     },
     resolver_key="auth.self",
     confidentiality_masks=("otp",),
@@ -202,6 +237,9 @@ register(NotifEvent(
         "ip": _S(type="string", required=True, max_length=45),
         "location": _S(type="string", required=False, max_length=120),
         "attempted_at": _S(type="datetime", required=True),
+    },
+    resolver_variables={
+        "user_id": _S(type="uuid", required=True),
     },
     resolver_key="auth.self_and_admins",
     confidentiality_masks=("ip", "location"),
@@ -228,6 +266,9 @@ register(NotifEvent(
         "departure_at": _S(type="datetime", required=True),
         "seat_label": _S(type="string", required=False, max_length=10),
     },
+    resolver_variables={
+        "order_id": _S(type="uuid", required=True),
+    },
     resolver_key="order.customer",
 ))
 
@@ -244,6 +285,9 @@ register(NotifEvent(
         "expires_at": _S(type="datetime", required=True),
         "amount_xof": _S(type="int", required=True),
     },
+    resolver_variables={
+        "order_id": _S(type="uuid", required=True),
+    },
     resolver_key="order.customer",
 ))
 
@@ -258,6 +302,9 @@ register(NotifEvent(
         "order_type": _S(type="string", required=True, max_length=20),
         "reference": _S(type="string", required=True, max_length=20),
         "expired_at": _S(type="datetime", required=True),
+    },
+    resolver_variables={
+        "order_id": _S(type="uuid", required=True),
     },
     resolver_key="order.customer_and_agent",
 ))
@@ -277,6 +324,9 @@ register(NotifEvent(
         "amount_xof": _S(type="int", required=True),
         "receipt_url": _S(type="url", required=False),
     },
+    resolver_variables={
+        "payment_id": _S(type="uuid", required=True),
+    },
     resolver_key="payment.customer",
     confidentiality_masks=("amount_xof",),  # N-05 : pas de montant en push
 ))
@@ -293,6 +343,9 @@ register(NotifEvent(
         "amount_xof": _S(type="int", required=True),
         "failure_reason": _S(type="string", required=True, max_length=200),
     },
+    resolver_variables={
+        "payment_id": _S(type="uuid", required=True),
+    },
     resolver_key="payment.customer",
 ))
 
@@ -307,6 +360,9 @@ register(NotifEvent(
         "reference": _S(type="string", required=True, max_length=20),
         "amount_xof": _S(type="int", required=True),
         "refunded_at": _S(type="datetime", required=True),
+    },
+    resolver_variables={
+        "payment_id": _S(type="uuid", required=True),
     },
     resolver_key="payment.customer_and_finance",
     confidentiality_masks=("amount_xof",),
@@ -328,6 +384,9 @@ register(NotifEvent(
         "route_label": _S(type="string", required=True, max_length=120),
         "departure_at": _S(type="datetime", required=True),
     },
+    resolver_variables={
+        "reservation_id": _S(type="uuid", required=True),
+    },
     resolver_key="ticket.customer",
     confidentiality_masks=("qr_payload",),
 ))
@@ -347,6 +406,9 @@ register(NotifEvent(
         "route_label": _S(type="string", required=True, max_length=120),
         "departure_at": _S(type="datetime", required=True),
     },
+    resolver_variables={
+        "trip_id": _S(type="uuid", required=True),
+    },
     resolver_key="trip.customer_and_driver",
 ))
 
@@ -362,6 +424,9 @@ register(NotifEvent(
         "route_label": _S(type="string", required=True, max_length=120),
         "change_summary": _S(type="string", required=True, max_length=300),
         "departure_at": _S(type="datetime", required=True),
+    },
+    resolver_variables={
+        "trip_id": _S(type="uuid", required=True),
     },
     resolver_key="trip.all_stakeholders",
 ))
@@ -379,6 +444,9 @@ register(NotifEvent(
         "delay_minutes": _S(type="int", required=True),
         "new_departure_at": _S(type="datetime", required=True),
     },
+    resolver_variables={
+        "trip_id": _S(type="uuid", required=True),
+    },
     resolver_key="trip.customer_and_station",
 ))
 
@@ -394,6 +462,9 @@ register(NotifEvent(
         "route_label": _S(type="string", required=True, max_length=120),
         "reason": _S(type="string", required=True, max_length=300),
         "cancelled_at": _S(type="datetime", required=True),
+    },
+    resolver_variables={
+        "trip_id": _S(type="uuid", required=True),
     },
     resolver_key="trip.all_stakeholders",
 ))
@@ -414,6 +485,9 @@ register(NotifEvent(
         "route_label": _S(type="string", required=True, max_length=120),
         "departure_at": _S(type="datetime", required=True),
         "vehicle_label": _S(type="string", required=True, max_length=60),
+    },
+    resolver_variables={
+        "driver_user_id": _S(type="uuid", required=True),
     },
     resolver_key="dispatch.driver",
     requires_ack=True,
@@ -467,6 +541,9 @@ register(NotifEvent(
         "reason": _S(type="string", required=True, max_length=200),
         "scanned_at": _S(type="datetime", required=True),
     },
+    resolver_variables={
+        "controller_user_id": _S(type="uuid", required=True),
+    },
     resolver_key="control.controller_and_supervisor",
     confidentiality_masks=("passenger_id",),
 ))
@@ -486,6 +563,9 @@ register(NotifEvent(
         "origin_label": _S(type="string", required=True, max_length=120),
         "destination_label": _S(type="string", required=True, max_length=120),
     },
+    resolver_variables={
+        "order_id": _S(type="uuid", required=True),
+    },
     resolver_key="parcel.sender_and_recipient",
 ))
 
@@ -500,6 +580,9 @@ register(NotifEvent(
         "tracking_number": _S(type="string", required=True, max_length=30),
         "picked_up_at": _S(type="datetime", required=True),
     },
+    resolver_variables={
+        "order_id": _S(type="uuid", required=True),
+    },
     resolver_key="parcel.sender",
 ))
 
@@ -513,6 +596,9 @@ register(NotifEvent(
     variables={
         "tracking_number": _S(type="string", required=True, max_length=30),
         "eta_at": _S(type="datetime", required=True),
+    },
+    resolver_variables={
+        "order_id": _S(type="uuid", required=True),
     },
     resolver_key="parcel.recipient",
 ))
@@ -529,6 +615,9 @@ register(NotifEvent(
         "pickup_point": _S(type="string", required=True, max_length=120),
         "available_until": _S(type="datetime", required=False),
     },
+    resolver_variables={
+        "order_id": _S(type="uuid", required=True),
+    },
     resolver_key="parcel.recipient",
 ))
 
@@ -543,6 +632,9 @@ register(NotifEvent(
         "tracking_number": _S(type="string", required=True, max_length=30),
         "otp": _S(type="string", required=True, max_length=8),
         "expires_in_minutes": _S(type="int", required=True),
+    },
+    resolver_variables={
+        "order_id": _S(type="uuid", required=True),
     },
     resolver_key="parcel.recipient",
     confidentiality_masks=("otp",),
@@ -560,6 +652,9 @@ register(NotifEvent(
         "recipient_name": _S(type="string", required=True, max_length=120),
         "delivered_at": _S(type="datetime", required=True),
         "signature_url": _S(type="url", required=False),
+    },
+    resolver_variables={
+        "order_id": _S(type="uuid", required=True),
     },
     resolver_key="parcel.sender",
     confidentiality_masks=("signature_url",),
@@ -598,6 +693,10 @@ register(NotifEvent(
         "summary": _S(type="string", required=True, max_length=300),
         "resolved_at": _S(type="datetime", required=True),
         "internal_notes": _S(type="string", required=False, max_length=500),
+    },
+    resolver_variables={
+        "reporter_user_id": _S(type="uuid", required=True),
+        "impacted_user_id": _S(type="uuid", required=False),
     },
     resolver_key="incident.reporter_and_impacted",
     confidentiality_masks=("internal_notes",),
@@ -674,6 +773,9 @@ register(NotifEvent(
         "expires_at": _S(type="datetime", required=True),
         "days_left": _S(type="int", required=True),
     },
+    resolver_variables={
+        "driver_user_id": _S(type="uuid", required=False),
+    },
     resolver_key="compliance.responsible_and_driver",
 ))
 
@@ -713,6 +815,9 @@ register(NotifEvent(
         "requester_name": _S(type="string", required=True, max_length=120),
         "submitted_at": _S(type="datetime", required=True),
     },
+    resolver_variables={
+        "approver_user_id": _S(type="uuid", required=True),
+    },
     resolver_key="approval.approver",
 ))
 
@@ -744,6 +849,9 @@ register(NotifEvent(
         "status": _S(type="string", required=True, max_length=40),
         "summary": _S(type="string", required=True, max_length=300),
         "internal_notes": _S(type="string", required=False, max_length=500),
+    },
+    resolver_variables={
+        "customer_user_id": _S(type="uuid", required=True),
     },
     resolver_key="crm.customer_and_agent",
     confidentiality_masks=("internal_notes",),

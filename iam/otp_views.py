@@ -130,7 +130,7 @@ class RequestOTPView(APIView):
             channel, target_type, target = "sms", "phone", phone
 
         challenge_id, code = create_challenge(user.id, target_type, target)
-        self._deliver(challenge_id, channel, target, code)
+        self._deliver(challenge_id, channel, target, code, user)
 
         return Response({
             "challenge_id": challenge_id,
@@ -140,7 +140,7 @@ class RequestOTPView(APIView):
         })
 
     @staticmethod
-    def _deliver(challenge_id, channel, target, code):
+    def _deliver(challenge_id, channel, target, code, user):
         """
         Envoie le code, sans jamais faire échouer la demande.
 
@@ -157,7 +157,18 @@ class RequestOTPView(APIView):
                 recipient=target,
                 # Noms imposés par le catalogue (`notif.auth.otp_signin.v1`),
                 # pas choisis ici : les gabarits sont rendus avec ces variables.
-                context_data={"otp": code, "expires_in_minutes": OTP_TTL_SECONDS // 60},
+                #
+                # `user_id` n'en est pas une : c'est ce dont le resolver
+                # `auth.self` a besoin pour atteindre le destinataire. Il ne sert
+                # à rien aujourd'hui — l'adaptateur déprécié désigne la cible en
+                # clair — mais le catalogue l'exige, et il devra être là au
+                # retrait de l'adaptateur (Ticket F), quand la résolution
+                # deviendra le seul chemin.
+                context_data={
+                    "otp": code,
+                    "expires_in_minutes": OTP_TTL_SECONDS // 60,
+                    "user_id": str(user.id),
+                },
                 language="fr",
             )
         except Exception:

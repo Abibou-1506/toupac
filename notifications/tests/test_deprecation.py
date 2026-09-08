@@ -15,12 +15,9 @@ import pytest
 
 from notifications.models import NotificationLog
 from notifications.services import NotificationService
-from notifications.tests.emit_helpers import make_template
+from notifications.tests.emit_helpers import OTP_CONTEXT, OTP_EVENT, make_template
 
 pytestmark = pytest.mark.django_db
-
-OTP_EVENT = "notif.auth.otp_signin.v1"
-OTP_CONTEXT = {"otp": "123456", "expires_in_minutes": 5}
 
 
 def send_legacy(tenant, channel="email", recipient="fatou@example.sn", **kwargs):
