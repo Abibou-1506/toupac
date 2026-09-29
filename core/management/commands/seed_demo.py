@@ -910,20 +910,21 @@ class Command(BaseCommand):
         return made
 
     def _seed_control_session(self, trip, controller, status):
-        if status not in (Trip.Status.COMPLETED, Trip.Status.BOARDING, Trip.Status.IN_TRANSIT):
+        # On ne seede que les sessions FERMÉES des voyages terminés. Elles portent
+        # l'historique (events, cash, anomalies) sans bloquer un contrôleur qui
+        # ouvrirait sa propre session en dev. Une session ouverte avec un device_id
+        # fictif tient l'app à l'écart : le backend refuse tout POST venant d'un autre
+        # device sur une session active, ce qui est la bonne règle en prod.
+        if status != Trip.Status.COMPLETED:
             return
         boarded = trip.reservations.filter(status=Reservation.Status.BOARDED).count()
         no_show = trip.reservations.filter(status=Reservation.Status.NO_SHOW).count()
 
-        if status == Trip.Status.COMPLETED:
-            opened_at = trip.actual_departure_at or trip.scheduled_at
-            closed_at = (trip.actual_arrival_at or trip.scheduled_at) + timedelta(minutes=random.randint(1, 10))
-            sync_state, summary = ControlSession.SyncState.SYNCED, {
-                "boarded": boarded, "no_show": no_show, "cash_xof": boarded * 500,
-            }
-        else:
-            opened_at = (trip.actual_departure_at or trip.scheduled_at) - timedelta(minutes=30)
-            closed_at, sync_state, summary = None, ControlSession.SyncState.DRAFT, None
+        opened_at = trip.actual_departure_at or trip.scheduled_at
+        closed_at = (trip.actual_arrival_at or trip.scheduled_at) + timedelta(minutes=random.randint(1, 10))
+        sync_state, summary = ControlSession.SyncState.SYNCED, {
+            "boarded": boarded, "no_show": no_show, "cash_xof": boarded * 500,
+        }
 
         session, _ = ControlSession.objects.get_or_create(
             trip=trip, controller=controller,
@@ -935,8 +936,7 @@ class Command(BaseCommand):
                 "sync_state": sync_state, "close_summary": summary,
             },
         )
-        if closed_at is not None:
-            self._seed_control_events(session)
+        self._seed_control_events(session)
 
     def _seed_control_events(self, session):
         if session.events.exists():
