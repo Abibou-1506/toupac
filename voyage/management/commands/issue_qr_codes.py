@@ -23,7 +23,7 @@ class Command(BaseCommand):
         except ValueError:
             pass                      # pas un UUID : on tente l'internal_id
         except Trip.DoesNotExist:
-            raise CommandError(f"Aucun voyage avec l'id {value}.")
+            raise CommandError(f"Aucun voyage avec l'id {value}.") from None
 
         qs = Trip.objects.filter(internal_id=value).select_related("tenant")
         if tenant_slug:

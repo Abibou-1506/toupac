@@ -306,10 +306,41 @@ class BatchRequestSerializer(serializers.Serializer):
 
 
 class EventResultSerializer(serializers.Serializer):
+    """
+    Verdict d'un event du batch.
+
+    Les trois champs optionnels ne sont présents que quand ils ont un sens :
+    les deux champs de rejet sur un rejet, `details` sur un event accepté par un
+    handler qui en produit. Leur absence est donc informative — l'app n'a pas à
+    distinguer « vide » de « pas concerné ».
+    """
+
     client_uuid = serializers.UUIDField()
     status = serializers.ChoiceField(choices=["accepted", "rejected", "duplicate"])
-    rejection_reason = serializers.CharField(required=False, allow_blank=True)
+    rejection_code = serializers.CharField(
+        required=False,
+        help_text=(
+            "Motif de rejet sous forme stable, en SCREAMING_SNAKE "
+            "(SEAT_ALREADY_TAKEN, RESERVATION_NOT_FOUND…). Destiné au code de "
+            "l'app : contrairement à `rejection_reason`, il ne changera pas au "
+            "gré des reformulations. Absent si l'event n'est pas rejeté."
+        ),
+    )
+    rejection_reason = serializers.CharField(
+        required=False, allow_blank=True,
+        help_text="Le même motif en français, destiné à l'affichage.",
+    )
     anomaly = serializers.JSONField(required=False, allow_null=True)
+    details = serializers.JSONField(
+        required=False,
+        help_text=(
+            "Ce que le handler a produit et que l'app peut utiliser sans "
+            "refetcher le manifeste : identifiants créés (`reservation_id`, "
+            "`passenger_id`, `cash_entry_id`…) et statuts à jour "
+            "(`reservation_status`, `trip_status`). Les clés dépendent du type "
+            "d'event et sont une liste blanche côté serveur."
+        ),
+    )
 
 
 class BatchResponseSerializer(serializers.Serializer):

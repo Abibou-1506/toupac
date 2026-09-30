@@ -1,6 +1,6 @@
 """TOUPAC Voyage — Handler de transition d'état d'un voyage depuis le terrain."""
 from voyage.models import Trip
-from voyage.services.exceptions import EventRejected
+from voyage.services.exceptions import EventRejected, RejectionCode
 
 # Graphe des transitions autorisées sur un Trip (cf. Architecture §3.3).
 # `cancelled` est atteignable depuis tout état non terminal ; le cycle
@@ -22,15 +22,21 @@ def handle_activity_transition(event, tenant, session):
     payload = event.payload
     to_status = payload.get("to_status")
     if not to_status:
-        raise EventRejected("to_status manquant dans le payload.")
+        raise EventRejected(
+            "to_status manquant dans le payload.", RejectionCode.MISSING_TO_STATUS,
+        )
     if to_status not in Trip.Status.values:
-        raise EventRejected(f"Statut inconnu : {to_status}")
+        raise EventRejected(
+            f"Statut inconnu : {to_status}", RejectionCode.INVALID_TRIP_STATUS,
+        )
 
     trip_id = payload.get("trip_id")
     if trip_id:
         trip = Trip.objects.filter(tenant=tenant, id=trip_id).first()
         if trip is None:
-            raise EventRejected(f"Voyage {trip_id} introuvable.")
+            raise EventRejected(
+                f"Voyage {trip_id} introuvable.", RejectionCode.TRIP_NOT_FOUND,
+            )
     else:
         trip = session.trip
 
@@ -41,12 +47,16 @@ def handle_activity_transition(event, tenant, session):
     if trip.id != session.trip_id:
         raise EventRejected(
             f"Le trip cible ({trip.id}) ne correspond pas au trip "
-            f"de la session ({session.trip_id})."
+            f"de la session ({session.trip_id}).",
+            RejectionCode.TRIP_NOT_IN_SESSION,
         )
 
     allowed = ALLOWED_TRANSITIONS.get(trip.status, set())
     if to_status not in allowed:
-        raise EventRejected(f"Transition interdite : {trip.status} → {to_status}")
+        raise EventRejected(
+            f"Transition interdite : {trip.status} → {to_status}",
+            RejectionCode.TRANSITION_NOT_ALLOWED,
+        )
 
     update_fields = ["status", "updated_at"]
     trip.status = to_status

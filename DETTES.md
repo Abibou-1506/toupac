@@ -519,6 +519,57 @@ validé, templates OTP soumis et approuvés, clé API disponible.
       → Effort : ~1 j
       → Ref : ticket notifications-refonte-C, 7 sept 2026.
 
+### Voyage — protocole offline des events de contrôle
+
+- [ ] **Une panne passagère condamne définitivement un event**
+      → État : l'event est archivé **avant** d'être traité — c'est lui qui porte
+        l'idempotence. Si le handler échoue sur une cause transitoire (base
+        momentanément indisponible, verrou), le verdict est
+        `INTERNAL_ERROR` mais la ligne `ControlEvent` existe, avec son
+        `client_uuid`. Au rejeu du batch, le contrôle d'idempotence la retrouve
+        et rend « duplicate » : **l'event ne pourra plus jamais aboutir**.
+      → Portée : la vente à bord et l'embarquement sont concernés. L'argent
+        encaissé sur le terrain n'aurait alors aucune contrepartie en base, et
+        rien ne le signalerait à l'app, qui voit un doublon — donc un succès.
+      → Ce que le Ticket C a apporté : `INTERNAL_ERROR` et `UNPROCESSABLE_EVENT`
+        se distinguent enfin, le second désignant un event jamais archivé, donc
+        rejouable. Le premier reste piégé.
+      → Fix envisagé : ne pas figer l'idempotence sur un rejet dû à une panne —
+        soit en supprimant l'event archivé dans cette seule branche, soit en
+        marquant la ligne « à rejouer » et en l'excluant du contrôle. La
+        première option perd la trace de l'incident, la seconde la garde ; c'est
+        la seconde qu'il faut, et elle demande un champ de plus.
+      → Effort : ~0,5 j, plus une décision sur ce que l'app doit faire d'un
+        verdict rejouable — ce qui rejoint la question du `retryable` écartée du
+        Ticket C.
+      → Ref : ticket voyage-batch-hardening, 30 sept 2026.
+
+- [ ] **Le montant d'une vente à bord n'est confronté à aucun tarif**
+      → État : `amount_xof` est enregistré tel que l'app l'envoie. Le manifeste
+        expose pourtant un `pricing.default_price_xof`, que rien ne compare.
+      → Pourquoi ce n'est pas un défaut : une vente à bord s'écarte
+        légitimement du tarif nominal — trajet partiel, arrangement, geste
+        commercial. Refuser l'écart casserait le métier.
+      → Fix souhaitable : ne pas refuser, mais **tracer**. Une anomalie
+        d'écart au-delà d'un seuil donnerait à l'exploitation ce qu'elle n'a pas
+        aujourd'hui : la visibilité sur les ventes hors tarif, qui est le seul
+        endroit où une fraude au guichet mobile peut se loger.
+      → Effort : ~0,5 j, après décision produit sur le seuil.
+      → Ref : ticket voyage-batch-hardening, 30 sept 2026.
+
+- [ ] **Une vente à bord ne rattache jamais le passager à son compte client**
+      → État : `handle_onboard_sale` crée un `Passenger` sans `customer_user`,
+        même quand le téléphone fourni correspond à un compte TOUPAC existant.
+        Le voyageur ne verra pas ce billet dans `/customer/my-reservations/`.
+      → À rapprocher de la réutilisation de fiche déjà en place : le handler
+        retrouve un `Passenger` par téléphone, mais pas un `User`.
+      → Fix : chercher aussi un compte client par ce téléphone et le rattacher.
+        Attention — c'est la même question que le rattachement d'un second canal
+        (voir plus haut) : croire un numéro sur parole ouvre une prise de
+        contrôle à qui le devine. À trancher ensemble, pas séparément.
+      → Effort : ~0,5 j une fois la règle d'identité tranchée.
+      → Ref : ticket voyage-batch-hardening, 30 sept 2026.
+
 ### JS admin — affichage conditionnel du champ tenant selon le rôle
 
 - [ ] **Le formulaire utilisateur propose « Compagnie » pour tous les rôles**

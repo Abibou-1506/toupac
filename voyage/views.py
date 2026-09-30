@@ -51,6 +51,7 @@ from .serializers import (
 )
 from .services.event_processor import BatchEventProcessor
 from .services.qr_jwt import qr_public_key_pem, sign_ticket_jwt
+from .services.seat_map import seat_labels
 
 MAX_BATCH_EVENTS = 100
 
@@ -192,21 +193,10 @@ class TripViewSet(ApiScopedViewSetMixin, viewsets.ModelViewSet):
             and r.seat_label
         }
 
+        # Le plan entier, sans troncature : un siège au-delà de `total_seats`
+        # qui porte pourtant une réservation doit rester visible du contrôleur.
         layout = (trip.seat_map.layout if trip.seat_map else None) or {}
-        seats_in_layout = layout.get("seats") or []
-        if seats_in_layout:
-            labels = [
-                s["label"] for s in seats_in_layout
-                if isinstance(s, dict) and s.get("label")
-            ]
-        else:
-            rows = layout.get("rows") or 0
-            cols = layout.get("cols") or 0
-            labels = [
-                f"{chr(64 + c)}{r}"
-                for r in range(1, rows + 1)
-                for c in range(1, cols + 1)
-            ]
+        labels = seat_labels(layout)
 
         known = set(labels)
         labels.extend(label for label in active if label not in known)

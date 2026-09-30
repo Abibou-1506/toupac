@@ -376,6 +376,12 @@ class ControlEvent(TenantModel):
     payload = models.JSONField("Données", default=dict, blank=True)
     status = models.CharField("Statut", max_length=20, choices=Status.choices, default=Status.PENDING)
     rejection_reason = models.CharField("Motif de rejet", max_length=200, blank=True)
+    # Pendant machine de `rejection_reason`, qui reste du français libre destiné
+    # à l'œil. Sans `choices` : l'énumération vit dans `services/exceptions.py`
+    # et évoluera plus vite qu'on n'écrit des migrations. Un code inconnu en
+    # base serait un défaut de code, pas une donnée à valider — c'est un test
+    # qui garantit l'appartenance, pas le schéma.
+    rejection_code = models.CharField("Code de rejet", max_length=50, blank=True)
     gps_location = models.PointField("Position GPS", geography=True, srid=4326, null=True, blank=True)
     gps_accuracy_m = models.FloatField("Précision GPS (m)", null=True, blank=True)
     created_at_local = models.DateTimeField("Créé à (heure locale appareil)")

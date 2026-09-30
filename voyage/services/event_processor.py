@@ -15,7 +15,7 @@ from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 
 from voyage.models import ControlEvent
-from voyage.services.exceptions import EventRejected
+from voyage.services.exceptions import EventRejected, RejectionCode
 from voyage.services.handlers import (
     anomalies,
     boarding,
@@ -38,6 +38,29 @@ EVENT_HANDLERS = {
     "activity_transition": transitions.handle_activity_transition,
     "parcel_verify": parcels.handle_parcel_verify,
     "parcel_refuse": parcels.handle_parcel_refuse,
+}
+
+#: Clés que chaque handler est autorisé à faire remonter dans `details`.
+#:
+#: Liste blanche, et non fusion du dict rendu par le handler : celui-ci porte
+#: aussi des clés de mécanique interne, et l'une d'elles qui remonterait par
+#: accident deviendrait un contrat que personne n'a décidé. Ce que l'app
+#: contrôleur trouve ici lui évite de refetcher le manifeste après chaque event
+#: accepté — c'est la seule raison d'être de ce bloc.
+VERDICT_DETAIL_KEYS = {
+    "reservation_board": ("reservation_id", "reservation_status", "trip_status"),
+    "reservation_refuse": ("reservation_id", "reservation_status"),
+    "reservation_special_case": ("reservation_id", "reservation_status"),
+    "onboard_sale": (
+        "reservation_id", "passenger_id", "cash_entry_id",
+        "reservation_status", "trip_status",
+    ),
+    "incident_create": ("incident_id",),
+    "activity_transition": ("trip_id", "trip_status"),
+    "parcel_verify": ("parcel_id", "parcel_status"),
+    "parcel_refuse": ("parcel_id",),
+    # `anomaly_create` et `anomaly_resolve` n'y figurent pas : l'anomalie remonte
+    # déjà entière dans le champ `anomaly` du verdict, identifiant compris.
 }
 
 # Trie les events non horodatés en fin de batch plutôt que de planter.
@@ -77,13 +100,19 @@ class BatchEventProcessor:
     def _process_single_event(self, event_data):
         """Traite un event unique dans sa propre transaction DB."""
         if not isinstance(event_data, dict):
-            return self._verdict(None, "rejected", "Event mal formé (objet attendu).")
+            return self._verdict(
+                None, "rejected", "Event mal formé (objet attendu).",
+                rejection_code=RejectionCode.MALFORMED_EVENT,
+            )
 
         raw_uuid = event_data.get("client_uuid")
         try:
             client_uuid = uuid.UUID(str(raw_uuid))
         except (TypeError, ValueError):
-            return self._verdict(raw_uuid, "rejected", "client_uuid manquant ou invalide.")
+            return self._verdict(
+                raw_uuid, "rejected", "client_uuid manquant ou invalide.",
+                rejection_code=RejectionCode.INVALID_CLIENT_UUID,
+            )
 
         # 1. Idempotence
         if ControlEvent.objects.filter(tenant=self.tenant, client_uuid=client_uuid).exists():
@@ -91,21 +120,33 @@ class BatchEventProcessor:
 
         event_type = event_data.get("event_type")
         if not event_type:
-            return self._verdict(client_uuid, "rejected", "event_type manquant.")
+            return self._verdict(
+                client_uuid, "rejected", "event_type manquant.",
+                rejection_code=RejectionCode.MISSING_EVENT_TYPE,
+            )
 
         created_at_local = self._parse_datetime(event_data.get("created_at_local"))
         if created_at_local is None:
-            return self._verdict(client_uuid, "rejected", "created_at_local manquant ou invalide.")
+            return self._verdict(
+                client_uuid, "rejected", "created_at_local manquant ou invalide.",
+                rejection_code=RejectionCode.INVALID_CREATED_AT,
+            )
 
         try:
             gps_location = self._parse_point(event_data.get("gps_location"))
         except (TypeError, ValueError, KeyError):
-            return self._verdict(client_uuid, "rejected", "gps_location invalide.")
+            return self._verdict(
+                client_uuid, "rejected", "gps_location invalide.",
+                rejection_code=RejectionCode.INVALID_GPS,
+            )
 
         try:
             target_id = self._parse_uuid(event_data.get("target_id"))
         except ValueError:
-            return self._verdict(client_uuid, "rejected", "target_id invalide.")
+            return self._verdict(
+                client_uuid, "rejected", "target_id invalide.",
+                rejection_code=RejectionCode.INVALID_TARGET_ID,
+            )
 
         try:
             with transaction.atomic():
@@ -129,46 +170,76 @@ class BatchEventProcessor:
                     with transaction.atomic():
                         result = self._dispatch(event)
                 except EventRejected as exc:
-                    result = {"status": "rejected", "rejection_reason": str(exc)}
+                    result = {
+                        "status": "rejected",
+                        "rejection_reason": str(exc),
+                        "rejection_code": exc.code,
+                    }
                 # Catch large volontaire : un event ne doit jamais tuer le batch.
                 except Exception as exc:
                     logger.exception(
                         "Échec du traitement de l'event %s (%s)", client_uuid, event_type,
                     )
-                    result = {"status": "rejected", "rejection_reason": f"Erreur interne : {exc}"}
+                    result = {
+                        "status": "rejected",
+                        "rejection_reason": f"Erreur interne : {exc}",
+                        "rejection_code": RejectionCode.INTERNAL_ERROR,
+                    }
 
                 # 4. Verdict persisté sur l'event
                 accepted = result.get("status") == "accepted"
                 event.status = ControlEvent.Status.PROCESSED if accepted else ControlEvent.Status.REJECTED
                 event.rejection_reason = (result.get("rejection_reason") or "")[:200]
+                event.rejection_code = str(result.get("rejection_code") or "")[:50]
                 event.processed_at = timezone.now()
-                event.save(update_fields=["status", "rejection_reason", "processed_at", "updated_at"])
+                event.save(update_fields=[
+                    "status", "rejection_reason", "rejection_code",
+                    "processed_at", "updated_at",
+                ])
         except IntegrityError:
             # Course entre deux batches concurrents sur le même client_uuid.
             return self._verdict(client_uuid, "duplicate")
         # Catch large volontaire : archivage impossible, l'event est perdu.
         except Exception as exc:
             logger.exception("Impossible d'archiver l'event %s (%s)", client_uuid, event_type)
-            return self._verdict(client_uuid, "rejected", f"Event inexploitable : {exc}")
+            return self._verdict(
+                client_uuid, "rejected", f"Event inexploitable : {exc}",
+                rejection_code=RejectionCode.UNPROCESSABLE_EVENT,
+            )
 
         return self._verdict(
             client_uuid,
             result.get("status", "accepted"),
             result.get("rejection_reason"),
             result.get("anomaly"),
+            rejection_code=result.get("rejection_code"),
+            details=self._details_for(event_type, result),
         )
 
     def _dispatch(self, event):
         """Route l'event vers son handler."""
         handler = EVENT_HANDLERS.get(event.event_type)
         if handler is None:
-            raise EventRejected(f"Type d'event inconnu : {event.event_type}")
+            raise EventRejected(
+                f"Type d'event inconnu : {event.event_type}",
+                RejectionCode.UNKNOWN_EVENT_TYPE,
+            )
         return handler(event, self.tenant, self.session)
 
     # ─── Helpers ───
 
     @staticmethod
-    def _verdict(client_uuid, status, rejection_reason=None, anomaly=None):
+    def _verdict(
+        client_uuid, status, rejection_reason=None, anomaly=None,
+        rejection_code=None, details=None,
+    ):
+        """
+        Verdict d'un event. Les champs de rejet n'apparaissent que sur un rejet.
+
+        Un verdict `accepted` ou `duplicate` sans `rejection_code` ni
+        `rejection_reason` laisse l'app distinguer les deux cas par la seule
+        présence des clés, sans avoir à tester des chaînes vides.
+        """
         verdict = {
             "client_uuid": str(client_uuid) if client_uuid else None,
             "status": status,
@@ -176,7 +247,22 @@ class BatchEventProcessor:
         }
         if rejection_reason:
             verdict["rejection_reason"] = rejection_reason
+        if rejection_code:
+            verdict["rejection_code"] = str(rejection_code)
+        if details:
+            verdict["details"] = details
         return verdict
+
+    @staticmethod
+    def _details_for(event_type, result):
+        """
+        Ce que le handler a produit et que l'app peut exploiter, filtré.
+
+        Rien n'est propagé qui ne soit déclaré dans `VERDICT_DETAIL_KEYS` : un
+        handler peut rendre ce qu'il veut, seul ce tableau fait contrat.
+        """
+        allowed = VERDICT_DETAIL_KEYS.get(event_type, ())
+        return {key: result[key] for key in allowed if result.get(key) is not None}
 
     @staticmethod
     def _parse_uuid(value):

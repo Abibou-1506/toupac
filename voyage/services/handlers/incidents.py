@@ -1,6 +1,6 @@
 """TOUPAC Voyage — Handler d'incidents signalés à bord."""
 from voyage.models import Incident, Trip
-from voyage.services.exceptions import EventRejected
+from voyage.services.exceptions import EventRejected, RejectionCode
 
 
 def handle_incident_create(event, tenant, session):
@@ -8,13 +8,17 @@ def handle_incident_create(event, tenant, session):
     payload = event.payload
     title = payload.get("title")
     if not title:
-        raise EventRejected("title manquant dans le payload.")
+        raise EventRejected(
+            "title manquant dans le payload.", RejectionCode.MISSING_TITLE,
+        )
 
     trip_id = payload.get("trip_id")
     if trip_id:
         trip = Trip.objects.filter(tenant=tenant, id=trip_id).first()
         if trip is None:
-            raise EventRejected(f"Voyage {trip_id} introuvable.")
+            raise EventRejected(
+                f"Voyage {trip_id} introuvable.", RejectionCode.TRIP_NOT_FOUND,
+            )
     else:
         trip = session.trip
 

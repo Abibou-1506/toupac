@@ -57,6 +57,7 @@ from voyage.models import (
     TripStop,
 )
 from voyage.services.qr_jwt import sign_ticket_jwt
+from voyage.services.seat_map import seat_labels
 from workflow.models import WorkflowDefinition
 
 DEMO_PASSWORD = "Toupac2026!"
@@ -290,14 +291,6 @@ RESET_ORDER = [
 
 # Modèles sans FK tenant directe (rattachés via leur parent).
 TENANT_PATH = {FleetVehicle: "fleet__tenant", InvoiceLine: "invoice__tenant"}
-
-
-def seat_labels(layout, total_seats):
-    """Étiquettes de sièges, dans le même ordre que TripViewSet._build_seat_occupation."""
-    rows = (layout or {}).get("rows") or 0
-    cols = (layout or {}).get("cols") or 0
-    labels = [f"{chr(64 + c)}{r}" for r in range(1, rows + 1) for c in range(1, cols + 1)]
-    return labels[:total_seats]
 
 
 def phone():

@@ -3,7 +3,7 @@ from django.utils import timezone
 
 from voyage.models import Anomaly
 from voyage.services.anomaly_detectors import serialize_anomaly
-from voyage.services.exceptions import EventRejected
+from voyage.services.exceptions import EventRejected, RejectionCode
 
 
 def handle_anomaly_create(event, tenant, session):
@@ -11,7 +11,9 @@ def handle_anomaly_create(event, tenant, session):
     payload = event.payload
     title = payload.get("title")
     if not title:
-        raise EventRejected("title manquant dans le payload.")
+        raise EventRejected(
+            "title manquant dans le payload.", RejectionCode.MISSING_TITLE,
+        )
 
     anomaly = Anomaly.objects.create(
         tenant=tenant,
@@ -33,11 +35,16 @@ def handle_anomaly_resolve(event, tenant, session):
     """Clôture une anomalie depuis le terrain."""
     anomaly_id = event.payload.get("anomaly_id") or event.target_id
     if not anomaly_id:
-        raise EventRejected("anomaly_id manquant dans le payload.")
+        raise EventRejected(
+            "anomaly_id manquant dans le payload.",
+            RejectionCode.MISSING_ANOMALY_ID,
+        )
 
     anomaly = Anomaly.objects.filter(tenant=tenant, id=anomaly_id).first()
     if anomaly is None:
-        raise EventRejected(f"Anomalie {anomaly_id} introuvable.")
+        raise EventRejected(
+            f"Anomalie {anomaly_id} introuvable.", RejectionCode.ANOMALY_NOT_FOUND,
+        )
 
     anomaly.status = Anomaly.Status.RESOLVED
     anomaly.resolved_at = timezone.now()

@@ -8,17 +8,21 @@ comme il contrôle les billets — d'où leur présence dans les batches offline
 from colis.models import Parcel
 from voyage.models import Anomaly
 from voyage.services.anomaly_detectors import serialize_anomaly
-from voyage.services.exceptions import EventRejected
+from voyage.services.exceptions import EventRejected, RejectionCode
 
 
 def _load_parcel(event, tenant):
     """Résout le colis ciblé par l'event (payload prioritaire, puis target_id)."""
     parcel_id = event.payload.get("parcel_id") or event.target_id
     if not parcel_id:
-        raise EventRejected("parcel_id manquant dans le payload.")
+        raise EventRejected(
+            "parcel_id manquant dans le payload.", RejectionCode.MISSING_PARCEL_ID,
+        )
     parcel = Parcel.objects.filter(tenant=tenant, id=parcel_id).first()
     if parcel is None:
-        raise EventRejected(f"Colis {parcel_id} introuvable.")
+        raise EventRejected(
+            f"Colis {parcel_id} introuvable.", RejectionCode.PARCEL_NOT_FOUND,
+        )
     return parcel
 
 

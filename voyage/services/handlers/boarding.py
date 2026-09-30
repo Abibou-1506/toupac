@@ -7,21 +7,27 @@ from voyage.services.anomaly_detectors import (
     detect_seat_conflict,
     serialize_anomaly,
 )
-from voyage.services.exceptions import EventRejected
+from voyage.services.exceptions import EventRejected, RejectionCode
 
 
 def _load_reservation(event, tenant):
     """Résout la réservation ciblée par l'event (payload prioritaire, puis target_id)."""
     reservation_id = event.payload.get("reservation_id") or event.target_id
     if not reservation_id:
-        raise EventRejected("reservation_id manquant dans le payload.")
+        raise EventRejected(
+            "reservation_id manquant dans le payload.",
+            RejectionCode.MISSING_RESERVATION_ID,
+        )
     reservation = (
         Reservation.objects.select_related("passenger", "trip")
         .filter(tenant=tenant, id=reservation_id)
         .first()
     )
     if reservation is None:
-        raise EventRejected(f"Réservation {reservation_id} introuvable.")
+        raise EventRejected(
+            f"Réservation {reservation_id} introuvable.",
+            RejectionCode.RESERVATION_NOT_FOUND,
+        )
     return reservation
 
 
@@ -37,6 +43,7 @@ def handle_board(event, tenant, session):
         return {
             "status": "rejected",
             "rejection_reason": f"Embarquement impossible : statut={reservation.status}",
+            "rejection_code": RejectionCode.RESERVATION_NOT_BOARDABLE,
             "anomaly": serialize_anomaly(anomaly),
         }
 
@@ -67,6 +74,7 @@ def handle_board(event, tenant, session):
         "status": "accepted",
         "anomaly": serialize_anomaly(anomaly),
         "reservation_id": str(reservation.id),
+        "reservation_status": reservation.status,
         "trip_status": trip.status,
     }
 
@@ -99,6 +107,7 @@ def handle_refuse(event, tenant, session):
         "status": "accepted",
         "anomaly": serialize_anomaly(anomaly),
         "reservation_id": str(reservation.id),
+        "reservation_status": reservation.status,
     }
 
 
@@ -118,4 +127,5 @@ def handle_special_case(event, tenant, session):
         "status": "accepted",
         "anomaly": None,
         "reservation_id": str(reservation.id),
+        "reservation_status": reservation.status,
     }
