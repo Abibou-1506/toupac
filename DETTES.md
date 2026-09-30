@@ -1,6 +1,6 @@
 # Dettes techniques — TOUPAC
 
-Dernier update : 3 sept 2026
+Dernier update : 30 sept 2026
 
 Ce fichier consolide les dettes techniques identifiées et **délibérément 
 non corrigées** pendant les tickets précédents. Chaque entrée porte : 
@@ -13,11 +13,50 @@ se fait avec le lead selon le contexte produit.
 
 ## Sécurité
 
-_Aucune dette sécurité identifiée à date._
+_Rien à date au-delà des points classés « connu et accepté » en fin de fichier._
 
 ---
 
 ## Modèle
+
+- [ ] **`TenantModel` promet un filtrage automatique par tenant qui n'existe pas**
+      → État : le docstring de `TenantModel` dans `core/models.py` affirme que
+        « chaque requête est automatiquement filtrée par tenant_id via
+        TenantQuerySetMixin et TenantMiddleware ». Il n'y a aucun
+        `TenantQuerySetMixin` dans le code, et `TenantManager.get_queryset()`
+        ne filtre rien. L'isolation tient uniquement aux `.filter(tenant=...)`
+        écrits à la main dans chaque vue et chaque resolver.
+      → Portée : un dev humain — ou une session Claude — qui lit ce docstring
+        et écrit une requête `Model.objects.filter(pk=...)` en croyant à
+        l'isolation automatique produit une fuite cross-tenant. Deux occurrences
+        déjà nées de cet angle mort en session (`Trip.all_objects` et
+        `User.all_objects` inventés, cf. débriefs E1E2 et hardening).
+      → Décision (30 sept 2026) : corriger le docstring pour aligner sur la
+        doctrine effective — filtrage explicite via `.filter(tenant=...)`,
+        `all_objects` comme échappatoire visible. Le véritable renforcement
+        (RLS PostgreSQL, voir la dette dédiée en fin de fichier) est un
+        chantier séparé à moyen terme.
+      → Effort : 10 min (correction docstring). Le chantier RLS est tracé à
+        part.
+      → Ref : découvert au débrief E1E2, confirmé au débrief hardening,
+        30 sept 2026.
+
+- [ ] **`UUIDv7Field` génère des UUID v4, contrairement à son nom**
+      → État : le champ défini dans `core/models.py` s'appelle `UUIDv7Field`
+        et utilise `default=uuid.uuid4`. Aucun ordonnancement temporel n'est
+        produit — c'était pourtant l'intérêt du choix v7 (index B-tree
+        favorable, tri chronologique naturel).
+      → Impact aujourd'hui : nul. Le jour où quelqu'un s'appuiera sur
+        l'ordonnancement d'un identifiant pour paginer sans curseur ou pour
+        déduire une chronologie, il partira sur une base fausse.
+      → Fix : soit renommer en `UUIDField` (aligner le nom sur la fonction),
+        soit implémenter réellement — `uuid.uuid7` est natif en Python 3.13+,
+        sinon `uuid-utils` fournit l'implémentation. La seconde option ne
+        casse rien mais demande une migration : les identifiants existants
+        restent v4, les nouveaux deviennent v7 — tri mélangé, à documenter.
+      → Priorité : basse tant que personne n'exploite l'ordonnancement.
+      → Effort : 15 min (rename) ou 1 h (implémentation + doc).
+      → Ref : découvert lors de la relecture du 30 sept 2026.
 
 - [ ] **Route ↔ RouteStop : duplication origine/destination non verrouillée**
       → État : `Route.origin_place`/`destination_place` et 
@@ -227,11 +266,14 @@ Portée technique :
       → Ce n'est pas un défaut de l'endpoint : c'est le catalogue qui ne
         déclare encore aucun geste d'acquittement côté voyageur. Le cas viendra
         (confirmer un changement d'horaire, accepter un report).
-      → Fix : rien à faire tant qu'aucun événement client ne l'exige. À
-        re-regarder au câblage des resolvers métier (Tickets E1/E2), qui est le
-        moment où ces événements se décideront.
+      → Fix : rien à faire tant qu'aucun événement client ne l'exige. Décision
+        du 8 sept 2026 : en veille jusqu'au design de l'app mobile CLIENT, qui
+        décidera quels gestes d'acquittement lui sont nécessaires. Le câblage
+        des resolvers (E1E2, livré le 8 sept) est passé sans que le besoin
+        n'émerge côté métier.
       → Effort : nul aujourd'hui.
-      → Ref : ticket notifications-refonte-D, 7 sept 2026.
+      → Ref : ticket notifications-refonte-D, 7 sept 2026 ; révisé 8 sept 2026
+        puis 30 sept 2026.
 
 - [ ] **L'espace client mélange endpoints paginés et non paginés**
       → État : `/customer/notifications/` pagine (20 par page, 50 au plus) ;
@@ -606,6 +648,49 @@ validé, templates OTP soumis et approuvés, clé API disponible.
 
 ## Sécurité — connu et accepté
 
+- [ ] **Les resolvers `parcel.*` ne vérifient pas que l'`order_id` appartient au tenant courant**
+      → État : `resolve_parcel_recipient`, `resolve_parcel_sender` et
+        `resolve_parcel_sender_and_recipient` (`notifications/resolvers/colis.py`)
+        font `Order.objects.filter(pk=order_id, deleted_at__isnull=True)` sans
+        filtre tenant. `Order.objects` n'étant pas filtré automatiquement
+        (voir la dette `TenantModel` en section Modèle), un `order_id` d'un
+        autre tenant remonterait le destinataire de la commande d'un autre
+        opérateur.
+      → Pas exploitable aujourd'hui : aucun émetteur métier n'appelle encore
+        `notif.parcel.*` en production, vérifié par grep le 8 septembre. Le
+        devient dès que le premier endpoint de création de commande émettra
+        `notif.parcel.registered.v1` — l'`order_id` viendra alors d'un
+        contexte à sécuriser.
+      → Fix : accepter `tenant` en argument du helper `_order()` et filtrer
+        dessus. La signature du resolver le passe déjà. Test dédié qui vérifie
+        qu'un `order_id` d'un autre tenant rend `[]`, pas le destinataire.
+      → À traiter **avant** le câblage du premier émetteur `notif.parcel.*`,
+        pas après.
+      → Effort : ~30 min.
+      → Ref : découvert lors de l'audit du 30 sept 2026 (relecture de
+        `notifications/resolvers/colis.py`).
+
+- [ ] **Chantier `security-postgres-rls` — renforcement de l'isolation tenant**
+      → État : l'isolation cross-tenant tient aux `.filter(tenant=...)` écrits
+        à la main dans chaque vue, chaque resolver, chaque commande de
+        management. Trois occurrences d'oubli déjà recensées (`parcel.*` sans
+        garde tenant, deux inventions de managers en session). À mesure que
+        le code grandit, la surface d'erreur croît linéairement.
+      → Pourquoi RLS : une policy PostgreSQL Row-Level Security par table
+        filtre par tenant côté base, indépendamment du code Django. Même un
+        SQL brut manuel est protégé. C'est le patron retenu par Notion,
+        Auth0, Linear en production sur des architectures shared-schema.
+      → Fix : middleware qui pose `SET LOCAL app.current_tenant = '<uuid>'`
+        au début de chaque requête authentifiée, policies RLS par table
+        tenantée, tests d'isolation croissés. Attention PgBouncer transaction
+        mode qui casse `SET LOCAL` par défaut — vérifier la config prod.
+      → Priorité : moyenne. Non urgent tant qu'on a un seul tenant de démo,
+        réelle avant l'onboarding de la deuxième compagnie payante — c'est
+        alors un client qui paye pour son isolation.
+      → Effort : ~2-3 j (POC sur une table + audit + généralisation). Une
+        session peut cadrer avant.
+      → Ref : décision d'audit du 30 sept 2026, cf. dette `TenantModel`.
+
 - [ ] **Les vues qui redéfinissent `permission_classes` sortent du dispositif de scopes**
       → État : `MeView`, `LogoutView`, le webhook de paiement et la
         synchronisation hors ligne posent leur propre `permission_classes`, ce
@@ -648,14 +733,22 @@ validé, templates OTP soumis et approuvés, clé API disponible.
 
 ## Tests / perf
 
-- [ ] **Perf tests : envisager pytest-xdist + fixtures scope='session'**
-      → État : suite à 42s aujourd'hui, acceptable jusqu'à ~150-200 tests 
-        environ. Au-delà, la parallélisation devient rentable.
-      → Fix quand seuil dépassé : `pytest-xdist` (parallélisation cœurs) + 
-        extraire un `conftest_shared.py` avec fixtures immuables en scope 
-        session.
-      → Effort : ~1h une fois le seuil atteint
-      → Ref : conversation 2 sept 2026
+- [ ] **Suite pytest à 4 min 01 — surveiller pour rester en dessous de 6-7 min**
+      → État : 834 tests à 4 min 01 (débrief voyage-batch-hardening, 30 sept 2026).
+        Chaque ticket ajoute quelques dizaines de tests ; la trajectoire mène à
+        6-7 min d'ici deux mois au rythme actuel.
+      → Pourquoi le seuil compte : au-delà, les devs prennent l'habitude de ne
+        plus lancer `pytest` avant de commit — les régressions passent au CI
+        plutôt qu'à la machine locale, et la boucle de retour se casse.
+      → Fix : `pytest-xdist` (parallélisation cœurs) suffit dans un premier
+        temps. `pytest-testmon` (ne rejoue que les tests impactés) est
+        l'étape suivante. Fixtures immuables en scope session avant, s'il en
+        reste.
+      → À déclencher : dès qu'un run local dépasse 5 minutes en steady state,
+        ou qu'un dev signale qu'il saute des runs.
+      → Effort : ~1h pour xdist, ~2h pour testmon avec ses pièges (cache
+        invalidé au premier changement de conftest).
+      → Ref : conversation 2 sept 2026 ; mise à jour 30 sept 2026.
 
 - [ ] **PBKDF2 sur ApiCredential.key_hash → basculer sur HMAC-SHA-256**
       → État : hash lent (adapté aux passwords humains) utilisé sur des 

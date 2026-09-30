@@ -373,6 +373,41 @@ pas neutre, il retarde une action qui devrait être urgente.
 
 ## Services et flow d'émission
 
+### La sévérité d'une anomalie distingue « advenu » de « empêché »
+_Validé — Ticket voyage-batch-hardening (30 sept 2026)_
+
+Deux détecteurs peuvent produire la même famille d'anomalie
+(`SEAT_CONFLICT`) dans des situations sémantiquement opposées : un conflit
+qui a effectivement eu lieu (deux passagers déjà assis au même siège,
+constaté à bord) et un conflit qui a été empêché (une vente à bord
+refusée avant écriture parce que le siège était pris).
+
+Règle : la sévérité doit distinguer ces deux modes.
+
+- **`CRITICAL`** = quelque chose de fâcheux **a eu lieu** et demande une
+  action immédiate sur le terrain — trancher à bord, replacer un passager,
+  remonter un incident.
+- **`MODERATE`** = le système a **empêché** un cas fâcheux, mais l'écart
+  entre l'intention et le résultat mérite d'être visible en supervision.
+  Personne ne s'assoit, personne ne perd son siège.
+
+Contre-exemple : alerter en `CRITICAL` sur un cas empêché vide le niveau
+de son sens. À terme, l'exploitation ne distingue plus les incidents
+qu'elle doit traiter en priorité de ceux que le système a déjà résolus.
+Le seuil critique doit rester rare pour rester lisible.
+
+Vécu au ticket hardening : `detect_seat_conflict` produit `CRITICAL` (deux
+passagers assis, situation vécue). `handle_onboard_sale` produit
+`MODERATE` sur son propre conflit (vente refusée, situation évitée). Le
+même type d'anomalie porte donc deux sévérités selon le moment où elle est
+détectée. Le commentaire dans le code le dit — sans lui, une revue future
+harmoniserait par mimétisme et perdrait la distinction.
+
+Généralisation : quand un même invariant peut être détecté avant ou après
+qu'il ait été violé, la sévérité porte la distinction, pas le type. Le
+type dit ce qui est en jeu ; la sévérité dit à qui c'est adressé et à
+quelle urgence.
+
 ### Fail-log symétrique — couvrir toutes les branches d'échec, pas juste celle qui a motivé le ticket
 _Validé — Ticket notifications-refonte-B (7 sept 2026)_
 
@@ -852,6 +887,125 @@ cosmétique pour ne pas mentir en documentation fait le bon choix.
 ---
 
 ## Multi-tenant et cross-tenant
+
+### Filtrage explicite assumé, RLS visé à moyen terme
+_Décidé — Audit du 30 sept 2026_
+
+L'isolation cross-tenant repose sur des `.filter(tenant=...)` écrits à la
+main dans chaque vue, chaque resolver, chaque commande de management.
+`TenantManager.get_queryset()` ne filtre pas de lui-même, contrairement à
+ce qu'affirme le docstring de `TenantModel` (dette tracée). Cette entrée
+assume ce choix et le document, avec ses limites.
+
+**Pourquoi pas un filtrage automatique via `TenantManager` + thread-local**
+(l'option qui aurait rendu le docstring vrai) : le patron paraît
+séduisant mais porte trois pièges connus. Les workers Celery ne portent
+pas le request context — il faut sérialiser le tenant dans chaque tâche.
+Les migrations et les commandes de management doivent explicitement
+bypasser. Le code de tests devient à double couche. Le « bypass » se
+banalise et personne ne sait plus où il est légitime — c'est le scénario
+inverse du filtrage explicite, qui rend visible chaque frontier.
+
+**Pourquoi ce n'est pourtant pas le meilleur choix objectif** : le filtrage
+explicite laisse la classe de bugs cross-tenant vivante. Chaque oubli est
+un incident potentiel. Trois occurrences déjà recensées (`parcel.*` sans
+garde tenant, deux inventions de managers en session). Le vrai patron
+double-clou est **Row-Level Security PostgreSQL** — une policy par table
+qui filtre côté base, indépendamment du code Django. Même un SQL brut est
+protégé. Notion, Auth0, Linear l'utilisent en production sur des
+architectures shared-schema comparables.
+
+**Décision** :
+
+1. Court terme : aligner le docstring de `TenantModel` sur la doctrine
+   effective (filtrage explicite, `all_objects` comme échappatoire
+   visible). Déjà en dette.
+2. Moyen terme : ouvrir un chantier `security-postgres-rls` à déclencher
+   avant l'onboarding de la deuxième compagnie payante — tant qu'on n'a
+   qu'un tenant de démo, l'urgence est faible ; dès qu'un client paye pour
+   son isolation, elle devient réelle. Déjà en dette.
+
+Cette entrée existe pour que le prochain contributeur — ou une future
+session Claude — comprenne que le filtrage explicite n'est pas un choix
+idéologique, mais un compromis assumé avec une trajectoire de sortie.
+
+### `internal_id` n'est unique que par tenant : toute commande doit lever l'ambiguïté
+_Découvert — Support dev, 27 sept 2026_
+
+`Trip.internal_id` porte `unique_together = [("tenant", "internal_id")]`.
+Deux voyages nommés `T-SE-20260927-05` peuvent coexister en base, chacun
+chez sa compagnie. Le préfixe de tenant (`SE`, `DD`) protège par convention,
+pas par contrainte.
+
+Conséquence pour toute commande de management ou script de rattrapage qui
+accepte un `internal_id` en argument : il **doit** exiger
+`--tenant <slug>` en désambiguïsation, ou fournir un mode de listage
+explicite qui montre les candidats avant de choisir.
+
+Anti-pattern à traquer :
+
+```python
+Trip.objects.get(internal_id=value)               # peut lever MultipleObjectsReturned
+Trip.objects.filter(internal_id=value).first()    # pire : silencieusement mauvais
+```
+
+Pattern correct :
+
+```python
+qs = Trip.objects.filter(internal_id=value)
+if tenant_slug:
+    qs = qs.filter(tenant__slug=tenant_slug)
+
+matches = list(qs[:5])
+if not matches:
+    raise CommandError(f"Aucun voyage nommé {value}.")
+if len(matches) > 1:
+    raise CommandError(
+        f"{len(matches)} voyages nommés {value}. Précise --tenant, "
+        f"ou passe l'UUID."
+    )
+```
+
+Vaut aussi pour tout autre identifiant lisible unique par tenant :
+`Route.code`, `Vehicle.plate_number`, `Order.internal_id`, etc. En cas de
+doute sur l'unicité, `Model._meta.unique_together` et `Model._meta.constraints`
+sont les sources de vérité.
+
+Vécu 27 septembre : `issue_qr_codes --trip T-SE-20260927-05` sans
+désambiguïsation aurait signé les billets de la mauvaise compagnie sans
+que rien ne le signale.
+
+### Chaque nouveau `emit()` doit fournir la variable de résolution du catalogue
+_Validé — Ticket notifications-refonte-E1E2 (8 sept 2026), corollaire opérationnel_
+
+Le catalogue déclare pour 26 événements un `resolver_variables` qui exige
+un identifiant précis (`order_id`, `payment_id`, `reservation_id`,
+`driver_user_id`, etc.). `validate_context()` mord à l'`emit()` : un
+émetteur qui l'oublie se prend un `ValueError` immédiat, avalé par le
+`try/except` de `_deliver` — notification perdue, aucune trace utile.
+
+Corollaire opérationnel : **un ticket qui ajoute un émetteur métier
+(nouveau endpoint, tâche Celery, signal) sur un événement à
+`resolver_variables` non vide doit :**
+
+1. Nommer la variable de résolution en tête du prompt, avec sa provenance
+   (`order = Order.objects.get(...)`, `order.id` → `order_id`).
+2. Ajouter un test d'intégration qui vérifie que l'émission produit bien
+   un `NotificationLog`, pas un skip silencieux.
+3. Croiser avec le grep des appelants au débrief :
+
+```
+grep -rn "NotificationService.emit\|send_notification(" --include="*.py" \
+  --exclude-dir=tests --exclude-dir=migrations . \
+  | grep -v "^./notifications/"
+```
+
+Vécu 8 sept : `iam/otp_views.py` était le seul appelant métier existant
+au moment du câblage, il émettait `notif.auth.otp_signin.v1` avec un
+contexte OTP-seul et cassait silencieusement dès que `validate_context()`
+mordait. Vécu 30 sept : le grep a confirmé qu'il restait le seul appelant.
+Les 25 autres événements strict-resolver n'ont pas d'émetteur en prod —
+chacun sera un site à risque au moment du câblage.
 
 ### `all_objects = models.Manager()` explicite à côté de `objects = TenantManager()`
 _Validé — Ticket user-model-refactor-3 (7 sept 2026)_
@@ -1475,6 +1629,54 @@ tranché : silencieux (par écrasement dans save_model). Ne pas re-débattre
 ---
 
 ## Modes de travail
+
+### Avant d'écrire un pré-contrôle métier, lire la contrainte base qui couvre le même invariant
+_Découvert — Ticket voyage-batch-hardening (30 sept 2026)_
+
+Deux erreurs de spec dans un même ticket, même racine : proposer une règle
+sans lire la règle existante.
+
+**Cas 1 — le format du `seat_map`.** Le prompt décrivait un format unique
+`{"rows": N, "cols": M}` et un helper partagé pour l'exploiter. La lecture
+a montré trois implémentations divergentes du parsing, dont une —
+`TripViewSet._build_seat_occupation` — gérait aussi un format explicite
+`{"seats": [{"label": "1A"}]}` que le prompt ignorait. Livrer la version
+grille seule aurait refusé chaque vente à bord des voyages à plan énuméré,
+silencieusement.
+
+**Cas 2 — la contrainte unique.** Le prompt proposait un pré-contrôle
+filtré sur `status__in=[BOOKED, CHECKED_IN, BOARDED]`. La contrainte
+existante en base filtre par exclusion, `~Q(status__in=[cancelled, refused])`
+— donc `no_show` retient le siège. La liste blanche aurait accepté une
+vente sur un siège `no_show` pour la voir tomber en `IntegrityError` :
+exactement le défaut que le pré-contrôle est censé supprimer, déplacé
+d'un cas.
+
+**Règle** : quand un handler ou une vue duplique un invariant que la base
+tient déjà (contrainte unique, `CheckConstraint`, unicité par tenant),
+lire la contrainte avant de coder le pré-contrôle. La forme du pré-contrôle
+suit celle de la contrainte, mot pour mot.
+
+**Outil de vérification** : introspection au test.
+
+```python
+def test_the_precheck_and_the_db_constraint_agree_on_the_same_set():
+    """Le filtre du pré-contrôle et celui de la contrainte unique doivent
+    couvrir exactement le même ensemble de réservations actives. S'ils
+    divergent un jour, on refuse en amont ce que la base accepte (ou
+    l'inverse), et on découvre le désaccord en incident."""
+    constraint = next(
+        c for c in Reservation._meta.constraints
+        if c.name == "unique_seat_per_active_reservation"
+    )
+    # ... comparer constraint.condition avec le queryset du pré-contrôle.
+```
+
+**Cette entrée est aussi une entrée sur la méthode de prompt.** La section
+« Faits du code à consommer tels quels » doit y inclure toute contrainte
+d'unicité et tout `CheckConstraint` du modèle touché — même si le prompt
+n'y fait pas explicitement appel. La règle passe alors sous les yeux du
+dev, qui peut la corriger avant que le code ne soit écrit.
 
 ### Warm-up avant gros ticket
 _Validé — Série iam-admin et notifications-warmup (3-5 sept 2026)_
