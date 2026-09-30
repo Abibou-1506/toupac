@@ -161,7 +161,8 @@ def test_request_succeeds_even_when_delivery_fails(api_client, monkeypatch):
     def boom(*args, **kwargs):
         raise RuntimeError("provider indisponible")
 
-    monkeypatch.setattr(NotificationService, "send_notification", boom)
+    # Depuis le Ticket F, `_deliver()` passe par `emit()` directement.
+    monkeypatch.setattr(NotificationService, "emit", boom)
 
     response = request_code(api_client, email="fatou@example.sn")
 

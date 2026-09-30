@@ -103,20 +103,35 @@ def _mark_failed(log, failure_reason):
 def send_notification_async(self, tenant_id, event_code, channel, recipient, context_data,
                             user_id=None, language="fr"):
     """
-    Déprécié — conservé pour l'endpoint d'envoi manuel, pas encore migré.
+    Tâche support de l'endpoint « envoi manuel » (`POST /notifications/send/`).
 
-    Délègue à l'adaptateur de compatibilité, qui émet lui-même un
-    `DeprecationWarning`. Retrait prévu au Ticket F, avec celui de
-    `send_notification()`.
+    Passe désormais par `emit()` directement, avec `recipient_override` pour
+    préserver l'intention historique : le canal est imposé par l'appelant, la
+    cible désignée en clair. `context_data` doit contenir les variables de
+    rendu **et** de résolution attendues par le catalogue — sans quoi
+    `validate_context` lève.
     """
     from iam.models import Tenant, User
 
-    from .services import NotificationService
+    from .services import NotificationService, RecipientTarget
 
     tenant = Tenant.objects.filter(pk=tenant_id).first() if tenant_id else None
     user = User.objects.filter(pk=user_id).first() if user_id else None
 
-    NotificationService.send_notification(
-        tenant=tenant, event_code=event_code, channel=channel, recipient=recipient,
-        context_data=context_data, user=user, language=language,
+    target_type = "email" if "@" in recipient else ("phone" if recipient.startswith("+") else "user")
+
+    NotificationService.emit(
+        event_code=event_code,
+        context=context_data,
+        tenant=tenant,
+        actor=user,
+        recipient_override=RecipientTarget(type=target_type, value=recipient, user=user),
+        channels=[channel],
+        language=language,
+        # L'endpoint est asynchrone par nature (renvoie 202) et la tâche
+        # peut être rejouée par Celery : sans un scope stable par appel,
+        # deux envois d'affilée du même contenu au même destinataire se
+        # dédupliqueraient. La signature Celery inclut déjà l'unicité de
+        # la tâche, on prend son id.
+        idempotency_scope=f"manual:{self.request.id or recipient}",
     )

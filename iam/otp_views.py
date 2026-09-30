@@ -27,7 +27,7 @@ from iam.otp import (
     mask_target,
     verify_challenge,
 )
-from notifications.services import NotificationService
+from notifications.services import NotificationService, RecipientTarget
 
 logger = logging.getLogger("toupac.iam.otp")
 
@@ -150,26 +150,37 @@ class RequestOTPView(APIView):
         dans les journaux serveur, où l'exploitation le voit.
         """
         try:
-            NotificationService.send_notification(
-                tenant=None,
+            NotificationService.emit(
                 event_code="notif.auth.otp_signin.v1",
-                channel=channel,
-                recipient=target,
-                # Noms imposés par le catalogue (`notif.auth.otp_signin.v1`),
-                # pas choisis ici : les gabarits sont rendus avec ces variables.
-                #
-                # `user_id` n'en est pas une : c'est ce dont le resolver
-                # `auth.self` a besoin pour atteindre le destinataire. Il ne sert
-                # à rien aujourd'hui — l'adaptateur déprécié désigne la cible en
-                # clair — mais le catalogue l'exige, et il devra être là au
-                # retrait de l'adaptateur (Ticket F), quand la résolution
-                # deviendra le seul chemin.
-                context_data={
+                # `otp` et `expires_in_minutes` sont des variables de gabarit —
+                # les libellés viennent du catalogue, pas d'ici. `user_id`, lui,
+                # est une variable de résolution : le catalogue l'exige au titre
+                # de `resolver_variables`, et `validate_context()` mord dessus
+                # même quand `recipient_override` court-circuite la résolution
+                # — ce contrat de forme du contexte ne dépend pas du flux.
+                context={
                     "otp": code,
                     "expires_in_minutes": OTP_TTL_SECONDS // 60,
                     "user_id": str(user.id),
                 },
+                tenant=None,
+                actor=user,
+                # Le canal est imposé par la demande — email ou téléphone. Laisser
+                # le service déduire la cible par `user.email or user.phone`
+                # enverrait par e-mail un code demandé par SMS chez qui a les deux.
+                recipient_override=RecipientTarget(
+                    type=("email" if channel == "email" else "phone"),
+                    value=target, user=user,
+                ),
+                channels=[channel],
                 language="fr",
+                # Synchrone : l'utilisateur attend son code à l'écran, un
+                # délai de quelques secondes est un code qu'il croit perdu.
+                deliver_now=True,
+                # Le challenge est unique par demande. `channel:recipient`
+                # aurait dédupliqué deux personnes recevant le même code au
+                # même moment — cas résiduel mais réel avant migration.
+                idempotency_scope=f"otp:{challenge_id}",
             )
         except Exception:
             logger.exception("Échec d'envoi du code OTP (challenge %s)", challenge_id)

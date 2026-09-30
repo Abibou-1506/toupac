@@ -49,8 +49,22 @@ class SoftDeleteMixin(models.Model):
 class TenantModel(TimestampMixin):
     """
     Modèle de base pour toutes les entités multi-tenant.
-    Chaque requête est automatiquement filtrée par tenant_id
-    via TenantQuerySetMixin et TenantMiddleware.
+
+    **Manager par défaut : filtrage explicite.** Chaque ViewSet et chaque
+    resolver appelle `.filter(tenant=request.tenant)` — ou son équivalent lié
+    au contexte — de sa propre initiative. `TenantManager.get_queryset()` ne
+    filtre **pas** de lui-même : l'isolation cross-tenant repose entièrement
+    sur les filtres écrits à la main, et un `.filter()` oublié rendrait des
+    lignes de toutes les compagnies.
+
+    Le parti d'un filtrage explicite est documenté et vérifié — cf.
+    `DECISIONS.md`, section « Multi-tenant et cross-tenant ». Il vaut aussi bien
+    pour les vues que pour les resolvers de notification, qui reçoivent le
+    tenant en paramètre pour la même raison.
+
+    L'ancien docstring promettait un filtrage automatique « via
+    TenantQuerySetMixin et TenantMiddleware » : c'était une promesse fausse, ni
+    l'un ni l'autre n'existent dans le code. Corrigé au Ticket F.
     """
     id = UUIDv7Field()
     tenant = models.ForeignKey(

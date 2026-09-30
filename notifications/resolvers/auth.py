@@ -19,10 +19,12 @@ def resolve_auth_self(context, tenant):
     compagnie non plus, pour la même raison — un client n'en a pas, un salarié
     en a une, et la même clé sert les deux.
 
-    Ce resolver n'est pas encore le chemin emprunté en production : la connexion
-    par code passe par l'adaptateur déprécié `send_notification()`, qui court-
-    circuite la résolution avec `recipient_override`. Il le deviendra au retrait
-    de l'adaptateur (Ticket F), et doit donc être juste dès maintenant.
+    La connexion par code passe par `emit()` avec `recipient_override` — le
+    canal est imposé par la demande de l'utilisateur, et le destinataire
+    désigné en clair pour ne pas se tromper de cible sur un compte multi-canaux.
+    Ce resolver reste indispensable : il valide la présence du contexte
+    `user_id` que `validate_context` exige, et sert aux autres émetteurs de la
+    famille auth (AUTH-03).
     """
     return as_user_recipient(user_by_id(context.get("user_id")))
 
