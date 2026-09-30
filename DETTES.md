@@ -689,27 +689,15 @@ validé, templates OTP soumis et approuvés, clé API disponible.
 
 ## Sécurité — connu et accepté
 
-- [ ] **Les resolvers `parcel.*` ne vérifient pas que l'`order_id` appartient au tenant courant**
-      → État : `resolve_parcel_recipient`, `resolve_parcel_sender` et
-        `resolve_parcel_sender_and_recipient` (`notifications/resolvers/colis.py`)
-        font `Order.objects.filter(pk=order_id, deleted_at__isnull=True)` sans
-        filtre tenant. `Order.objects` n'étant pas filtré automatiquement
-        (voir la dette `TenantModel` en section Modèle), un `order_id` d'un
-        autre tenant remonterait le destinataire de la commande d'un autre
-        opérateur.
-      → Pas exploitable aujourd'hui : aucun émetteur métier n'appelle encore
-        `notif.parcel.*` en production, vérifié par grep le 8 septembre. Le
-        devient dès que le premier endpoint de création de commande émettra
-        `notif.parcel.registered.v1` — l'`order_id` viendra alors d'un
-        contexte à sécuriser.
-      → Fix : accepter `tenant` en argument du helper `_order()` et filtrer
-        dessus. La signature du resolver le passe déjà. Test dédié qui vérifie
-        qu'un `order_id` d'un autre tenant rend `[]`, pas le destinataire.
-      → À traiter **avant** le câblage du premier émetteur `notif.parcel.*`,
-        pas après.
-      → Effort : ~30 min.
-      → Ref : découvert lors de l'audit du 30 sept 2026 (relecture de
-        `notifications/resolvers/colis.py`).
+- [x] **~~Les resolvers `parcel.*` ne vérifient pas que l'`order_id` appartient au tenant courant~~**
+      corrigé le 30 sept 2026. Le helper `_order()` exige désormais `tenant`
+      et filtre dessus, les trois resolvers le passent, quatre tests
+      d'isolation croisent les deux tenants. Un `order_id` d'une autre
+      compagnie rend `[]`, silencieusement — cohérent avec la doctrine « une
+      résolution vide se journalise sans devenir un échec ». La dette
+      transverse « `TenantModel` ne filtre pas de lui-même » reste ouverte —
+      cette entrée n'en soigne qu'un cas.
+      → Ref : ticket notifications-parcel-tenant-guard, 30 sept 2026.
 
 - [ ] **Chantier `security-postgres-rls` — renforcement de l'isolation tenant**
       → État : l'isolation cross-tenant tient aux `.filter(tenant=...)` écrits

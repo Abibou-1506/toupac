@@ -278,26 +278,36 @@ def test_control_still_warns_the_supervisors_without_the_controller(
 
 
 # ─── Colis ───
+#
+# La fixture `parcel_order` monte la commande dans `tenant_a` : chaque test
+# passe donc explicitement ce tenant. C'est ce filtre qui empêche un `order_id`
+# d'une autre compagnie de faire remonter son destinataire — sans lui, la
+# fixture aurait été résolue au nom de n'importe qui.
 
 def test_parcel_sender_and_recipient_gathers_both(
-    parcel_order, client_fatou, client_aicha,
+    parcel_order, client_fatou, client_aicha, tenant_a,
 ):
     found = pks(resolve(
         "parcel.sender_and_recipient", {"order_id": parcel_order.pk},
+        tenant=tenant_a,
     ))
 
     assert found == {client_fatou.pk, client_aicha.pk}
 
 
-def test_parcel_sender_keeps_only_the_sender(parcel_order, client_fatou, client_aicha):
-    found = pks(resolve("parcel.sender", {"order_id": parcel_order.pk}))
+def test_parcel_sender_keeps_only_the_sender(
+    parcel_order, client_fatou, client_aicha, tenant_a,
+):
+    found = pks(resolve(
+        "parcel.sender", {"order_id": parcel_order.pk}, tenant=tenant_a,
+    ))
 
     assert found == {client_fatou.pk}
     assert client_aicha.pk not in found
 
 
 def test_parcel_recipient_keeps_only_the_recipient(
-    parcel_order, client_fatou, client_aicha,
+    parcel_order, client_fatou, client_aicha, tenant_a,
 ):
     """
     COL-05 est le code de retrait : il autorise à repartir avec le colis.
@@ -305,7 +315,9 @@ def test_parcel_recipient_keeps_only_the_recipient(
     L'envoyer à l'expéditeur n'aurait aucun sens et lui donnerait le moyen de
     retirer un colis qu'il a lui-même envoyé.
     """
-    found = pks(resolve("parcel.recipient", {"order_id": parcel_order.pk}))
+    found = pks(resolve(
+        "parcel.recipient", {"order_id": parcel_order.pk}, tenant=tenant_a,
+    ))
 
     assert found == {client_aicha.pk}
     assert client_fatou.pk not in found
@@ -324,10 +336,10 @@ def test_a_parcel_without_a_registered_recipient_resolves_to_nobody(
 
     order = make_order(tenant_a, customer=client_fatou)
 
-    assert resolve("parcel.recipient", {"order_id": order.pk}) == []
-    assert pks(resolve("parcel.sender_and_recipient", {"order_id": order.pk})) == {
-        client_fatou.pk,
-    }
+    assert resolve("parcel.recipient", {"order_id": order.pk}, tenant=tenant_a) == []
+    assert pks(resolve(
+        "parcel.sender_and_recipient", {"order_id": order.pk}, tenant=tenant_a,
+    )) == {client_fatou.pk}
 
 
 def test_sending_a_parcel_to_oneself_resolves_once(tenant_a, client_fatou):
@@ -337,12 +349,75 @@ def test_sending_a_parcel_to_oneself_resolves_once(tenant_a, client_fatou):
     order.recipient_user = client_fatou
     order.save(update_fields=["recipient_user"])
 
-    resolved = resolve("parcel.sender_and_recipient", {"order_id": order.pk})
+    resolved = resolve(
+        "parcel.sender_and_recipient", {"order_id": order.pk}, tenant=tenant_a,
+    )
 
     assert len(resolved) == 1
 
 
-def test_a_missing_parcel_resolves_to_nobody():
+def test_a_missing_parcel_resolves_to_nobody(tenant_a):
     for key in ("parcel.sender", "parcel.recipient", "parcel.sender_and_recipient"):
-        assert resolve(key, {"order_id": uuid.uuid4()}) == []
-        assert resolve(key, {}) == []
+        assert resolve(key, {"order_id": uuid.uuid4()}, tenant=tenant_a) == []
+        assert resolve(key, {}, tenant=tenant_a) == []
+
+
+# ─── Isolation cross-tenant ───
+#
+# `Order.objects` ne filtre pas de lui-même — doctrine « filtrage explicite
+# assumé ». Sans le tenant dans le lookup, un `order_id` d'une autre compagnie
+# aurait remonté son destinataire à un émetteur qui n'y a pas droit. Défaut
+# silencieux : rien en trace ne l'aurait dit.
+
+def test_parcel_recipient_does_not_leak_across_tenants(
+    parcel_order, tenant_a, tenant_b, client_aicha,
+):
+    """Le destinataire d'une commande de `tenant_a` ne remonte pas à `tenant_b`."""
+    assert resolve(
+        "parcel.recipient", {"order_id": parcel_order.pk}, tenant=tenant_b,
+    ) == []
+
+    # Contre-preuve : le même appel au nom de `tenant_a` résout bien Aïcha.
+    found = pks(resolve(
+        "parcel.recipient", {"order_id": parcel_order.pk}, tenant=tenant_a,
+    ))
+    assert found == {client_aicha.pk}
+
+
+def test_parcel_sender_does_not_leak_across_tenants(
+    parcel_order, tenant_a, tenant_b, client_fatou,
+):
+    assert resolve(
+        "parcel.sender", {"order_id": parcel_order.pk}, tenant=tenant_b,
+    ) == []
+
+    found = pks(resolve(
+        "parcel.sender", {"order_id": parcel_order.pk}, tenant=tenant_a,
+    ))
+    assert found == {client_fatou.pk}
+
+
+def test_parcel_sender_and_recipient_does_not_leak_across_tenants(
+    parcel_order, tenant_a, tenant_b, client_fatou, client_aicha,
+):
+    """Le composé n'a pas de faille de son côté : les deux comptes sont retenus."""
+    assert resolve(
+        "parcel.sender_and_recipient",
+        {"order_id": parcel_order.pk}, tenant=tenant_b,
+    ) == []
+
+    found = pks(resolve(
+        "parcel.sender_and_recipient",
+        {"order_id": parcel_order.pk}, tenant=tenant_a,
+    ))
+    assert found == {client_fatou.pk, client_aicha.pk}
+
+
+def test_a_parcel_resolver_without_a_tenant_resolves_to_nobody(parcel_order):
+    """
+    Un event colis appartient toujours à un transporteur : l'appeler sans
+    tenant est un défaut d'émission, pas un cas légitime — `[]` laisse
+    `skipped_no_recipient` faire son travail en amont.
+    """
+    for key in ("parcel.sender", "parcel.recipient", "parcel.sender_and_recipient"):
+        assert resolve(key, {"order_id": parcel_order.pk}, tenant=None) == []

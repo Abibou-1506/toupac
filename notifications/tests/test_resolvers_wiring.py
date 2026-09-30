@@ -235,8 +235,13 @@ def test_the_parcel_resolver_stays_within_its_query_budget(
 ):
     from notifications.resolvers.base import get_resolver
 
+    # Depuis le durcissement multi-tenant (30 sept), le lookup filtre sur
+    # `tenant` : sans lui, le resolver s'arrête avant la requête et ne mesure
+    # plus le coût qu'on voulait borner.
     with django_assert_num_queries(1):
-        get_resolver("parcel.sender_and_recipient")({"order_id": parcel_order.pk}, None)
+        get_resolver("parcel.sender_and_recipient")(
+            {"order_id": parcel_order.pk}, parcel_order.tenant,
+        )
 
 
 def test_the_marketing_resolver_stays_within_its_query_budget(
