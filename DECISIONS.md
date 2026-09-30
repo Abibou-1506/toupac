@@ -918,12 +918,21 @@ architectures shared-schema comparables.
 **Décision** :
 
 1. Court terme : aligner le docstring de `TenantModel` sur la doctrine
-   effective (filtrage explicite, `all_objects` comme échappatoire
-   visible). Déjà en dette.
+   effective — filtrage explicite via `.filter(tenant=...)`, sans échappatoire
+   automatique inscrite au niveau de la classe de base. Fait au Ticket F.
 2. Moyen terme : ouvrir un chantier `security-postgres-rls` à déclencher
    avant l'onboarding de la deuxième compagnie payante — tant qu'on n'a
    qu'un tenant de démo, l'urgence est faible ; dès qu'un client paye pour
    son isolation, elle devient réelle. Déjà en dette.
+
+Note sur `all_objects` : l'entrée USR-3 (7 sept) décidait d'ajouter
+`all_objects = models.Manager()` à chaque modèle multi-tenant. Le débrief
+du ticket F a constaté que ce pattern n'est **pas** généralisé sur
+`TenantModel` — il existe ponctuellement (ex. `Payment.all_objects` référencé
+dans l'entrée USR-3 sur les query unions) mais n'est pas la doctrine
+transverse que l'entrée affirmait. À auditer : soit poser le pattern
+partout (chantier ~1-2h + tests), soit réviser l'entrée USR-3. Traçabilité
+double entre ces deux entrées.
 
 Cette entrée existe pour que le prochain contributeur — ou une future
 session Claude — comprenne que le filtrage explicite n'est pas un choix
