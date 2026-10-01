@@ -35,6 +35,7 @@ from voyage.models import (
     RouteStop,
     SeatMap,
     Trip,
+    TripStop,
 )
 from voyage.schema_examples import REQUEST_EXAMPLES, RESPONSE_EXAMPLES
 from voyage.services.event_processor import EVENT_HANDLERS, BatchEventProcessor
@@ -119,10 +120,12 @@ def test_the_schema_lists_every_rejection_code():
         f"Dans l'énum, absent du schéma : {expected - set(enum)}. "
         f"Dans le schéma, absent de l'énum : {set(enum) - expected}."
     )
-    assert len(enum) == 35, (
+    assert len(enum) == 37, (
         "Le compte a bougé : hardening a figé 28 valeurs, le ticket vente à "
-        "bord sur trajet partiel en a ajouté 7 (stops), total 35. En changer "
-        "impose un ticket produit, pas une révision mécanique de ce test."
+        "bord sur trajet partiel en a ajouté 7 (stops de réservation), et le "
+        "ticket horodatages d'escale encore 2 (MISSING_STOP_ID, "
+        "STOP_NOT_FOUND), total 37. En changer impose un ticket produit, "
+        "pas une révision mécanique de ce test."
     )
 
 
@@ -210,6 +213,14 @@ def live_targets(tenant, controller, session, trip):
         tenant=tenant, route=trip.route, place=dropoff, stop_order=2,
         is_boarding=True, is_alighting=True,
     )
+    # `TripStop` est l'instance datée du voyage ; `stop_arrive`/`stop_depart`
+    # ciblent cette instance, pas le `RouteStop` qui est la référence stable.
+    # Monter un seul TripStop suffit aux deux exemples — les deux events
+    # fictifs portent le même `stop_id` (visite d'une seule escale).
+    trip_stop = TripStop.objects.create(
+        tenant=tenant, trip=trip, route_stop=origin_stop, place=pickup,
+        stop_order=1,
+    )
     return {
         # Clés visitées récursivement dans `payload` : factice → réel.
         "trip_id": str(trip.pk),
@@ -219,6 +230,7 @@ def live_targets(tenant, controller, session, trip):
         "boarded_by_controller_id": str(controller.pk),
         "origin_stop": str(origin_stop.pk),
         "destination_stop": str(destination_stop.pk),
+        "stop_id": str(trip_stop.pk),
     }
 
 

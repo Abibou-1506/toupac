@@ -68,6 +68,15 @@ class RejectionCode(StrEnum):
     MISSING_PARCEL_ID = "MISSING_PARCEL_ID"
     PARCEL_NOT_FOUND = "PARCEL_NOT_FOUND"
 
+    # ── Escales (stops.py) ──
+    #: Le payload de `stop_arrive`/`stop_depart` cible un `TripStop` (instance
+    #: datée du voyage), pas un `RouteStop` (modèle de référence stable). L'app
+    #: contrôleur lit `trip.stops[i].id` dans le manifest et l'envoie ici — un
+    #: identifiant qui n'appartient pas à ce voyage est traité comme inexistant,
+    #: pour que l'app n'ait rien de particulier à faire s'il est stale.
+    MISSING_STOP_ID = "MISSING_STOP_ID"
+    STOP_NOT_FOUND = "STOP_NOT_FOUND"
+
     # ── Transitions de voyage (transitions.py) ──
     MISSING_TO_STATUS = "MISSING_TO_STATUS"
     INVALID_TRIP_STATUS = "INVALID_TRIP_STATUS"

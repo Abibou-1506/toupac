@@ -311,7 +311,12 @@ def test_every_declared_code_is_reachable():
     un code mort finit par mentir.
     """
     reached = set()
-    for path in ("test_batch_rejection_codes.py", "test_batch_hardening.py"):
+    scanned = (
+        "test_batch_rejection_codes.py",
+        "test_batch_hardening.py",
+        "test_batch_stop_timestamps.py",
+    )
+    for path in scanned:
         source = (__file__.rsplit("test_batch_rejection_codes.py", 1)[0] + path)
         with open(source, encoding="utf-8") as handle:
             body = handle.read()

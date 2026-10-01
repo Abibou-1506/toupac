@@ -22,6 +22,7 @@ from voyage.services.handlers import (
     incidents,
     parcels,
     sales,
+    stops,
     transitions,
 )
 
@@ -38,6 +39,8 @@ EVENT_HANDLERS = {
     "activity_transition": transitions.handle_activity_transition,
     "parcel_verify": parcels.handle_parcel_verify,
     "parcel_refuse": parcels.handle_parcel_refuse,
+    "stop_arrive": stops.handle_stop_arrive,
+    "stop_depart": stops.handle_stop_depart,
 }
 
 #: Clés que chaque handler est autorisé à faire remonter dans `details`.
@@ -60,6 +63,8 @@ VERDICT_DETAIL_KEYS = {
     "activity_transition": ("trip_id", "trip_status"),
     "parcel_verify": ("parcel_id", "parcel_status"),
     "parcel_refuse": ("parcel_id",),
+    "stop_arrive": ("stop_id", "stop_status"),
+    "stop_depart": ("stop_id", "stop_status"),
     # `anomaly_create` et `anomaly_resolve` n'y figurent pas : l'anomalie remonte
     # déjà entière dans le champ `anomaly` du verdict, identifiant compris.
 }

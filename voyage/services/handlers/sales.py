@@ -4,6 +4,7 @@ from django.db.models import F
 from voyage.models import Anomaly, CashEntry, Passenger, Reservation, RouteStop, Trip
 from voyage.services.anomaly_detectors import serialize_anomaly
 from voyage.services.exceptions import EventRejected, RejectionCode
+from voyage.services.qr_jwt import sign_ticket_jwt
 from voyage.services.seat_map import trip_seat_labels
 
 #: Moyens de paiement acceptés pour une vente à bord. Les quatre opérateurs
@@ -123,6 +124,14 @@ def handle_onboard_sale(event, tenant, session):
         boarded_at=event.created_at_local,
         boarded_by=session.controller,
     )
+
+    # Même geste que la vue classique de création de réservation (POST
+    # /voyage/reservations/) : un billet sans JWT n'a pas de preuve d'achat
+    # vérifiable par un relais de contrôleur plus loin sur la route, et un
+    # tel billet forme une famille à part dans toutes les requêtes futures.
+    # L'omission historique a été corrigée au ticket du 2 oct 2026.
+    reservation.qr_code_jwt = sign_ticket_jwt(reservation)
+    reservation.save(update_fields=["qr_code_jwt"])
 
     cash_entry = CashEntry.objects.create(
         tenant=tenant,

@@ -28,6 +28,9 @@ _CONTROLLER_ID = "0192f300-def0-7123-8456-7890abcdef12"
 _DRIVER_USER_ID = "0192f301-aaaa-7bbb-8ccc-dddddddddddd"
 _ORIGIN_STOP_ID = "0192f310-aaaa-7bbb-8ccc-eeeeeeeeeeee"
 _DESTINATION_STOP_ID = "0192f311-bbbb-7ccc-8ddd-ffffffffffff"
+#: Identifiant d'un `TripStop` (instance datée du voyage), tel que l'app le
+#: lit dans `manifest.trip.stops[i].id` — pas un `RouteStop`.
+_TRIP_STOP_ID = "0192f312-cccc-7ddd-8eee-aaaaaaaaaaaa"
 
 _DAKAR = {"lat": 14.6937, "lng": -17.4441}
 
@@ -218,6 +221,36 @@ REQUEST_EXAMPLES = {
                 "parcel_id": _PARCEL_ID,
             },
             "created_at_local": "2026-10-01T13:55:00+00:00",
+            "gps_location": _DAKAR,
+        }),
+        request_only=True,
+    ),
+    "stop_arrive": OpenApiExample(
+        "Arrivée à une escale (stop_arrive)",
+        value=_batch("d4e82b7c-1234-4567-890a-bcdef0123456", {
+            "client_uuid": "d4e82b7c-1234-4567-890a-bcdef0123456",
+            "event_type": "stop_arrive",
+            # `target_type`/`target_id` ne sont pas lus — la cible est le
+            # `TripStop` désigné par `payload.stop_id`. L'app lit cet UUID
+            # dans `manifest.trip.stops[i].id`, pas dans un autre endroit.
+            "payload": {
+                "stop_id": _TRIP_STOP_ID,
+            },
+            "created_at_local": "2026-10-05T16:30:00+00:00",
+            "gps_location": _DAKAR,
+            "gps_accuracy_m": 15,
+        }),
+        request_only=True,
+    ),
+    "stop_depart": OpenApiExample(
+        "Départ d'une escale (stop_depart)",
+        value=_batch("e5f93c8d-2345-4678-9012-cdef01234567", {
+            "client_uuid": "e5f93c8d-2345-4678-9012-cdef01234567",
+            "event_type": "stop_depart",
+            "payload": {
+                "stop_id": _TRIP_STOP_ID,
+            },
+            "created_at_local": "2026-10-05T16:52:00+00:00",
             "gps_location": _DAKAR,
         }),
         request_only=True,
