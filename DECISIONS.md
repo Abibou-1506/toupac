@@ -1639,6 +1639,71 @@ tranché : silencieux (par écrasement dans save_model). Ne pas re-débattre
 
 ## Modes de travail
 
+### Un helper de test absorbe les nouveaux champs obligatoires du code sous test
+_Découvert — Ticket voyage-onboard-sale-partial-trips (1er oct 2026)_
+
+Quand un ticket ajoute un champ obligatoire au payload d'un handler (ou à une
+vue, ou à un service), **les 20 call sites de test existants vont tomber si
+le helper qui les appelle ne fournit pas un défaut raisonnable**. L'alternative
+« adapter les 20 call sites » est défendable mais presque toujours fausse :
+les 20 tests ne portent pas sur le nouveau champ, ils portent sur ce qu'ils
+testaient déjà. Les forcer à déclarer le nouveau champ dans leur décor pollue
+20 tests pour une raison qui n'est pas la leur.
+
+**Règle** : le helper de test (`sell(processor, **overrides)`, `make_order(...)`,
+`create_user(...)`, etc.) absorbe le défaut raisonnable du nouveau champ —
+en général un lookup rapide dans le décor déjà monté par la fixture. Les N
+ tests existants restent inchangés. Les M nouveaux tests qui portent **sur
+le nouveau champ** surchargent explicitement le défaut via `**overrides`
+pour exercer les branches de rejet.
+
+```python
+def sell(processor, **overrides):
+    """Défauts raisonnables tirés du décor de la session — les tests qui
+    portent sur un rejet lié à origin_stop/destination_stop surchargent.
+    """
+    stops = list(processor.session.trip.route.stops.order_by("stop_order"))
+    defaults = {
+        "origin_stop": str(stops[0].id),
+        "destination_stop": str(stops[-1].id),
+        # ...
+    }
+    return _run(processor, payload={**defaults, **overrides})
+```
+
+**Vécu** : le ticket `voyage-onboard-sale-partial-trips` a rendu `origin_stop`
+et `destination_stop` obligatoires sur `onboard_sale`. 20 call sites de `sell()`
+dans `test_batch_hardening.py` ne les passaient pas. Le dev a refactoré
+`sell()` pour qu'il charge les stops par défaut depuis la route du trip de la
+session ; les 20 appels existants restent inchangés, et les 12 nouveaux tests
+du bloc 1 (un par cas de rejet) utilisent `origin_stop=<autre>` ou
+`destination_stop=None` via les overrides.
+
+**Piège à éviter** : un helper qui construit « trop intelligemment » ses
+défauts peut masquer un vrai bug. Si le défaut d'un champ est tiré d'une
+relation dont la fixture ne garantit pas la présence (route sans stops, user
+sans groupe, etc.), un test vert ne prouve plus rien. Deux garde-fous :
+
+- La fixture qui monte le décor doit garantir que le défaut existera — le
+  décor est un contrat avec le helper, documenté par un commentaire si
+  nécessaire.
+- Au moins un test vérifie que le défaut atteint bien le champ attendu dans
+  le code sous test (via introspection de la Reservation créée, par exemple).
+  Sans quoi un bug dans le helper masquerait tous les suivants.
+
+**Généralisation** : le pattern vaut au-delà des handlers de batch. Toute
+factory de test (`UserFactory`, `OrderFactory`, `TripFactory`) qui existe
+déjà doit absorber le nouveau champ dans la même logique — un seul endroit
+où l'ajouter, N tests qui ne bougent pas. L'anti-pattern est de laisser
+chaque test construire son décor en détail « pour l'explicite » : au premier
+changement, tous bougent.
+
+Corollaire de prompt : un ticket qui ajoute un champ obligatoire au code
+sous test doit **nommer dans la section Tests l'endroit où le défaut sera
+absorbé**, pas se contenter de « adapter les tests existants ». Le dev
+voit l'intention et choisit la bonne stratégie en lisant ; sinon il part
+sur l'adaptation en masse par réflexe.
+
 ### Avant d'écrire un pré-contrôle métier, lire la contrainte base qui couvre le même invariant
 _Découvert — Ticket voyage-batch-hardening (30 sept 2026)_
 
