@@ -3,7 +3,15 @@ from decimal import Decimal
 
 from django.utils import timezone
 
-from .models import Invoice, InvoiceLine, PriceList, PriceRule
+from .models import (
+    CUSTOMER_TYPE_CLIENT_USER,
+    CUSTOMER_TYPE_EXTERNAL,
+    CUSTOMER_TYPE_PASSENGER,
+    Invoice,
+    InvoiceLine,
+    PriceList,
+    PriceRule,
+)
 
 
 class PricingEngine:
@@ -97,13 +105,36 @@ class InvoiceGenerator:
 
     @staticmethod
     def from_reservation(reservation):
-        """Crée une facture pour une réservation de voyage."""
+        """
+        Crée une facture pour une réservation de voyage.
+
+        Deux chemins selon le rattachement du passager. Si sa fiche porte un
+        `customer_user`, la facture pointe sur ce compte (`client_user`) — c'est
+        ce lien que `/customer/my-payments/` suit, et sans lui le client ne
+        retrouverait aucun de ses règlements. Sans compte rattaché, la facture
+        pointe sur la fiche passager (`passenger`), seule référence identifiante
+        d'un voyageur occasionnel.
+
+        Avant le 1er oct 2026, ce handler écrivait `"passenger"` dans tous les
+        cas — y compris pour un passager rattaché à un compte client. Le
+        couple `(customer_id, customer_type)` ne correspondait alors à aucune
+        branche du filtre de la vue, et les paiements d'un client inscrit
+        restaient invisibles dans son espace.
+        """
+        passenger = reservation.passenger
+        if passenger.customer_user_id:
+            customer_type = CUSTOMER_TYPE_CLIENT_USER
+            customer_id = passenger.customer_user_id
+        else:
+            customer_type = CUSTOMER_TYPE_PASSENGER
+            customer_id = passenger.id
+
         invoice = Invoice.objects.create(
             tenant=reservation.tenant,
             invoice_number=InvoiceGenerator.generate_invoice_number(reservation.tenant),
-            customer_name=reservation.passenger.full_name,
-            customer_type="passenger",
-            customer_id=reservation.passenger_id,
+            customer_name=passenger.full_name,
+            customer_type=customer_type,
+            customer_id=customer_id,
             issue_date=timezone.now().date(),
             subtotal_xof=reservation.amount_xof,
             tax_xof=0,
@@ -122,13 +153,29 @@ class InvoiceGenerator:
 
     @staticmethod
     def from_order(order):
-        """Crée une facture pour une commande colis."""
+        """
+        Crée une facture pour une commande colis.
+
+        Avant le 1er oct 2026, cette méthode écrivait `"user"` quand la
+        commande portait un `customer` — valeur qui n'appartenait à aucune
+        branche de la convention `customer_type`. Alignée désormais sur
+        `client_user`, en cohérence avec `from_reservation`. Sans `customer`,
+        la facture reste externe, `customer_id` à nul : il n'y a pas
+        d'identifiant exploitable pour la retrouver depuis l'espace client.
+        """
+        if order.customer_id:
+            customer_type = CUSTOMER_TYPE_CLIENT_USER
+            customer_id = order.customer_id
+        else:
+            customer_type = CUSTOMER_TYPE_EXTERNAL
+            customer_id = None
+
         invoice = Invoice.objects.create(
             tenant=order.tenant,
             invoice_number=InvoiceGenerator.generate_invoice_number(order.tenant),
             customer_name=order.customer_name or (order.customer.full_name if order.customer else "Client"),
-            customer_type="user" if order.customer else "external",
-            customer_id=order.customer_id,
+            customer_type=customer_type,
+            customer_id=customer_id,
             issue_date=timezone.now().date(),
             subtotal_xof=order.total_amount_xof or 0,
             tax_xof=0,

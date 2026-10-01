@@ -1039,6 +1039,17 @@ class Command(BaseCommand):
                 client = demo_clients[index % len(demo_clients)] if (
                     demo_clients and index < len(demo_clients)
                 ) else None
+                # Une commande sur deux parmi celles rattachées à un client
+                # porte un destinataire différent de l'expéditeur — cas type
+                # « Ousmane envoie à Fatou ». Prépare la démo du jour où
+                # `/customer/my-orders/` listera aussi les colis reçus (dette
+                # tracée dans DETTES.md). Sans ces lignes, `recipient_user`
+                # restait vide sur toute la base de démo.
+                recipient = None
+                if client and demo_clients and len(demo_clients) > 1 and index % 2 == 0:
+                    others = [c for c in demo_clients if c.id != client.id]
+                    if others:
+                        recipient = others[index % len(others)]
                 order, was_created = Order.objects.get_or_create(
                     tenant=tenant, internal_id=internal_id,
                     defaults={
@@ -1048,6 +1059,9 @@ class Command(BaseCommand):
                             else f"{random.choice(PASSENGER_FIRST)} {random.choice(PASSENGER_LAST)}"
                         ),
                         "customer_phone": (client.phone if client else "") or phone(),
+                        "recipient_user": recipient,
+                        "recipient_name": recipient.full_name if recipient else "",
+                        "recipient_phone": recipient.phone if recipient else "",
                         "pickup_place": pickup, "dropoff_place": dropoff,
                         "trip": trip, "status": status, "total_amount_xof": amount,
                         "priority": Order.Priority.STANDARD,
@@ -1210,9 +1224,19 @@ class Command(BaseCommand):
     def _seed_invoices(self, tenant):
         wanted = 3 if tenant.slug == "sahel-express" else 2
         made = 0
-        reservations = Reservation.objects.filter(
-            tenant=tenant, trip__status=Trip.Status.COMPLETED, status=Reservation.Status.BOARDED,
-        ).select_related("passenger", "trip__route").order_by("created_at")[:wanted]
+        # On facture d'abord les réservations rattachées à un compte client,
+        # puis le reste. Sans cette priorité, le reset pouvait facturer trois
+        # passagers anonymes et laisser `/customer/my-payments/` vide pour les
+        # clients de démo — alors que la démo doit précisément montrer ce
+        # chemin. L'ordre `created_at` reste stable dans chaque groupe grâce
+        # au `RANDOM_SEED`.
+        base = Reservation.objects.filter(
+            tenant=tenant, trip__status=Trip.Status.COMPLETED,
+            status=Reservation.Status.BOARDED,
+        ).select_related("passenger", "trip__route").order_by("created_at")
+        priority = list(base.filter(passenger__customer_user__isnull=False))
+        rest = list(base.filter(passenger__customer_user__isnull=True))
+        reservations = (priority + rest)[:wanted]
 
         for reservation in reservations:
             # Clé fonctionnelle : InvoiceGenerator crée sans dédupliquer.
@@ -1409,6 +1433,26 @@ class Command(BaseCommand):
             for user in User.objects.filter(tenant=tenant).order_by("role", "email"):
                 entry = f"{user.email:<32} {user.role:<12} {'(admin Django)' if user.is_staff else ''}"
                 out.write(f"│   {entry:<{width - 4}} │")
+
+        out.write(f"├{line}┤")
+        out.write(f"│ {'COMPTES CLIENTS GLOBAUX — acting user via X-Acting-User-Email':<{width - 2}} │")
+        # Les clients TOUPAC sont tenantless. Les afficher ici dit au dev
+        # quel acting user utiliser pour tester `/customer/*`, et quel
+        # historique attendre côté `my-reservations`, `my-orders`,
+        # `my-payments`. Un client sans historique est signalé pour qu'un
+        # scénario « nouveau client » reste visible.
+        for client in User.objects.filter(role=User.Role.CLIENT).order_by("email", "phone"):
+            identity = client.email or client.phone or str(client.id)[:12]
+            p_count = Passenger.objects.filter(customer_user=client).count()
+            r_count = Reservation.objects.filter(passenger__customer_user=client).count()
+            o_count = Order.objects.filter(customer=client).count()
+            stats = (
+                f"{p_count} passager(s), {r_count} réservation(s), {o_count} commande(s)"
+                if (p_count or r_count or o_count)
+                else "aucun historique — cas « nouveau client »"
+            )
+            entry = f"{identity:<36} {stats}"
+            out.write(f"│   {entry:<{width - 4}} │")
 
         out.write(f"├{line}┤")
         out.write(f"│ {'IDS UTILES POUR TESTER':<{width - 2}} │")
