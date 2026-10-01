@@ -207,6 +207,11 @@ Portée technique :
         resolvers `parcel.recipient` et `parcel.sender_and_recipient` sont donc
         justes et rendent aujourd'hui une liste vide dans la quasi-totalité des
         cas.
+      → Mise à jour (1er oct 2026) : le seed de démo renseigne désormais
+        `recipient_user` pour certaines commandes rattachées, pour permettre
+        à l'app CLIENT en développement de tester le cas « colis reçu ».
+        La vraie dette reste côté **endpoint de création** : aucun chemin
+        d'écriture (admin colis, API CLIENT, chatbot) n'expose encore le champ.
       → Conséquence : **le code de retrait de colis (COL-05) ne part à
         personne**, alors même que la chaîne est complète de bout en bout. Le
         seul maillon manquant est la saisie.
@@ -214,7 +219,31 @@ Portée technique :
         puis les endpoints d'écriture CLIENT. Un destinataire sans compte reste
         possible : `recipient_name` / `recipient_phone` sont là pour cela.
       → Effort : ~0,5 j côté admin, davantage côté API cliente.
-      → Ref : ticket E1E2, 8 sept 2026.
+      → Ref : ticket E1E2, 8 sept 2026 ; mise à jour 1er oct 2026
+        (ticket billing-invoice-customer-type-alignment).
+
+- [ ] **`Payment.order` n'est renseigné par aucun seeder ni endpoint**
+      → État : `MyPaymentsView` filtre les paiements via deux chemins —
+        `payment.order.customer` et `payment.invoice.customer_id`. Le
+        premier est inatteignable dans l'environnement de démo : aucun
+        paiement n'a `order_id` renseigné. `_seed_payments` crée
+        systématiquement `Payment(invoice=..., order=None)`.
+      → Portée : la vue couvre correctement les deux chemins avec `.distinct()`.
+        Le chemin invoice suffit tant qu'une facture est générée. Mais le jour
+        où un scénario « paiement direct sans facture intermédiaire » apparaîtra
+        (acompte, paiement à la livraison), l'absence de lien `order` fera que
+        ces paiements n'apparaîtront pas dans l'espace client. Et le dev qui
+        testera avec un paiement direct ne verra rien, sans comprendre pourquoi.
+      → Fix : enrichir `_seed_payments` pour créer au moins un `Payment` avec
+        `order=<Order de Fatou ou Ousmane>` et `invoice=None`, afin que le
+        chemin direct soit démontrable. Et côté endpoints métier, s'assurer que
+        tout paiement créé contre une commande renseigne bien `payment.order`.
+      → Priorité : basse tant que tout paiement passe par une facture. Deviendra
+        réelle au premier flux « paiement direct » (acompte colis, caution).
+      → Effort : ~15 min (seed uniquement). Davantage le jour où un vrai
+        endpoint de paiement direct existe.
+      → Ref : ticket billing-invoice-customer-type-alignment, 1er oct 2026
+        (découvert à la validation en recette après reset du seed).
 
 ### Endpoints d'écriture pour le client (POST)
 

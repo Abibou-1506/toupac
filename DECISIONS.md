@@ -1639,6 +1639,71 @@ tranché : silencieux (par écrasement dans save_model). Ne pas re-débattre
 
 ## Modes de travail
 
+### Un champ est écrit à un endroit, lu à plusieurs — grep les lecteurs avant d'en changer la forme
+_Découvert — Ticket billing-invoice-customer-type-alignment (1er oct 2026)_
+
+Trois tickets récents ont rencontré le même angle mort sous des formes
+différentes : un champ écrit par un seul endroit, lu par plusieurs sites qui
+dépendent de sa forme actuelle. Changer l'écriture sans auditer les lectures
+produit un bug silencieux — soit côté lecteurs (qui ne trouvent plus ce qu'ils
+cherchaient), soit côté écrivain (qui pense corriger un bug mais en introduit
+trois autres).
+
+**Cas 1 — `customer_type` d'`Invoice`** (ticket billing-invoice-customer-type-alignment).
+`InvoiceGenerator` écrivait `"passenger"` et `"user"`. 18 occurrences existaient
+ailleurs dans le code, dont 7 serializers qui exposaient le champ en
+passthrough. Aucun ne comparait aux mauvaises valeurs — par chance, pas par
+discipline. **Si le ticket avait ajouté un `ChoiceField` sur `customer_type`
+au passage**, les 7 serializers auraient cassé d'un coup, en plus de bloquer
+la migration.
+
+**Cas 2 — format du `seat_map`** (ticket voyage-batch-hardening). Mon prompt
+décrivait un format unique `{"rows": N, "cols": M}` et un helper partagé pour
+l'exploiter. La lecture a montré **trois implémentations divergentes** du
+parsing, dont une gérait aussi un format explicite `{"seats": [{"label": "1A"}]}`.
+Livrer la version grille seule aurait refusé chaque vente à bord des voyages
+à plan énuméré, silencieusement.
+
+**Cas 3 — contrainte unique de `Reservation`** (même ticket). Pré-contrôle
+filtré sur `BOOKED|CHECKED_IN|BOARDED` proposé ; contrainte base en exclusion
+`~Q([cancelled, refused])`. Divergence : `no_show` retient le siège en base,
+mais la liste blanche l'aurait laissé passer. Un pré-contrôle qui refuse ce
+que la base accepte (ou l'inverse) réintroduit exactement le défaut qu'il est
+censé prévenir.
+
+**Règle** : avant de changer la forme d'une valeur écrite par du code
+(constante d'énumération, format JSON structuré, clés de dictionnaire, chaîne
+de statut, UUID polymorphe), grepper **tous les lecteurs**, pas seulement le
+site d'écriture qu'on vient d'identifier.
+
+```
+grep -rn "<nom_du_champ>\|<valeur_littérale_précédente>" \
+  --include="*.py" --exclude-dir=tests --exclude-dir=migrations .
+```
+
+Trois familles de lecteurs à chercher :
+
+1. **Les comparaisons littérales** — `if x == "passenger"`, `.filter(status="booked")`.
+2. **Les serializers qui exposent le champ en passthrough** — ils ne font
+   rien de la valeur mais la publient au consommateur, qui pourrait brancher
+   dessus.
+3. **Les tests de non-régression** qui assertent une valeur littérale — ils
+   casseront, mais c'est là qu'on l'apprend. S'il n'y en a pas pour un champ
+   exposé, c'est le vrai signal du problème, pas la guérison.
+
+**Corollaire de prompt** : la section « Faits à valider » du prompt doit
+nommer explicitement le grep lecteurs comme fait à produire, pas comme
+formalité de vérification. Les trois cas ci-dessus avaient tous mentionné ce
+grep de façon secondaire ou pour conforter l'ensemble — jamais comme
+prérequis critique. Le libeller en premier plan le fera remonter dans l'ordre
+de lecture, et le dev le fera avant d'écrire la première ligne, pas après.
+
+Cette règle complète sans remplacer celle du 30 sept 2026 (« Avant d'écrire
+un pré-contrôle métier, lire la contrainte base ») : la précédente concerne
+les **invariants** déjà gardés par la base qu'on dupliquerait ; celle-ci
+concerne les **contrats de forme** qu'on changerait sans voir ceux qui en
+dépendent. Même racine (lire avant d'écrire), angles différents.
+
 ### Un helper de test absorbe les nouveaux champs obligatoires du code sous test
 _Découvert — Ticket voyage-onboard-sale-partial-trips (1er oct 2026)_
 
