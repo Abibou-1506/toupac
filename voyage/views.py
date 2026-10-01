@@ -28,6 +28,7 @@ from .models import (
     Schedule,
     Trip,
 )
+from .schema_examples import ALL_EXAMPLES
 from .serializers import (
     BatchRequestSerializer,
     BatchResponseSerializer,
@@ -449,6 +450,12 @@ class ControllerViewSet(viewsets.ReadOnlyModelViewSet):
     tags=["Voyage"],
     request=BatchRequestSerializer,
     responses={200: BatchResponseSerializer},
+    # Dix exemples en entrée, un par `event_type`, plus deux verdicts en
+    # sortie. Les littéraux vivent dans `schema_examples.py` : la vue n'a
+    # pas à porter deux cents lignes de JSON, et un test de non-régression
+    # relit le même module pour vérifier qu'un exemple reste aligné avec
+    # son handler.
+    examples=ALL_EXAMPLES,
 )
 class ControlEventBatchView(APIView):
     """

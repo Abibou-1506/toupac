@@ -127,42 +127,22 @@ _Rien à date au-delà des points classés « connu et accepté » en fin de fic
 
 ## Documentation API
 
-- [ ] **Le Swagger ne décrit pas les payloads polymorphes du batch offline**
-      → État : `/control-events/batch/` accepte 10 `event_type` distincts, chacun
-        avec un `payload` de forme différente. Le `BatchRequestSerializer`
-        déclare `payload = serializers.JSONField(help_text="Données spécifiques
-        au type d'event")` — DRF-spectacular ne sait pas exprimer un champ
-        polymorphe conditionné à un autre champ de la même requête, l'équipe
-        l'a assumé explicitement en commentaire du code.
-      → Impact : un dev mobile qui lit le Swagger sait qu'il faut envoyer
-        `event_type: onboard_sale` mais pas ce que doit contenir `payload`
-        pour ce cas — il doit lire le code du handler, ou demander à Abibou.
-        Chaque nouveau dev mobile paye ce coût. La même limitation vaut pour
-        les 28 codes de `RejectionCode`, non exposés dans le schéma.
-      → Ce qui *est* à jour dans le Swagger : la liste des `event_type`
-        acceptés, l'enveloppe du batch en entrée, et le verdict enrichi en
-        sortie (`rejection_code`, `rejection_reason`, `anomaly`, `details`
-        avec leurs `help_text`). Le débrief hardening a bien mis à jour ce qui
-        pouvait l'être.
-      → Fix — trois pistes, deux quick wins et un chantier :
-        1. Ajouter `@extend_schema(examples=[...])` sur `ControlEventBatchView`
-           avec un exemple de payload par event_type. Le Swagger montre alors
-           les payloads dans « Try it out » — pas une spec formelle mais un
-           guide praticable. ~2h.
-        2. Passer `rejection_code` de `CharField` à `ChoiceField(choices=
-           RejectionCode.choices)` dans `EventResultSerializer`. Expose les 28
-           valeurs possibles dans le schéma. 5 min. À faire dès la prochaine
-           modification du fichier.
-        3. Endpoint `GET /api/v1/voyage/event-types/schema/` qui expose le
-           contrat par event_type (payload attendu, comportement, codes de
-           rejet). Solution propre mais duplique ce que ferait un portail
-           dev — à voir dans le cadre de la Phase F ou d'un chantier
-           « portail intégrateurs » plus large.
-      → Priorité : moyenne. Non bloquant pour les intégrations en cours
-        (Abibou peut répondre au cas par cas), le devient dès qu'une
-        intégration tierce arrive sans accès direct au support.
-      → Effort : 2h (pistes 1 + 2) ou ~1 j (piste 3).
-      → Ref : question du lead lors de l'audit du 30 sept 2026.
+- [ ] **Le Swagger ne décrit pas les payloads polymorphes du batch offline** —
+      résolu en partie le 1er oct 2026.
+      - [x] **Piste 1 — exemples par event_type sur `@extend_schema`.**
+            10 `OpenApiExample` en entrée (un par type), 2 en sortie (verdict
+            accepté enrichi, verdict rejeté avec code + anomaly). Les
+            littéraux vivent dans `voyage/schema_examples.py`, et un test de
+            paramétrisation fait tourner chaque exemple contre son handler :
+            un handler qui change sans mise à jour de l'exemple rend rouge.
+      - [x] **Piste 2 — `ChoiceField` sur `rejection_code`.** Les 28 valeurs
+            de `RejectionCode` apparaissent désormais dans le composant
+            `RejectionCodeEnum` du schéma. Un test de non-régression compare
+            l'énum publiée à l'énumération Python.
+      - [ ] **Piste 3 — endpoint `GET /event-types/schema/`.** Reste
+            ouverte, à voir dans le cadre du chantier portail intégrateurs.
+            Les deux premières pistes couvrent les besoins immédiats.
+      → Ref : ticket voyage-swagger-batch-doc, 1er oct 2026.
 
 ---
 

@@ -17,6 +17,7 @@ from .models import (
     Trip,
     TripStop,
 )
+from .services.exceptions import RejectionCode
 
 
 class LuggagePolicySerializer(serializers.ModelSerializer):
@@ -317,13 +318,16 @@ class EventResultSerializer(serializers.Serializer):
 
     client_uuid = serializers.UUIDField()
     status = serializers.ChoiceField(choices=["accepted", "rejected", "duplicate"])
-    rejection_code = serializers.CharField(
+    rejection_code = serializers.ChoiceField(
+        choices=[(code.value, code.value) for code in RejectionCode],
         required=False,
         help_text=(
-            "Motif de rejet sous forme stable, en SCREAMING_SNAKE "
-            "(SEAT_ALREADY_TAKEN, RESERVATION_NOT_FOUND…). Destiné au code de "
-            "l'app : contrairement à `rejection_reason`, il ne changera pas au "
-            "gré des reformulations. Absent si l'event n'est pas rejeté."
+            "Motif de rejet sous forme stable, en SCREAMING_SNAKE. Destiné au "
+            "code de l'app : contrairement à `rejection_reason`, il ne changera "
+            "pas au gré des reformulations. Absent si l'event n'est pas rejeté. "
+            "La liste exhaustive est maintenue dans "
+            "`voyage.services.exceptions.RejectionCode` ; chaque valeur ajoutée "
+            "y entre avant d'apparaître ici."
         ),
     )
     rejection_reason = serializers.CharField(
