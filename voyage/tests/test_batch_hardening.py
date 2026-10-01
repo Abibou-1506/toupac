@@ -27,6 +27,7 @@ from voyage.models import (
     Passenger,
     Reservation,
     Route,
+    RouteStop,
     SeatMap,
     Trip,
 )
@@ -54,10 +55,22 @@ def controller(tenant):
 
 @pytest.fixture
 def trip(tenant):
-    """Un voyage doté d'un plan de sièges 2x3 — A1, B1, C1, A2, B2, C2."""
+    """
+    Un voyage doté d'un plan de sièges 2x3 — A1, B1, C1, A2, B2, C2.
+
+    Trois `RouteStop` sont montés sur la route : Dakar (0), Thiès (1),
+    Bamako (2). Les tests qui vendent à bord s'en servent via la fixture
+    `stops`. Attacher les stops ici évite à chaque test de les recréer, mais
+    les tests qui veulent exercer `BOARDING_NOT_ALLOWED_AT_STOP` modifient
+    `is_boarding` sur l'instance qu'ils récupèrent.
+    """
     origin = Place.objects.create(
         tenant=tenant, name="Dakar", type=Place.PlaceType.STATION,
         location=Point(-17.4441, 14.6937, srid=4326),
+    )
+    intermediate = Place.objects.create(
+        tenant=tenant, name="Thiès", type=Place.PlaceType.STATION,
+        location=Point(-16.9246, 14.7886, srid=4326),
     )
     destination = Place.objects.create(
         tenant=tenant, name="Bamako", type=Place.PlaceType.STATION,
@@ -67,6 +80,10 @@ def trip(tenant):
         tenant=tenant, name="Dakar → Bamako", code="DKR-BKO",
         origin_place=origin, destination_place=destination,
     )
+    for order_, place in enumerate([origin, intermediate, destination]):
+        RouteStop.objects.create(
+            tenant=tenant, route=route, place=place, stop_order=order_,
+        )
     seat_map = SeatMap.objects.create(
         tenant=tenant, name="Car 6 places", total_seats=6,
         layout={"rows": 2, "cols": 3},
@@ -76,6 +93,12 @@ def trip(tenant):
         departure_date=timezone.now().date(), scheduled_at=timezone.now(),
         total_seats=6, seat_map=seat_map, status=Trip.Status.BOARDING,
     )
+
+
+@pytest.fixture
+def stops(trip):
+    """Les trois `RouteStop` du trip, dans leur ordre d'escale."""
+    return list(trip.route.stops.order_by("stop_order"))
 
 
 @pytest.fixture
@@ -94,8 +117,15 @@ def processor(session, tenant, controller):
 PASSENGER = {"first_name": "Awa", "last_name": "Diop", "phone": "+221770001234"}
 
 
-def sale_event(**payload_overrides):
+def sale_event(stops=None, **payload_overrides):
+    """
+    Un event `onboard_sale` complet. Les stops par défaut vont de la première
+    à la dernière escale du trip — un trajet complet, le cas naturel.
+    """
     payload = {"seat_label": "A1", "amount_xof": 12000, "passenger_data": dict(PASSENGER)}
+    if stops:
+        payload.setdefault("origin_stop", str(stops[0].pk))
+        payload.setdefault("destination_stop", str(stops[-1].pk))
     payload.update(payload_overrides)
     return {
         "client_uuid": str(uuid.uuid4()),
@@ -106,8 +136,15 @@ def sale_event(**payload_overrides):
 
 
 def sell(processor, **overrides):
-    """Traite une vente à bord et rend son verdict."""
-    return processor.process_batch([sale_event(**overrides)])[0]
+    """
+    Traite une vente à bord et rend son verdict.
+
+    Charge les stops par défaut depuis la route du trip de la session — c'est
+    la définition même du cas nominal. Un test qui veut exercer une erreur de
+    stops passe `origin_stop=None` ou un identifiant précis via `overrides`.
+    """
+    stops = list(processor.session.trip.route.stops.order_by("stop_order"))
+    return processor.process_batch([sale_event(stops=stops, **overrides)])[0]
 
 
 def existing_reservation(tenant, trip, seat_label, status):
@@ -146,6 +183,7 @@ def test_the_verdict_carries_what_the_app_would_otherwise_refetch(processor, tri
 
     assert set(details) == {
         "reservation_id", "passenger_id", "cash_entry_id",
+        "origin_stop_id", "destination_stop_id",
         "reservation_status", "trip_status",
     }
     assert details["reservation_id"] == str(Reservation.objects.get().id)
@@ -377,3 +415,147 @@ def test_a_trip_of_another_tenant_is_refused(processor, trip):
     verdict = sell(processor, trip_id=str(foreign.id))
 
     assert verdict["rejection_code"] == RejectionCode.TRIP_NOT_FOUND
+
+
+# ─── Les stops d'origine et de destination ───
+#
+# Depuis le ticket vente à bord sur trajet partiel, un contrôleur ne peut plus
+# vendre à bord sans dire d'où monte et où descend le passager. Les deux champs
+# sont obligatoires, validés contre la route du trip (appartenance, ordre strict,
+# flags d'usage). Chaque test cible une branche distincte du helper
+# `_resolve_stops`.
+
+def test_a_sale_without_origin_stop_is_refused(processor):
+    verdict = sell(processor, origin_stop=None)
+
+    assert verdict["rejection_code"] == RejectionCode.MISSING_ORIGIN_STOP
+    assert not Reservation.objects.exists()
+
+
+def test_a_sale_without_destination_stop_is_refused(processor):
+    verdict = sell(processor, destination_stop=None)
+
+    assert verdict["rejection_code"] == RejectionCode.MISSING_DESTINATION_STOP
+
+
+def test_a_sale_records_the_two_stops_on_the_reservation(processor, stops):
+    verdict = sell(processor)
+
+    assert verdict["status"] == "accepted"
+    assert verdict["details"]["origin_stop_id"] == str(stops[0].pk)
+    assert verdict["details"]["destination_stop_id"] == str(stops[-1].pk)
+    reservation = Reservation.objects.get()
+    assert reservation.origin_stop_id == stops[0].pk
+    assert reservation.destination_stop_id == stops[-1].pk
+
+
+def test_an_origin_stop_of_another_route_is_refused(processor, tenant, trip):
+    """
+    Un stop qui n'appartient pas à la route du trip n'existe **pas** pour ce
+    trip — même s'il existe en base pour une autre route. Même code que
+    « inexistant » : la distinction n'est pas utile côté app.
+    """
+    other_place = Place.objects.create(
+        tenant=tenant, name="Saint-Louis", type=Place.PlaceType.STATION,
+        location=Point(-16.5, 16.0, srid=4326),
+    )
+    other_route = Route.objects.create(
+        tenant=tenant, name="Autre", code="OTHER",
+        origin_place=other_place, destination_place=other_place,
+    )
+    foreign_stop = RouteStop.objects.create(
+        tenant=tenant, route=other_route, place=other_place, stop_order=0,
+    )
+
+    verdict = sell(processor, origin_stop=str(foreign_stop.pk))
+
+    assert verdict["rejection_code"] == RejectionCode.INVALID_ORIGIN_STOP
+
+
+def test_a_destination_stop_of_another_route_is_refused(processor, tenant, trip):
+    other_place = Place.objects.create(
+        tenant=tenant, name="Saint-Louis", type=Place.PlaceType.STATION,
+        location=Point(-16.5, 16.0, srid=4326),
+    )
+    other_route = Route.objects.create(
+        tenant=tenant, name="Autre", code="OTHER",
+        origin_place=other_place, destination_place=other_place,
+    )
+    foreign_stop = RouteStop.objects.create(
+        tenant=tenant, route=other_route, place=other_place, stop_order=0,
+    )
+
+    verdict = sell(processor, destination_stop=str(foreign_stop.pk))
+
+    assert verdict["rejection_code"] == RejectionCode.INVALID_DESTINATION_STOP
+
+
+def test_an_origin_stop_that_does_not_exist_is_refused(processor):
+    verdict = sell(processor, origin_stop=str(uuid.uuid4()))
+
+    assert verdict["rejection_code"] == RejectionCode.INVALID_ORIGIN_STOP
+
+
+def test_a_destination_stop_that_does_not_exist_is_refused(processor):
+    verdict = sell(processor, destination_stop=str(uuid.uuid4()))
+
+    assert verdict["rejection_code"] == RejectionCode.INVALID_DESTINATION_STOP
+
+
+def test_identical_origin_and_destination_are_refused(processor, stops):
+    """
+    Vendre « de Dakar à Dakar » n'a aucun sens — c'est le degré zéro du voyage.
+    `stop_order` strictement inférieur, pas inférieur ou égal.
+    """
+    verdict = sell(
+        processor,
+        origin_stop=str(stops[0].pk), destination_stop=str(stops[0].pk),
+    )
+
+    assert verdict["rejection_code"] == RejectionCode.INVALID_STOP_ORDER
+
+
+def test_reversed_order_of_stops_is_refused(processor, stops):
+    verdict = sell(
+        processor,
+        origin_stop=str(stops[-1].pk), destination_stop=str(stops[0].pk),
+    )
+
+    assert verdict["rejection_code"] == RejectionCode.INVALID_STOP_ORDER
+
+
+def test_an_origin_stop_not_allowed_for_boarding_is_refused(processor, stops):
+    """Un terminus de descente ne peut pas servir d'origine à une vente à bord."""
+    stops[0].is_boarding = False
+    stops[0].save(update_fields=["is_boarding"])
+
+    verdict = sell(processor)
+
+    assert verdict["rejection_code"] == RejectionCode.BOARDING_NOT_ALLOWED_AT_STOP
+
+
+def test_a_destination_stop_not_allowed_for_alighting_is_refused(processor, stops):
+    stops[-1].is_alighting = False
+    stops[-1].save(update_fields=["is_alighting"])
+
+    verdict = sell(processor)
+
+    assert verdict["rejection_code"] == RejectionCode.ALIGHTING_NOT_ALLOWED_AT_STOP
+
+
+def test_a_partial_trip_sale_between_two_intermediate_stops_is_accepted(
+    processor, stops,
+):
+    """
+    Le cas qui motive le ticket : vente d'un billet pour un segment intérieur
+    d'un trajet multi-escales (Thiès → Bamako sur un Dakar → Bamako).
+    """
+    verdict = sell(
+        processor,
+        origin_stop=str(stops[1].pk), destination_stop=str(stops[-1].pk),
+    )
+
+    assert verdict["status"] == "accepted"
+    reservation = Reservation.objects.get()
+    assert reservation.origin_stop_id == stops[1].pk
+    assert reservation.destination_stop_id == stops[-1].pk

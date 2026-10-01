@@ -32,6 +32,7 @@ from voyage.models import (
     ControlSession,
     Reservation,
     Route,
+    RouteStop,
     SeatMap,
     Trip,
 )
@@ -118,9 +119,10 @@ def test_the_schema_lists_every_rejection_code():
         f"Dans l'énum, absent du schéma : {expected - set(enum)}. "
         f"Dans le schéma, absent de l'énum : {set(enum) - expected}."
     )
-    assert len(enum) == 28, (
-        "Le ticket de hardening a figé 28 valeurs ; en changer impose un "
-        "ticket produit, pas une révision mécanique de ce test."
+    assert len(enum) == 35, (
+        "Le compte a bougé : hardening a figé 28 valeurs, le ticket vente à "
+        "bord sur trajet partiel en a ajouté 7 (stops), total 35. En changer "
+        "impose un ticket produit, pas une révision mécanique de ce test."
     )
 
 
@@ -195,6 +197,19 @@ def live_targets(tenant, controller, session, trip):
         tenant=tenant, order=order, tracking_number="TRK-S01",
         description="Carton", weight_kg=2, status=Parcel.Status.CREATED,
     )
+    # Deux `RouteStop` sur la route du trip, ordonnés et autorisés en
+    # embarquement/descente — nécessaires depuis que l'exemple `onboard_sale`
+    # inclut `origin_stop` / `destination_stop`. Les positions 1 et 2 ne
+    # chevauchent pas l'origine/destination de la route (déjà aux positions 0
+    # et max par convention).
+    origin_stop = RouteStop.objects.create(
+        tenant=tenant, route=trip.route, place=pickup, stop_order=1,
+        is_boarding=True, is_alighting=True,
+    )
+    destination_stop = RouteStop.objects.create(
+        tenant=tenant, route=trip.route, place=dropoff, stop_order=2,
+        is_boarding=True, is_alighting=True,
+    )
     return {
         # Clés visitées récursivement dans `payload` : factice → réel.
         "trip_id": str(trip.pk),
@@ -202,6 +217,8 @@ def live_targets(tenant, controller, session, trip):
         "anomaly_id": str(anomaly.pk),
         "parcel_id": str(parcel.pk),
         "boarded_by_controller_id": str(controller.pk),
+        "origin_stop": str(origin_stop.pk),
+        "destination_stop": str(destination_stop.pk),
     }
 
 

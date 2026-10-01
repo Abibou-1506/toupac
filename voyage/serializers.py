@@ -68,12 +68,24 @@ class RouteMiniSerializer(serializers.ModelSerializer):
 
 class TripStopSerializer(serializers.ModelSerializer):
     place_name = serializers.CharField(source="place.name", read_only=True)
+    # Dérivés du `RouteStop` parent — l'app offline en a besoin pour afficher
+    # les options d'embarquement et de descente **à bord**, et depuis la vente
+    # à bord sur trajet partiel (ticket du 1er oct), pour que le contrôleur
+    # choisisse une origine/destination autorisée sans aller-retour serveur.
+    #
+    # Le `source="route_stop.…"` déclenche un lookup : la queryset qui alimente
+    # le manifest doit `prefetch_related("stops__route_stop")`, sinon on paye un
+    # N+1 silencieux. Vérifié dans `TripViewSet.get_queryset`.
+    is_boarding = serializers.BooleanField(source="route_stop.is_boarding", read_only=True)
+    is_alighting = serializers.BooleanField(source="route_stop.is_alighting", read_only=True)
 
     class Meta:
         model = TripStop
         fields = [
             "id", "trip", "route_stop", "place", "place_name", "stop_order",
-            "eta", "ata", "atd", "status", "created_at", "updated_at",
+            "eta", "ata", "atd", "status",
+            "is_boarding", "is_alighting",
+            "created_at", "updated_at",
         ]
 
 

@@ -2,6 +2,7 @@
 import uuid
 from collections import Counter
 
+from django.db import transaction
 from django.db.models import Sum
 from django.utils import timezone
 from drf_spectacular.utils import extend_schema, extend_schema_view
@@ -53,6 +54,7 @@ from .serializers import (
 from .services.event_processor import BatchEventProcessor
 from .services.qr_jwt import qr_public_key_pem, sign_ticket_jwt
 from .services.seat_map import seat_labels
+from .services.trip_summary import build_trip_summary
 
 MAX_BATCH_EVENTS = 100
 
@@ -110,7 +112,11 @@ class TripViewSet(ApiScopedViewSetMixin, viewsets.ModelViewSet):
             .select_related(
                 "route", "route__luggage_policy", "schedule", "vehicle", "driver", "seat_map",
             )
-            .prefetch_related("stops")
+            # `stops__route_stop` : `TripStopSerializer` dérive `is_boarding` et
+            # `is_alighting` du `RouteStop` parent — sans ce prefetch, chaque
+            # stop déclencherait sa propre requête, N+1 silencieux côté
+            # manifest. Un test `assertNumQueries` verrouille le compte.
+            .prefetch_related("stops__route_stop")
         )
 
     def get_serializer_class(self):
@@ -325,14 +331,34 @@ class TripViewSet(ApiScopedViewSetMixin, viewsets.ModelViewSet):
         ).order_by("-opened_at").first()
         if not session:
             return Response({"detail": "Aucune session active."}, status=400)
-        session.closed_at = timezone.now()
-        session.close_summary = serializer.validated_data["close_summary"]
-        session.sync_state = "synced"
-        session.save()
-        if trip.status in (Trip.Status.IN_TRANSIT, Trip.Status.AT_STOP, Trip.Status.ARRIVING):
-            trip.status = Trip.Status.COMPLETED
-            trip.actual_arrival_at = timezone.now()
-            trip.save(update_fields=["status", "actual_arrival_at", "updated_at"])
+        # Trois écritures qui doivent tenir ensemble : la session se ferme,
+        # son `close_summary` et sa `sync_state` sont posés, et le `Trip.summary`
+        # est recalculé. Sans la transaction, un échec sur le second geste
+        # laisserait une session fermée avec un résumé périmé sur le trip —
+        # exactement le genre d'incohérence qu'on vient diagnostiquer plus tard
+        # en se demandant « mais ce voyage a bien eu une clôture, non ? ».
+        now = timezone.now()
+        with transaction.atomic():
+            session.closed_at = now
+            session.close_summary = serializer.validated_data["close_summary"]
+            session.sync_state = "synced"
+            session.save(update_fields=[
+                "closed_at", "close_summary", "sync_state", "updated_at",
+            ])
+
+            trip_update_fields = ["summary", "updated_at"]
+            if trip.status in (
+                Trip.Status.IN_TRANSIT, Trip.Status.AT_STOP, Trip.Status.ARRIVING,
+            ):
+                trip.status = Trip.Status.COMPLETED
+                trip.actual_arrival_at = now
+                trip_update_fields += ["status", "actual_arrival_at"]
+            # Recalculé en entier à chaque fermeture : un trip peut avoir
+            # plusieurs sessions successives (contrôleur relevé à l'escale),
+            # et `summary` doit refléter l'état courant du voyage, pas la
+            # dernière session.
+            trip.summary = build_trip_summary(trip)
+            trip.save(update_fields=trip_update_fields)
         return Response(ControlSessionSerializer(session).data)
 
 

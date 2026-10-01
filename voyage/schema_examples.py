@@ -26,6 +26,8 @@ _ANOMALY_ID = "0192f2cd-5678-7abc-8def-aabbccddeeff"
 _PARCEL_ID = "0192f2ef-9abc-7def-b012-ccddeeff0011"
 _CONTROLLER_ID = "0192f300-def0-7123-8456-7890abcdef12"
 _DRIVER_USER_ID = "0192f301-aaaa-7bbb-8ccc-dddddddddddd"
+_ORIGIN_STOP_ID = "0192f310-aaaa-7bbb-8ccc-eeeeeeeeeeee"
+_DESTINATION_STOP_ID = "0192f311-bbbb-7ccc-8ddd-ffffffffffff"
 
 _DAKAR = {"lat": 14.6937, "lng": -17.4441}
 
@@ -109,6 +111,12 @@ REQUEST_EXAMPLES = {
                 # Facultatif : défaut `onboard_cash`. Liste blanche fermée —
                 # cf. ALLOWED_PAYMENT_METHODS.
                 "payment_method": "wave",
+                # Obligatoires depuis le ticket vente à bord sur trajet partiel.
+                # Les deux UUID désignent des `RouteStop` de la route du trip :
+                # `origin.stop_order < destination.stop_order`, `origin.is_boarding`
+                # et `destination.is_alighting` tous deux à `True`.
+                "origin_stop": _ORIGIN_STOP_ID,
+                "destination_stop": _DESTINATION_STOP_ID,
                 "passenger_data": {
                     "first_name": "Fatou",
                     "last_name": "Mbaye",
@@ -251,6 +259,8 @@ RESPONSE_EXAMPLES = [
                         "reservation_id": _RESERVATION_ID,
                         "passenger_id": _DRIVER_USER_ID,
                         "cash_entry_id": "0192f320-aaaa-7bbb-8ccc-dddddddddd01",
+                        "origin_stop_id": _ORIGIN_STOP_ID,
+                        "destination_stop_id": _DESTINATION_STOP_ID,
                         "reservation_status": "boarded",
                         "trip_status": "boarding",
                     },
@@ -280,6 +290,27 @@ RESPONSE_EXAMPLES = [
                             "VYG-001 porte déjà une réservation active."
                         ),
                     },
+                },
+            ],
+        },
+        response_only=True,
+    ),
+    OpenApiExample(
+        "Ordre des escales invalide (rejet)",
+        value={
+            "session_id": _SESSION_ID,
+            "processed": 1,
+            "results": [
+                {
+                    "client_uuid": "c8f32d5b-0a4e-4f9c-b2d3-6e7f8091ab2c",
+                    "status": "rejected",
+                    "rejection_code": "INVALID_STOP_ORDER",
+                    "rejection_reason": (
+                        "Ordre des escales invalide : origin.stop_order=3 "
+                        "doit être strictement inférieur à "
+                        "destination.stop_order=1."
+                    ),
+                    "anomaly": None,
                 },
             ],
         },

@@ -46,6 +46,19 @@ class RejectionCode(StrEnum):
     INVALID_SEAT_LABEL = "INVALID_SEAT_LABEL"
     SEAT_ALREADY_TAKEN = "SEAT_ALREADY_TAKEN"
     INVALID_PAYMENT_METHOD = "INVALID_PAYMENT_METHOD"
+    #: Vente à bord sur trajet partiel — un contrôleur sait toujours où monte
+    #: et où descend un passager qu'il voit s'asseoir et à qui il demande sa
+    #: destination. Les deux stops sont obligatoires, et validés contre la
+    #: route du trip (code INVALID_*) plus les flags d'usage (BOARDING/
+    #: ALIGHTING_NOT_ALLOWED_AT_STOP). Un stop d'une autre route est traité
+    #: comme inconnu : il n'existe pas « pour ce trip », même s'il existe en base.
+    MISSING_ORIGIN_STOP = "MISSING_ORIGIN_STOP"
+    MISSING_DESTINATION_STOP = "MISSING_DESTINATION_STOP"
+    INVALID_ORIGIN_STOP = "INVALID_ORIGIN_STOP"
+    INVALID_DESTINATION_STOP = "INVALID_DESTINATION_STOP"
+    INVALID_STOP_ORDER = "INVALID_STOP_ORDER"
+    BOARDING_NOT_ALLOWED_AT_STOP = "BOARDING_NOT_ALLOWED_AT_STOP"
+    ALIGHTING_NOT_ALLOWED_AT_STOP = "ALIGHTING_NOT_ALLOWED_AT_STOP"
 
     # ── Anomalies (anomalies.py) ──
     MISSING_ANOMALY_ID = "MISSING_ANOMALY_ID"

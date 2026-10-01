@@ -53,6 +53,7 @@ VERDICT_DETAIL_KEYS = {
     "reservation_special_case": ("reservation_id", "reservation_status"),
     "onboard_sale": (
         "reservation_id", "passenger_id", "cash_entry_id",
+        "origin_stop_id", "destination_stop_id",
         "reservation_status", "trip_status",
     ),
     "incident_create": ("incident_id",),

@@ -1,7 +1,7 @@
 """TOUPAC Voyage — Handler de vente à bord (billet émis par le contrôleur)."""
 from django.db.models import F
 
-from voyage.models import Anomaly, CashEntry, Passenger, Reservation, Trip
+from voyage.models import Anomaly, CashEntry, Passenger, Reservation, RouteStop, Trip
 from voyage.services.anomaly_detectors import serialize_anomaly
 from voyage.services.exceptions import EventRejected, RejectionCode
 from voyage.services.seat_map import trip_seat_labels
@@ -85,6 +85,7 @@ def handle_onboard_sale(event, tenant, session):
         trip = session.trip
 
     _reject_unknown_seat(trip, seat_label)
+    origin_stop, destination_stop = _resolve_stops(tenant, trip, payload)
 
     conflict = _seat_conflict_verdict(event, tenant, session, trip, seat_label)
     if conflict is not None:
@@ -110,6 +111,8 @@ def handle_onboard_sale(event, tenant, session):
         trip=trip,
         passenger=passenger,
         seat_label=seat_label,
+        origin_stop=origin_stop,
+        destination_stop=destination_stop,
         status=Reservation.Status.BOARDED,
         amount_xof=amount_xof,
         payment_method=payment_method,
@@ -138,9 +141,83 @@ def handle_onboard_sale(event, tenant, session):
         "passenger_id": str(passenger.id),
         "reservation_id": str(reservation.id),
         "cash_entry_id": str(cash_entry.id),
+        "origin_stop_id": str(reservation.origin_stop_id),
+        "destination_stop_id": str(reservation.destination_stop_id),
         "reservation_status": reservation.status,
         "trip_status": trip.status,
     }
+
+
+def _resolve_stops(tenant, trip, payload):
+    """
+    Résout `origin_stop` et `destination_stop` du payload, les valide, les rend.
+
+    L'ordre des rejets suit celui qu'un dev mobile verra le plus souvent :
+    champ absent → stop inconnu → ordre invalide → flag d'usage. Un stop qui
+    appartient à une autre route est traité comme **inconnu** — pour ce trip,
+    il n'existe pas, même s'il existe en base. La seule requête charge les
+    deux stops ensemble pour éviter deux allers-retours.
+
+    Les deux stops sont obligatoires : un contrôleur qui vend à bord sait
+    toujours où le passager monte (il le voit) et où il descend (il lui
+    demande, c'est le prix du billet).
+    """
+    origin_stop_id = payload.get("origin_stop")
+    destination_stop_id = payload.get("destination_stop")
+
+    if not origin_stop_id:
+        raise EventRejected(
+            "origin_stop manquant dans le payload.",
+            RejectionCode.MISSING_ORIGIN_STOP,
+        )
+    if not destination_stop_id:
+        raise EventRejected(
+            "destination_stop manquant dans le payload.",
+            RejectionCode.MISSING_DESTINATION_STOP,
+        )
+
+    stops_by_id = {
+        str(stop.id): stop
+        for stop in RouteStop.objects.filter(
+            tenant=tenant, route=trip.route,
+            id__in=[origin_stop_id, destination_stop_id],
+        ).select_related("place")
+    }
+
+    origin_stop = stops_by_id.get(str(origin_stop_id))
+    if origin_stop is None:
+        raise EventRejected(
+            f"origin_stop {origin_stop_id} inconnu de la route de ce voyage.",
+            RejectionCode.INVALID_ORIGIN_STOP,
+        )
+    destination_stop = stops_by_id.get(str(destination_stop_id))
+    if destination_stop is None:
+        raise EventRejected(
+            f"destination_stop {destination_stop_id} inconnu de la route "
+            "de ce voyage.",
+            RejectionCode.INVALID_DESTINATION_STOP,
+        )
+
+    if origin_stop.stop_order >= destination_stop.stop_order:
+        raise EventRejected(
+            f"Ordre des escales invalide : "
+            f"origin.stop_order={origin_stop.stop_order} doit être strictement "
+            f"inférieur à destination.stop_order={destination_stop.stop_order}.",
+            RejectionCode.INVALID_STOP_ORDER,
+        )
+
+    if not origin_stop.is_boarding:
+        raise EventRejected(
+            f"Embarquement non autorisé à l'escale {origin_stop.place.name}.",
+            RejectionCode.BOARDING_NOT_ALLOWED_AT_STOP,
+        )
+    if not destination_stop.is_alighting:
+        raise EventRejected(
+            f"Débarquement non autorisé à l'escale {destination_stop.place.name}.",
+            RejectionCode.ALIGHTING_NOT_ALLOWED_AT_STOP,
+        )
+
+    return origin_stop, destination_stop
 
 
 def _reject_unknown_seat(trip, seat_label):

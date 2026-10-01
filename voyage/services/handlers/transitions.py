@@ -63,6 +63,16 @@ def handle_activity_transition(event, tenant, session):
     if to_status == Trip.Status.IN_TRANSIT and trip.actual_departure_at is None:
         trip.actual_departure_at = event.created_at_local
         update_fields.append("actual_departure_at")
+
+    # Miroir côté arrivée. Sans cette ligne, aucune stat de ponctualité à
+    # l'arrivée ne pouvait être calculée depuis le chemin batch offline — seul
+    # le passage par la vue de clôture `trips/<id>/control/close/` posait
+    # `actual_arrival_at` (avec `timezone.now()` plutôt que l'horodatage du
+    # device). Les deux chemins laissaient donc deux formes de données ; celui-ci
+    # aligne le batch sur son équivalent naturel.
+    if to_status == Trip.Status.COMPLETED and trip.actual_arrival_at is None:
+        trip.actual_arrival_at = event.created_at_local
+        update_fields.append("actual_arrival_at")
     trip.save(update_fields=update_fields)
 
     return {
