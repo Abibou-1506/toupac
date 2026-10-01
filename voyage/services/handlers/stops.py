@@ -14,13 +14,17 @@ ponctualité par étape. Le découplage est intentionnel :
   émettant deux events séparés, ce qui laisse chaque savepoint indépendant —
   une des deux écritures peut échouer sans annuler l'autre.
 
-Trois décisions tolérantes codées ici, documentées à chaque fois :
+Trois décisions codées ici, documentées à chaque fois :
 
-- Pas de contrôle d'ordre `ata` avant `atd`. Un contrôleur qui émet `depart`
-  sans `arrive` a plus probablement oublié le premier geste que l'inverse.
-- Pas de rejet sur double marquage : on écrase `ata`/`atd` sans râler. Le vrai
-  doublon est tranché en amont par l'idempotence `client_uuid` du batch.
-- Pas de dépendance avec `Trip.status`. L'app peut émettre dans l'ordre
+- **Pas de contrôle d'ordre `ata` avant `atd`.** Un contrôleur qui émet
+  `depart` sans `arrive` a plus probablement oublié le premier geste que
+  l'inverse.
+- **Pas de rejet sur double marquage, mais « premier gagne » sur l'horodatage.**
+  Le vrai doublon est tranché en amont par l'idempotence `client_uuid` ; un
+  resync qui régénère cet UUID est un défaut d'app, et l'instant réel du
+  premier passage reste la vérité à garder. Le status, lui, est remis à jour
+  à chaque appel — c'est un état courant, pas un fait historique.
+- **Pas de dépendance avec `Trip.status`.** L'app peut émettre dans l'ordre
   qu'elle veut, le tracking GPS futur n'aura pas cette information.
 """
 from voyage.models import TripStop
@@ -30,9 +34,7 @@ from voyage.services.exceptions import EventRejected, RejectionCode
 def handle_stop_arrive(event, tenant, session):
     """Marque l'arrivée à une escale du voyage courant."""
     stop = _resolve_stop(event, session)
-    stop.ata = event.created_at_local
-    stop.status = TripStop.Status.ARRIVED
-    stop.save(update_fields=["ata", "status", "updated_at"])
+    _apply_timestamp(stop, "ata", TripStop.Status.ARRIVED, event.created_at_local)
     return {
         "status": "accepted",
         "anomaly": None,
@@ -44,15 +46,42 @@ def handle_stop_arrive(event, tenant, session):
 def handle_stop_depart(event, tenant, session):
     """Marque le départ d'une escale du voyage courant."""
     stop = _resolve_stop(event, session)
-    stop.atd = event.created_at_local
-    stop.status = TripStop.Status.DEPARTED
-    stop.save(update_fields=["atd", "status", "updated_at"])
+    _apply_timestamp(stop, "atd", TripStop.Status.DEPARTED, event.created_at_local)
     return {
         "status": "accepted",
         "anomaly": None,
         "stop_id": str(stop.id),
         "stop_status": stop.status,
     }
+
+
+def _apply_timestamp(stop, field, new_status, when):
+    """
+    Pose l'horodatage et met le status à jour, selon deux règles distinctes.
+
+    **Horodatage : premier gagne.** Un `stop_arrive` sur un stop déjà `ata`
+    laisse la valeur initiale intacte — même pattern que
+    `handle_activity_transition` sur `actual_departure_at` et
+    `actual_arrival_at`. Un bug de resync qui régénérerait le `client_uuid`
+    passerait l'idempotence du batch sans la bloquer, et écraser l'instant
+    réel du premier passage serait pire que de l'ignorer : on ne saurait
+    plus à quelle heure le trip est passé.
+
+    **Status : toujours mis à jour.** C'est l'état courant, pas un fait
+    historique — un stop à tort marqué `SKIPPED` doit pouvoir être remis à
+    `ARRIVED` par un geste explicite. Les deux règles vivent ensemble parce
+    qu'elles répondent à deux questions distinctes.
+    """
+    update_fields = []
+    if getattr(stop, field) is None:
+        setattr(stop, field, when)
+        update_fields.append(field)
+    if stop.status != new_status:
+        stop.status = new_status
+        update_fields.append("status")
+    if update_fields:
+        update_fields.append("updated_at")
+        stop.save(update_fields=update_fields)
 
 
 def _resolve_stop(event, session):

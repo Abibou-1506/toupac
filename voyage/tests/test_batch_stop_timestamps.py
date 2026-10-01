@@ -262,23 +262,82 @@ def test_stop_depart_without_arrive_is_tolerated(processor, trip_with_stops):
     assert stop.status == TripStop.Status.DEPARTED
 
 
-def test_double_arrive_overwrites_without_complaint(processor, trip_with_stops):
+def test_a_second_arrive_preserves_the_first_timestamp(processor, trip_with_stops):
     """
-    Resync, double émission accidentelle : on écrase sans râler. Le vrai
-    doublon est tranché en amont par l'idempotence `client_uuid`.
+    Premier gagne : un re-marquage ne doit pas écraser l'instant réel du
+    premier passage. Aligné sur `handle_activity_transition` qui applique la
+    même règle à `actual_departure_at` et `actual_arrival_at` — un bug de
+    resync qui régénérerait le `client_uuid` passerait l'idempotence sans la
+    bloquer, et écraser 16h30 par 23h04 serait pire que de laisser 16h30.
     """
     stop = trip_with_stops.stops.order_by("stop_order").first()
 
-    arrive(processor, stop=stop)
+    first = arrive(processor, stop=stop)
     stop.refresh_from_db()
     first_ata = stop.ata
 
     second = arrive(processor, stop=stop)
-    assert second["status"] == "accepted"
+
+    assert first["status"] == "accepted" and second["status"] == "accepted"
     stop.refresh_from_db()
-    # Deux horodatages différents, donc l'écrasement a bien eu lieu.
-    assert stop.ata is not None
-    assert stop.ata >= first_ata
+    assert stop.ata == first_ata
+    assert stop.status == TripStop.Status.ARRIVED
+
+
+def test_a_second_depart_preserves_the_first_timestamp(processor, trip_with_stops):
+    """Même règle, côté départ — miroir strict de l'arrivée."""
+    stop = trip_with_stops.stops.order_by("stop_order").first()
+
+    depart(processor, stop=stop)
+    stop.refresh_from_db()
+    first_atd = stop.atd
+
+    depart(processor, stop=stop)
+    stop.refresh_from_db()
+
+    assert stop.atd == first_atd
+    assert stop.status == TripStop.Status.DEPARTED
+
+
+def test_arrive_resets_status_even_when_timestamp_is_preserved(
+    processor, trip_with_stops,
+):
+    """
+    Un stop marqué `SKIPPED` à tort doit pouvoir repasser à `ARRIVED`. Le
+    status est l'état courant du voyage, modifié ; `ata`, lui, est l'instant
+    où le voyage s'est arrêté la première fois — fait historique, préservé.
+    """
+    stop = trip_with_stops.stops.order_by("stop_order").first()
+    arrive(processor, stop=stop)
+    stop.refresh_from_db()
+    original_ata = stop.ata
+
+    stop.status = TripStop.Status.SKIPPED
+    stop.save(update_fields=["status"])
+
+    arrive(processor, stop=stop)
+    stop.refresh_from_db()
+
+    assert stop.ata == original_ata
+    assert stop.status == TripStop.Status.ARRIVED
+
+
+def test_depart_resets_status_even_when_timestamp_is_preserved(
+    processor, trip_with_stops,
+):
+    stop = trip_with_stops.stops.order_by("stop_order").first()
+    depart(processor, stop=stop)
+    stop.refresh_from_db()
+    original_atd = stop.atd
+
+    stop.status = TripStop.Status.SKIPPED
+    stop.save(update_fields=["status"])
+
+    depart(processor, stop=stop)
+    stop.refresh_from_db()
+
+    assert stop.atd == original_atd
+    assert stop.status == TripStop.Status.DEPARTED
 
 
 def test_stop_handlers_do_not_change_the_trip_status(processor, trip_with_stops):
