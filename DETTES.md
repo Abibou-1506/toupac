@@ -192,15 +192,19 @@ Portée technique :
       vivaient sur **`ProofOfDelivery`**, pas sur la tâche de livraison — donc
       créés à la livraison, soit trop tard pour prévenir qui que ce soit.
 
-- [ ] **Le client destinataire ne voit toujours pas le colis dans son espace**
-      → État : le champ existe, `/customer/my-orders/` ne le lit pas. La vue
-        filtre encore sur `customer=request.user` seul.
-      → Fix : union `customer=user | recipient_user=user`, avec `.distinct()`.
-        Prévoir la distinction à l'affichage — « envoyé » et « à recevoir » ne
-        se lisent pas pareil, et les confondre serait pire que de ne rien
-        montrer.
-      → Effort : ~0,5 j
-      → Ref : ticket USR-3, révisé au ticket E1E2, 8 sept 2026.
+- [x] **~~Le client destinataire ne voit toujours pas le colis dans son espace~~**
+      corrigé le 1er oct 2026. `MyOrdersView` filtre désormais sur
+      `Q(customer=user) | Q(recipient_user=user)` avec `.distinct()`, et
+      `MyOrderSerializer` expose un champ `role` qui dit à l'app CLIENT lequel
+      des deux liens le concerne — `"sender"`, `"recipient"` ou `"both"` si le
+      client s'est envoyé un colis à lui-même. Vérifié sur recette : Ousmane
+      voit désormais 4 commandes (2 envoyées, 2 reçues de Fatou), au lieu des
+      2 d'avant.
+
+      Reste ouvert, à décider en UI : afficher le nom de la contre-partie
+      quand on est destinataire (et inversement). Vocabulaire et
+      confidentialité à trancher avec le dev RN.
+      → Ref : ticket customer-my-orders-with-recipient, 1er oct 2026.
 
 - [ ] **Aucun écrivain ne renseigne `Order.recipient_user`**
       → État : le champ est nullable et reste vide sur toutes les commandes. Les

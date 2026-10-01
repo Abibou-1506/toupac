@@ -35,7 +35,15 @@ class MyReservationSerializer(serializers.Serializer):
 
 
 class MyOrderSerializer(serializers.Serializer):
-    """Une commande de colis vue par son commanditaire."""
+    """
+    Une commande de colis vue par l'un ou l'autre de ses clients.
+
+    Un ordre lie deux comptes au plus — l'expéditeur (`customer`) et le
+    destinataire (`recipient_user`). Le champ `role` dit lequel des deux est
+    l'acting user ; sans lui, l'app CLIENT devrait recouper les identifiants
+    côté client, et les deux parties verraient le même objet sans savoir
+    pourquoi il remonte dans leur liste.
+    """
 
     id = serializers.UUIDField(read_only=True)
     tenant_slug = serializers.CharField(source="tenant.slug", read_only=True)
@@ -48,8 +56,29 @@ class MyOrderSerializer(serializers.Serializer):
     total_amount_xof = serializers.IntegerField(read_only=True)
     priority = serializers.CharField(read_only=True)
     created_at = serializers.DateTimeField(read_only=True)
+    role = serializers.SerializerMethodField()
     # Jamais exposés : created_by, metadata, instructions — ces dernières sont
-    # des consignes d'exploitation adressées au livreur, pas au client.
+    # des consignes d'exploitation adressées au livreur, pas au client. Le nom
+    # de la contre-partie non plus — décision UI à part, voir DETTES.md.
+
+    def get_role(self, obj) -> str:
+        """
+        Rôle de l'acting user dans cette commande.
+
+        « both » couvre le cas rare mais légitime du client qui s'expédie un
+        colis à lui-même ; l'ordre des deux premiers tests le résout avant la
+        branche « sender » seule. Le repli « recipient » n'est atteint qu'après
+        exclusion des deux autres : l'ordre est posé pour que la lecture
+        s'enchaîne du cas le plus informatif vers le moins.
+        """
+        user_id = self.context["request"].user.id
+        is_sender = obj.customer_id == user_id
+        is_recipient = obj.recipient_user_id == user_id
+        if is_sender and is_recipient:
+            return "both"
+        if is_sender:
+            return "sender"
+        return "recipient"
 
 
 class MyPaymentSerializer(serializers.Serializer):

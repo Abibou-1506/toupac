@@ -254,11 +254,17 @@ class MyReservationsView(APIView):
 )
 class MyOrdersView(APIView):
     """
-    GET /api/v1/customer/my-orders/ — les colis commandés par le client.
+    GET /api/v1/customer/my-orders/ — les colis où le client est partie prenante.
 
-    Seul le commanditaire est modélisé : un client destinataire d'un colis
-    qu'un autre a expédié ne le voit pas ici. Asymétrie assumée en V1, tracée
-    dans DETTES.md.
+    Deux liens mènent à une commande : l'expéditeur (`customer`) et le
+    destinataire (`recipient_user`). La vue rend l'union des deux, et le
+    serializer y adjoint un champ `role` — « sender », « recipient » ou « both »
+    si le client s'est envoyé un colis à lui-même — qui permet à l'app CLIENT
+    de distinguer visuellement sans refetch.
+
+    Même parti que `MyPaymentsView` : union + `.distinct()`, parce que les deux
+    branches peuvent désigner le même ordre et que PostgreSQL le rendrait sinon
+    deux fois.
     """
 
     permission_classes = [IsAuthenticatedCustomer]
@@ -270,9 +276,16 @@ class MyOrdersView(APIView):
 
         queryset = (
             Order.objects
-            .filter(customer=request.user, deleted_at__isnull=True)
+            .filter(
+                Q(customer=request.user) | Q(recipient_user=request.user),
+                deleted_at__isnull=True,
+            )
             .select_related("tenant", "pickup_place", "dropoff_place")
             .order_by("-created_at")
+            # Cas rare mais légitime : le client s'envoie un colis à lui-même.
+            # Les deux branches désignent alors la même ligne — distinct ne
+            # change rien aux autres cas, et évite le doublon dans celui-là.
+            .distinct()
         )
 
         tenant_slug = request.query_params.get("tenant")
@@ -282,7 +295,11 @@ class MyOrdersView(APIView):
         if status_filter:
             queryset = queryset.filter(status=status_filter)
 
-        return Response({"orders": MyOrderSerializer(queryset, many=True).data})
+        return Response({
+            "orders": MyOrderSerializer(
+                queryset, many=True, context={"request": request},
+            ).data,
+        })
 
 
 @extend_schema(tags=_TAG, parameters=[_TENANT_PARAM], responses=MyPaymentSerializer(many=True))
