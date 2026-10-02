@@ -1,6 +1,6 @@
 # Dettes techniques — TOUPAC
 
-Dernier update : 30 sept 2026
+Dernier update : 2 oct 2026
 
 Ce fichier consolide les dettes techniques identifiées et **délibérément 
 non corrigées** pendant les tickets précédents. Chaque entrée porte : 
@@ -143,6 +143,56 @@ _Rien à date au-delà des points classés « connu et accepté » en fin de fic
             ouverte, à voir dans le cadre du chantier portail intégrateurs.
             Les deux premières pistes couvrent les besoins immédiats.
       → Ref : ticket voyage-swagger-batch-doc, 1er oct 2026.
+
+- [ ] **Spectacular — 181 warnings structurels, 4 familles à résorber**
+      → État : `python manage.py spectacular --validate` termine sur 181
+        warnings (64 uniques), 0 erreur. Baseline établi le 7 sept 2026
+        (ticket notifications-refonte-D a fait passer de 183 à 181),
+        confirmé stable à l'ouverture du Ticket 1 panel admin le 2 oct 2026.
+      → Portée : le schéma OpenAPI publié décrit ces zones de manière
+        appauvrie. Un client SDK généré (chatbot Toupac BI, ERP tiers
+        Sage/Odoo) hérite des approximations — `PointField` typé `string`,
+        énums `status`/`type` disambiguées par hash au lieu d'un nom
+        lisible, auth plateforme invisible dans la doc des endpoints
+        concernés — et ses utilisateurs ouvrent des tickets de support.
+      → Quatre familles identifiées :
+      - **A. ~50 × `PlatformApiKeyAuthentication` sans
+        `OpenApiAuthenticationExtension`.** Chaque view qui déclare cette
+        auth produit un warning. Fix : classe
+        `PlatformApiKeyAuthenticationScheme(OpenApiAuthenticationExtension)`
+        dans `iam/schema.py`, à côté de ce qui existe pour la clé tenant.
+        Effort : ~1 h.
+      - **B. ~10 × `PointField` / `GeoJSONField` qui tombent en
+        `"string"`.** Pas de resolver typé pour les champs géo GeoDjango.
+        Fix : enregistrer les extensions `drf_spectacular` pour
+        `PointFieldSerializer` et `GeoJSONField` (format JSON Schema
+        GeoJSON standard). Effort : ~30 min.
+      - **C. ~8 collisions enum (`StatusXXXEnum`, `TypeXXXEnum`).**
+        Plusieurs modèles portent un champ `status` ou `type` avec le
+        même ensemble de choices ; spectacular disambigue avec un hash.
+        Fix : populer `ENUM_NAME_OVERRIDES` dans `SPECTACULAR_SETTINGS`
+        en nommant chaque enum par son contexte métier
+        (`TripStatusEnum`, `OrderStatusEnum`, `InvoiceStatusEnum`, etc.).
+        Effort : ~30 min.
+      - **D. 2 × `get_context_type` / `get_context_reference` sans
+        annotation `-> str`.** Pile le pattern DECISIONS.md
+        « `spectacular --validate` fait partie de la routine pre-merge » :
+        ces deux fonctions pré-datent la doctrine. Fix : annoter dans
+        `iam/customer_serializers.py` ligne 84. Effort : 30 sec.
+      → Pourquoi tracer plutôt que faire tout de suite : A + B + C mérite
+        un ticket dédié où on peut tester l'avant/après du schéma généré,
+        et D doit passer avec les trois autres pour avoir un snapshot
+        propre. Faire D seul laisserait les trois gros contrats appauvris.
+      → À déclencher : avant l'onboarding de l'équipe chatbot Toupac BI
+        ou le premier client ERP tiers. Ce sont eux qui génèrent leur
+        client SDK depuis `/schema/`.
+      → Effort total : ~2 h en séquence (A + B + C + D).
+      → Note méthodologique : `--fail-on-warn` ne distingue pas une
+        régression d'une dette pré-existante. Le critère de validation
+        « spectacular » dans les tickets suivants est désormais « nombre
+        de warnings strictement identique au baseline », vérifié par
+        `spectacular --validate 2>&1 | tail -3` sans `--fail-on-warn`.
+      → Ref : audit à la fin du Ticket 1 panel admin, 2 oct 2026.
 
 ---
 
@@ -775,22 +825,17 @@ validé, templates OTP soumis et approuvés, clé API disponible.
 
 ## Tests / perf
 
-- [ ] **Suite pytest à 4 min 01 — surveiller pour rester en dessous de 6-7 min**
-      → État : 834 tests à 4 min 01 (débrief voyage-batch-hardening, 30 sept 2026).
-        Chaque ticket ajoute quelques dizaines de tests ; la trajectoire mène à
-        6-7 min d'ici deux mois au rythme actuel.
-      → Pourquoi le seuil compte : au-delà, les devs prennent l'habitude de ne
-        plus lancer `pytest` avant de commit — les régressions passent au CI
-        plutôt qu'à la machine locale, et la boucle de retour se casse.
-      → Fix : `pytest-xdist` (parallélisation cœurs) suffit dans un premier
-        temps. `pytest-testmon` (ne rejoue que les tests impactés) est
-        l'étape suivante. Fixtures immuables en scope session avant, s'il en
-        reste.
-      → À déclencher : dès qu'un run local dépasse 5 minutes en steady state,
-        ou qu'un dev signale qu'il saute des runs.
-      → Effort : ~1h pour xdist, ~2h pour testmon avec ses pièges (cache
-        invalidé au premier changement de conftest).
-      → Ref : conversation 2 sept 2026 ; mise à jour 30 sept 2026.
+- [x] **~~Suite pytest à 6 min 18 — seuil franchi~~** — résolu par
+      pytest-xdist le 2 oct 2026. 910 tests, 1 xfailed en **2 min 22 s** sur
+      une machine 14 cœurs via `-n auto --dist=loadfile`. Gain **-62 %** vs
+      la baseline DETTES.md du 2 oct matin (6 min 18 — note : baseline
+      remesurée au moment du ticket perf à 3 min 46 sur ce poste, la
+      référence 6 min 18 provenait d'un run antérieur sur une charge
+      container différente ; dans tous les cas, régime passé sous le seuil
+      des 5 min, le dev relance en local avant de commit sans la pression
+      des 6 min). pytest-testmon reste une étape future si la trajectoire
+      reprend au-dessus de 5 min.
+      → Ref : micro-ticket perf-pytest-xdist, 2 oct 2026.
 
 - [ ] **PBKDF2 sur ApiCredential.key_hash → basculer sur HMAC-SHA-256**
       → État : hash lent (adapté aux passwords humains) utilisé sur des 
