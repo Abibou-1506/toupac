@@ -154,6 +154,11 @@ def handle_onboard_sale(event, tenant, session):
         "destination_stop_id": str(reservation.destination_stop_id),
         "reservation_status": reservation.status,
         "trip_status": trip.status,
+        # Remonté dans le verdict pour que l'app contrôleur n'ait pas à
+        # refetch `GET /voyage/reservations/{id}/` juste pour obtenir le JWT —
+        # une vente à bord se fait offline, et l'instant qui suit son
+        # acceptation est précisément celui où la connexion est mauvaise.
+        "qr_code_jwt": reservation.qr_code_jwt,
     }
 
 

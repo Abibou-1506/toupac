@@ -428,6 +428,35 @@ def test_the_onboard_jwt_carries_the_expected_claims(processor, trip_with_stops)
     assert payload["tenant"] == str(reservation.tenant_id)
 
 
+def test_the_onboard_jwt_is_returned_inside_the_verdict(processor, trip_with_stops):
+    """
+    Le JWT doit remonter dans le verdict, pas dans un refetch à part.
+
+    Une vente à bord se fait offline par définition : l'instant qui suit son
+    acceptation est précisément celui où la connexion est mauvaise.
+    `GET /voyage/reservations/{id}/` pour récupérer le JWT reviendrait à
+    choisir le pire moment pour aller sur le réseau — autant le livrer en
+    même temps que le reste du verdict.
+    """
+    stops = list(trip_with_stops.route.stops.order_by("stop_order"))
+    event = _onboard_sale_event(
+        trip_with_stops.tenant, trip_with_stops,
+        str(stops[0].id), str(stops[-1].id),
+    )
+
+    verdict = processor.process_batch([event])[0]
+
+    assert verdict["status"] == "accepted"
+    assert "qr_code_jwt" in verdict["details"]
+    jwt_from_verdict = verdict["details"]["qr_code_jwt"]
+    assert jwt_from_verdict, "Le JWT remonté est vide — contrat cassé."
+
+    # Et c'est bien le même que celui écrit en base : lisible une seule fois,
+    # pas de divergence entre les deux chemins.
+    reservation = Reservation.objects.get(id=verdict["details"]["reservation_id"])
+    assert jwt_from_verdict == reservation.qr_code_jwt
+
+
 def test_the_public_key_endpoint_still_resolves():
     """Garde-fou cross-ticket : la keypair éphémère est bien partagée."""
     assert qr_public_key_pem(), (

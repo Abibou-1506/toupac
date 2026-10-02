@@ -185,6 +185,7 @@ def test_the_verdict_carries_what_the_app_would_otherwise_refetch(processor, tri
         "reservation_id", "passenger_id", "cash_entry_id",
         "origin_stop_id", "destination_stop_id",
         "reservation_status", "trip_status",
+        "qr_code_jwt",
     }
     assert details["reservation_id"] == str(Reservation.objects.get().id)
     assert details["passenger_id"] == str(Passenger.objects.get().id)

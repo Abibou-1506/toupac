@@ -58,6 +58,7 @@ VERDICT_DETAIL_KEYS = {
         "reservation_id", "passenger_id", "cash_entry_id",
         "origin_stop_id", "destination_stop_id",
         "reservation_status", "trip_status",
+        "qr_code_jwt",
     ),
     "incident_create": ("incident_id",),
     "activity_transition": ("trip_id", "trip_status"),
