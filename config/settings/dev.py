@@ -50,3 +50,6 @@ LOGGING = {
         },
     },
 }
+
+# Pilote le badge jaune « Développement » affiché en tête d'admin.
+TOUPAC_ENVIRONMENT = "development"

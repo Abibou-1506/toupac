@@ -5,6 +5,7 @@ _MàJ 5 sept 2026 après la série iam-admin._
 _MàJ 6 sept 2026 après les Tickets notifications warmup / A / A' — 191 tests._
 _MàJ 7 sept 2026 après le chantier CLIENT global (iam-platform-credentials + USR-1 à USR-4) — 476 tests, architecture marketplace B2B2C posée._
 _MàJ 8 sept 2026 après la refonte notifications complète (Tickets B / C / D) + correctif ConsoleProvider + cross-check charte notifications TOUPAC ONE — 637 tests, plan complet A→F cadré._
+_MàJ 1er oct 2026 après clôture complète du chantier notifications (E1E2 + F) + renforcement voyage (hardening, swagger, onboard-sale, stop-timestamps, JWT verdict) + petites corrections (parcel-tenant, billing-customer-type, my-orders-recipient) + audit DECISIONS/DETTES — **902 tests verts, 1 xfailed, 0 régression cumulée sur 12 tickets livrés depuis le 8 sept.** Bascule vers chantier **panel admin django-unfold** (rattrapage T2)._
 _À coller en premier message du nouveau chat Claude Opus 4.7._
 
 ## Projet et rôle
@@ -48,19 +49,9 @@ TOUPAC (plateforme centrale) × compagnies (tenants) × passagers/expéditeurs
 (CLIENT global). Multi-tenant strict pour les rôles opérationnels compagnies,
 tenantless pour le rôle CLIENT.
 
-**Stack frontend backoffice (à valider avec le lead avant Chantier BACKOFFICE-BOOTSTRAP)** :
-- **Vite + React 18 + TypeScript strict** (pas Next.js — SPA authentifiée, pas de SSR utile)
-- **Tailwind CSS + shadcn/ui + lucide-react** (composants copiables, dark mode natif)
-- **TanStack Query v5 + Axios** (server state, cache, refetch, JWT + tenant header interceptors)
-- **React Hook Form + Zod** (formulaires performants + validation TS-first)
-- **React Router v6** (stable, connu de tous)
-- **TanStack Table v8** (headless, sort/filter/pagination custom)
-- **react-leaflet + OSM** pour cartes (Phase D Tramingo) — souverain, gratuit
-- **Recharts** pour dashboard (React-first, suffisant)
-- **openapi-typescript-codegen** pour générer un client TS typé depuis `/schema/` — game-changer, aucune erreur de champ manquant possible
-- **react-i18next** (FR par défaut, EN en préparation)
-- **Repo séparé** `toupac_frontend` au même niveau que `toupac_django`
-- **Design pattern** : inspiration Fleetbase console (sidebar sombre, tables denses, actions inline, palette pro) — pas de Figma existant
+**Panel d'administration — décision 1er oct 2026** :
+- **Court terme (rattrapage T2) : django-unfold stylé TOUPAC**. Déjà installé (`iam/unfold.py`), charte visuelle TOUPAC à appliquer, dashboard d'accueil, revue ModelAdmin métier, permissions fines par rôle. ~4-5 jours de travail. Rendu moderne (voir [unfoldadmin.com](https://unfoldadmin.com)), **immédiatement démontrable au lead**.
+- **Moyen terme (T3+) : panel React séparé si besoin évolue**. Option gardée en réserve pour quand le volume fonctionnel dépassera ce que django-unfold peut absorber confortablement. Stack qui serait retenue : Vite + React 18 + TypeScript strict + Tailwind + shadcn/ui + TanStack Query v5 + React Hook Form + Zod + React Router v6 + TanStack Table v8 + react-leaflet + Recharts + openapi-typescript-codegen. Repo séparé `toupac_frontend`. **Décision différée** — ne pas ouvrir ce chantier tant que django-unfold suffit.
 
 ## Modules Django et responsabilités
 
@@ -152,6 +143,44 @@ Nous **préparons l'API** consommée par :
 
 **Une décision d'organisation ticket** : **E1 + E2 fusionnés** en un seul ticket au lieu de deux séparés. Plus cohérent, débrief unique, ~29 resolvers en un bloc. Sonnet 4.5, ~1,5-2 jours.
 
+## Décisions produit et techniques (27 sept — 1er oct 2026)
+
+Session de 5 jours après le 8 sept, concentrée sur la clôture notifications + renforcement voyage + démarrage réel des intégrations avec l'app contrôleur.
+
+### Décisions produit
+
+1. **`TenantManager` — option A tranchée (filtrage explicite assumé).** Au lieu d'implanter un filtrage automatique (que le docstring de `TenantModel` promettait mensongèrement), on retire la promesse et on assume que l'isolation est faite par `.filter(tenant=...)` partout. **Chantier `security-postgres-rls` ouvert à moyen terme** — à déclencher avant l'onboarding de la deuxième compagnie payante.
+
+2. **Vente à bord sur trajet partiel : `origin_stop` et `destination_stop` obligatoires.** Un contrôleur qui vend à bord sait toujours où le passager monte et descend. Validation stricte contre les RouteStop de la route du voyage.
+
+3. **Horodatages d'escale : option A (deux event_types dédiés).** `stop_arrive` et `stop_depart` séparés d'`activity_transition`. Prépare l'arrivée du tracking GPS automatique qui émettra les mêmes events sans toucher au statut métier.
+
+4. **Pattern « premier gagne » sur `TripStop.ata`/`atd`.** Un deuxième event n'écrase pas l'horodatage initial. Aligné sur `handle_activity_transition` pour `actual_departure_at`/`actual_arrival_at`. Le `status` du stop, lui, est bien mis à jour à chaque appel.
+
+5. **JWT systématique sur toute `Reservation`.** `handle_onboard_sale` signe désormais le billet à bord et l'expose dans le verdict (`details.qr_code_jwt`). Pas d'asymétrie entre billets en ligne et billets à bord. Économise un refetch REST au moment précis où le réseau est mauvais (vente offline).
+
+6. **`Trip.summary` alimenté à la fermeture de session.** Agrégat de fin de voyage (boarded, no_show, revenue_xof, cash_xof) recalculé en entier à chaque `control/close/`. Pas de signal, écriture dans la vue.
+
+7. **`actual_arrival_at` enfin écrit depuis le batch offline.** Avant : seulement par la vue `control/close/` avec `timezone.now()` (heure sync, pas heure réelle). Maintenant : par `handle_activity_transition` sur `arriving → completed` avec `event.created_at_local` (heure device). Les deux chemins coexistent, le batch gagne par « premier gagne ».
+
+8. **Enrichissement du seed de démo pour cas CLIENT.** 4 clients globaux (dont Fatou Mbaye et Ousmane Traoré enrichis avec réservations, commandes, factures, paiements). `Order.recipient_user` renseigné sur certaines commandes pour tester le cas « colis reçu ». `InvoiceGenerator` corrigé pour écrire `customer_type="client_user"` quand il faut.
+
+9. **`/my-orders/` liste aussi les colis reçus.** Vue étendue `Q(customer=user) | Q(recipient_user=user)` avec `.distinct()`. Champ `role` ajouté au serializer (`"sender"` | `"recipient"` | `"both"`) pour que l'UI puisse distinguer visuellement.
+
+### Décisions méthodologiques (règles pour les prompts futurs)
+
+1. **« Lire ce qui existe avant d'écrire un contrôle qui le duplique »** (DECISIONS.md, section Modes de travail). Deux erreurs sur un même ticket (format `seat_map`, contrainte unique de `Reservation`) ont montré qu'une spec sans lecture préalable produit des angles morts. Règle : lire les contraintes base avant de coder le pré-contrôle, et proposer un test par introspection qui compare les deux ensembles.
+
+2. **« Un helper de test absorbe les nouveaux champs obligatoires »** (DECISIONS.md). Plutôt que d'adapter 20 call sites quand un champ obligatoire est ajouté au code sous test, étendre le helper (`sell()`, `make_order()`) pour qu'il absorbe le défaut raisonnable. Les tests existants restent inchangés, les nouveaux surchargent via `**overrides`.
+
+3. **« Grep les lecteurs avant d'en changer la forme »** (DECISIONS.md). Quand un champ est écrit à un endroit mais lu par plusieurs sites (serializers passthrough, comparaisons littérales, tests qui assertent une valeur), auditer **tous les lecteurs** avant de changer sa forme ou son contrat. Trois tickets ont rencontré cet angle mort (customer_type, seat_map, contrainte unique). Règle intégrée aux prompts : nommer le grep lecteurs comme fait à produire, pas comme formalité.
+
+### Décisions en attente du lead
+
+1. **Workflows dynamiques (point 4 du message au dev RN du 1er oct)**. Le graphe `ALLOWED_TRANSITIONS` est hardcodé dans `transitions.py`. Est-ce voulu (workflow standardisé TOUPAC) ou faut-il le rendre configurable par compagnie (CDC §??) ? Dans le second cas : chantier séparé 2-3 jours.
+
+2. **Démo lead à prévoir avant que seul le panel admin soit visible.** 30 minutes avec le dev RN qui montre un vrai contrôleur qui ouvre une session, scanne un QR, fait une vente à bord, voit le JWT s'afficher. Change radicalement la perception du T2.
+
 ## Cross-check charte notifications TOUPAC ONE (8 sept 2026)
 
 Lecture intégrale du fichier `Charte_notifications_TOUPAC_ONE.xlsx` (4 feuilles : Charte, Référentiel plateformes, Matrice notifications, Gabarits messages) et comparaison avec notre implémentation.
@@ -175,25 +204,30 @@ Lecture intégrale du fichier `Charte_notifications_TOUPAC_ONE.xlsx` (4 feuilles
 
 **Chantier conformité charte complète** : ~5-6 jours, tracé Phase E du plan.
 
-## Plan de séquencement complet (validé 8 sept 2026)
+## Plan de séquencement révisé (1er oct 2026)
 
-**Phase A — Fin refonte notifications (~3-4 jours)**
-- Ticket E1 + E2 fusionnés : câblage ~29 resolvers métier (voyage/paiement/colis + fleet/incidents/GPS/workflow). Sonnet 4.5, ~1,5-2 j.
-- Ticket F : seed 37 templates système + 2 quick wins conformité charte (masquage subject email + validation longueur push) + retrait `send_notification()` legacy + fusion seeders. Sonnet 4.5, ~1 j.
+**Phase A — LIVRÉE** (notifications refonte complète + voyage renforcé) : E1E2, F, hardening, swagger, parcel-tenant, billing-customer-type, my-orders-recipient, onboard-sale-partial-trips, stop-timestamps, JWT-verdict, premier-gagne. 12 tickets, 902 tests, 0 régression.
+
+**Phase T2-RATTRAPAGE — Panel admin django-unfold (en cours, ~4-5 jours)**
+Décision du 1er oct 2026 vu le retard T2 (jalon 30 sept passé) : rattraper le S4 « Installation & configuration système » du plan originel en customisant django-unfold plutôt qu'en construisant un panel React séparé.
+
+Découpage prévu en 4-5 micro-tickets :
+- **Ticket 1 — Thème TOUPAC pour django-unfold** (~1 j) : couleurs charte, logo, libellés français, sidebar groupée par domaine métier (Voyages / Colis / Facturation / Utilisateurs / Notifications).
+- **Ticket 2 — Dashboard admin TOUPAC** (~1 j) : écran d'accueil `/admin/` avec stats clés (voyages aujourd'hui, commandes en cours, incidents ouverts, CA du mois).
+- **Ticket 3 — Revue des ModelAdmin métier** (~1,5 j) : passer sur Trip, Reservation, Order, Driver, Vehicle, Route, etc. Ajouter `list_filter`, `search_fields`, grouper `fieldsets`, masquer champs d'exploitation purs, `readonly_fields` sur horodatages.
+- **Ticket 4 — Permissions fines par rôle** (~1-1,5 j) : groupes staff proprement configurés, admin de compagnie ne voit que ses données, agent de guichet limité. Pourrait inclure la dette « self-service user management ».
+- **Ticket 5 (optionnel) — Documentation PDF pour le gestionnaire TOUPAC** (~0,5 j) : 5-10 pages des 10 opérations courantes.
 
 **Phase B — Débloqueurs mise en prod (~6-7 jours)**
-- Self-service user management admins compagnie (~3 jours Opus 4.7 — sécurité, durcissement UserAdmin anti-escalade).
+- Self-service user management admins compagnie (~3 jours Opus 4.7 — sécurité, durcissement UserAdmin anti-escalade). Peut être absorbé en partie par le Ticket 4 du panel admin.
 - Endpoints d'écriture CLIENT `POST /customer/reservations/`, `/orders/`, `/payments/` (~3-4 jours). Prépare l'app mobile CLIENT.
 - **SMS réel dès que la clé du lead arrive** — chantier parallèle, ~1 jour code une fois la clé reçue. Cadrage 6 étapes dans DETTES.md.
 
-**Phase C — Backoffice frontend (~13-16 jours)**
-Le gros chantier attendu par le lead. Repo séparé `toupac_frontend`.
-- Chantier BACKOFFICE-BOOTSTRAP (~4-5 j) : setup projet React+Vite+TS+Tailwind+shadcn/ui + auth complète + layout sidebar + client API DRF typé + 1 page fonctionnelle bout-en-bout (liste Trips).
-- Chantier BACKOFFICE-CRUD-CORE (~5-6 j) : Tenants + Users + Vehicles + Drivers + Routes + Trips (avec vue manifeste).
-- Chantier BACKOFFICE-CRUD-BUSINESS (~4-5 j) : Reservations + Orders + Payments + Dashboard (4 compteurs + graphique 7j).
+**Phase C — Panel React séparé (reporte T3+, optionnel)**
+Anciennement « Phase C Backoffice frontend ». Reportée au moment où django-unfold ne suffira plus. À ouvrir uniquement si le lead ou le volume fonctionnel l'exige. Stack déjà cadrée ci-dessus.
 
 **Phase D — Chantiers métier différenciants (~7-10 jours)**
-- Intégration **Tramingo GPS** (~3 j) — polling REST + mapping IMEI→Vehicle + events pré-calculés vers notifs GPS-01/02 déjà câblées Phase A.
+- Intégration **Tramingo GPS** (~3 j) — polling REST + mapping IMEI→Vehicle + events pré-calculés vers notifs GPS-01/02 déjà câblées Phase A. Utilisera les event_types `stop_arrive`/`stop_depart` livrés au ticket du 1er oct.
 - Intégration **VROOM** dispatching optimisé colis (~2-3 j) — microservice HTTP, appel depuis Django lors création batch commandes colis.
 - Intégration **OSRM** routing + ETA colis (~1-2 j) — auto-hébergé données OSM UEMOA/CEDEAO.
 - Intégration **FCM/APNs** push réel (~1 j) — remplace `FakePushProvider`, dépend compte Firebase.
@@ -202,7 +236,7 @@ Le gros chantier attendu par le lead. Repo séparé `toupac_frontend`.
 - N-07 agrégation/coalescing.
 - N-03 langue utilisateur.
 - Délais programmés / scheduler Celery beat.
-- Ack au déclarant.
+- Ack au déclarant INC-01/CRM-01.
 - MKT-01 plafonnement.
 - Rate limiting métier.
 
@@ -214,11 +248,37 @@ Le gros chantier attendu par le lead. Repo séparé `toupac_frontend`.
 - Webhooks sortants HMAC pour ERP tiers.
 - Metabase branché reporting.
 
-**Bilan global** : ~50-60 jours de travail après cette bascule chat. Sur cadence 1-2 tickets/jour, **8-12 semaines calendaires** pour TOUPAC prod-ready complet avec toutes features différenciantes. Réaliste sur période de contrat.
+**Petites corrections traçables à glisser dans n'importe quel ticket** :
+- `TenantModel` docstring faux (haute, 10 min).
+- Chantier `security-postgres-rls` (moyen terme, 2-3 j).
+- `UUIDv7Field` v4 (basse, 15 min rename).
+- `/api/v1/voyage/qr-public-key/` crash sans clé (20 min).
+- PEM env-var Docker → chemin fichier (15 min).
+- `Payment.order` jamais renseigné (basse, 15 min).
+- Route ↔ RouteStop sans contrainte cohérence (30 min).
+- nginx vs Caddy recette (1h investigation).
+- HTTPS sur recette (~1h).
+- CI/CD GitHub Actions (~2h).
 
-## État du sprint applicatif au 8 sept 2026
+**Angles morts produit à trancher avec le lead** :
+- COL-03 (charte dit « Client », catalogue dit `parcel.recipient`) — 15 min + décision.
+- `assignment_id` modèle inexistant — décision modélisation vs retrait.
+- 10 rôles de la charte repliés sur ADMIN/AGENT/DISPATCHER — étendre `User.Role` ~2 j.
+- Ack déclarant INC-01/CRM-01 — ~0,5 j.
+- Workflows dynamiques voyage — décision « standardisé vs configurable » (en attente).
 
-**Ce qui est fait (base historique)** :
+**Passerelles réelles à ouvrir dès clés API disponibles** :
+- SMS Africa's Talking (reco) ou Twilio ou D7Networks — ~1 j.
+- WhatsApp Business via Twilio ou Meta Cloud API — ~1 j + délais Meta.
+- Push FCM/APNs — ~1 j + compte Firebase.
+
+**Bilan global** : ~35-45 jours de travail après cette bascule chat, incluant les 4-5 jours du panel admin immédiat. Sur cadence 1-2 tickets/jour, **6-9 semaines calendaires** pour TOUPAC prod-ready complet. Réaliste sur période de contrat prolongée.
+
+## État du sprint applicatif au 1er oct 2026
+
+**902 tests verts, 1 xfailed documentaire, 0 régression cumulée sur 12 tickets livrés depuis le 8 sept.**
+
+**Base historique** :
 - Feature `session_id` batch offline
 - QR billets RS256 + endpoint public `/qr-public-key/`
 - Tests critiques : auth, multi-tenant isolation, workflow, paiement mocké
@@ -226,22 +286,43 @@ Le gros chantier attendu par le lead. Repo séparé `toupac_frontend`.
 - Access token denylist Redis
 - Fondations API publique : 15 scopes tenant + 10 scopes plateforme
 
-**Livré dans la série iam-admin (3-5 sept 2026)** — génération clé API, démo-ready, service accounts.
+**Série iam-admin (3-5 sept 2026)** — génération clé API, démo-ready, service accounts.
 
-**Livré dans la série notifications warm-up + A + A' (5-6 sept 2026, 191 tests)** — canaux enrichis, EventCatalog 37 events, Resolvers, `User.notification_preferences`.
+**Série notifications warm-up + A + A' (5-6 sept 2026, 191 tests)** — canaux enrichis, EventCatalog 37 events, Resolvers, `User.notification_preferences`.
 
-**Livré dans le chantier CLIENT global (6-7 sept 2026, 476 tests, +208)** — iam-platform-credentials, USR-1 à USR-4 (architecture marketplace B2B2C posée).
+**Chantier CLIENT global (6-7 sept 2026, 476 tests, +208)** — iam-platform-credentials, USR-1 à USR-4 (architecture marketplace B2B2C posée).
 
-**Livré dans la fin refonte notifications (7-8 sept 2026, 637 tests, +161)** :
-- **Ticket B** : `NotificationService.emit()` refondu, flow 7 étapes, fail-log symétrique 6 branches (puis 8), idempotence 2 niveaux Redis+DB, retry par canal, confidentialité asymétrique. 3 régressions critiques désamorcées (`title_template=""` NOT NULL, fuite cross-tenant `order_by("-tenant_id")` NULLS FIRST, race Celery eager sur FK via `transaction.on_commit()`). +90 tests.
-- **Correctif ConsoleProvider post-B** : masquage body hors DEBUG (incident actif prod détecté, pas dette future). +5 tests.
-- **Ticket C** : factory providers configurable via `settings.NOTIFICATION_PROVIDERS`, 4 providers (FakePush, EmailSmtp, SmsConsole, WhatsAppConsole), `loggable_body()` partagé, préfixes explicites. +34 tests.
-- **Ticket D** : 5 endpoints CLIENT centre d'alertes (list paginée, unread-count, read, ack, mark-all-read). Serializer liste blanche stricte, isolation 404 pas 403, dérivation catalog en lecture / refus en écriture. Bug OpenAPI SerializerMethodField sans annotation corrigé (`spectacular --validate` en routine pre-merge). +47 tests.
-- **Cross-check charte notifications TOUPAC ONE (8 sept 2026)** : lecture intégrale du fichier Excel (4 feuilles), rapport respecté/dévié/non traité. 2 quick wins intégrés au Ticket F, 5 écarts tracés dans DETTES.md pour chantier Phase E.
+**Fin refonte notifications (7-8 sept 2026, 637 tests, +161)** :
+- Ticket B, Correctif ConsoleProvider post-B, Ticket C, Ticket D, Cross-check charte TOUPAC ONE.
 
-**Ce qui reste immédiatement (Phase A, 1er ticket du nouveau chat)** :
-- **Ticket E1+E2 fusionnés** — câblage ~29 resolvers métier. Sonnet 4.5, ~1,5-2 j.
-- **Ticket F** — seed 37 templates + 2 quick wins conformité + retrait legacy. Sonnet 4.5, ~1 j.
+**Clôture notifications + chantier voyage (8 sept — 1er oct 2026, 902 tests, +265)** — 12 tickets :
+
+1. **notifications-refonte-E1E2** (commit `79201c2`) : 29 resolvers métier câblés, `resolver_variables` strict, `Order.recipient_user` ajouté. +123 tests.
+2. **seed-no-active-control-session** (commit `4d3e87b`) : seed ne crée plus de sessions ControlSession ouvertes fantaisistes.
+3. **voyage-batch-hardening** (commit `8843bfb`) : `rejection_code` stable, détection seat_conflict propre sur onboard_sale (anomaly MODERATE), liste blanche `payment_method`, validation seat_map avec `trip_seat_labels()`, verdict enrichi.
+4. **notifications-refonte-F** (commit `8b20534`) : retrait adaptateur `send_notification()`, migration OTP vers `emit()` + `recipient_override`, correction docstring `TenantModel`.
+5. **notifications-parcel-tenant-guard** (commit `028e719`) : helper `_order()` filtre sur tenant, 4 tests d'isolation cross-tenant.
+6. **voyage-swagger-batch-doc** (commit `fbb82ad`) : `ChoiceField` sur `rejection_code` (28 valeurs), 10 `OpenApiExample` par event_type + 2 verdicts, test paramétré que les exemples passent les handlers réels.
+7. **voyage-onboard-sale-partial-trips** (commit `a661abd`) : `origin_stop`/`destination_stop` obligatoires avec 5 validations, 7 nouveaux rejection codes, `actual_arrival_at` sur `arriving→completed`, `Trip.summary` alimenté à la fermeture de session, `TripStopSerializer` expose `is_boarding`/`is_alighting` (prefetch `stops__route_stop` pour éviter N+1).
+8. **billing-invoice-customer-type-alignment** (commit `4afe95f`) : `InvoiceGenerator` écrit `"client_user"` + `customer_user_id` quand passenger rattaché, `_seed_invoices` priorise les clients rattachés, `_seed_colis` renseigne `Order.recipient_user`, récap seed enrichi avec section « COMPTES CLIENTS GLOBAUX ».
+9. **customer-my-orders-with-recipient** (commit `16ae282`) : `MyOrdersView` filtre `Q(customer=user) | Q(recipient_user=user)` + `.distinct()`, champ `role` dans le serializer.
+10. **voyage-stop-timestamps-and-onboard-jwt** (commit `b7a8c7d`) : deux nouveaux event_types `stop_arrive`/`stop_depart` dans `voyage/services/handlers/stops.py`, 2 nouveaux rejection codes, `handle_onboard_sale` signe le JWT via `sign_ticket_jwt(reservation)`.
+11. **voyage-stop-timestamps-preserve-first** (commit `0c1336e`) : alignement `handle_stop_arrive`/`handle_stop_depart` sur « premier gagne » (helper `_apply_timestamp` extrait).
+12. **voyage-onboard-sale-jwt-in-verdict** (commit `e323c68`) : ajout `qr_code_jwt` au dict retourné par `handle_onboard_sale` + `VERDICT_DETAIL_KEYS["onboard_sale"]`.
+
+**Audit `DECISIONS.md` / `DETTES.md` complété le 30 sept + ajouts 1er oct** :
+- `DECISIONS.md` — 5 nouvelles entrées : sévérité d'anomalie empeché/advenu, filtrage explicite assumé + RLS à moyen terme, `internal_id` non global, chaque nouveau `emit()` fournit sa variable de résolution, lire la contrainte base avant pré-contrôle. **3 règles méthodologiques** ajoutées au 1er oct : helper qui absorbe les champs obligatoires, grep les lecteurs avant changement de forme, auditer DECISIONS/DETTES en fin de gros chantier.
+- `DETTES.md` — 6 modifications + 3 nouvelles dettes tracées (`TenantModel` promise mismatch, `UUIDv7Field` mal nommé, parcel sans garde tenant, chantier RLS, perf pytest actualisée, `Payment.order` non renseigné, Swagger insuffisant pour payloads polymorphes).
+
+**Message au dev RN mobile envoyé le 1er oct 2026** — couvre les 6 sujets : statut voyage + horodatages, `Trip.summary`, vente à bord trajet partiel, JWT dans verdict, horodatages d'escale (`stop_arrive`/`stop_depart`), diagnostic events invisibles, workflows dynamiques en attente lead. **Réponses définitives au dev**, pas d'options en suspens.
+
+**Reset du seed sur recette effectué le 1er oct** — base propre, Fatou Mbaye 22 réservations + 2 commandes + 2 paiements visibles via l'API client, Ousmane Traoré 13 réservations + 2 commandes dont 1 destinataire. 4 compagnies clients globaux configurés. QR codes régénérés et transmis au dev RN pour tests.
+
+**Ce qui est prêt à démarrer dans le nouveau chat** :
+- **Ticket 1 panel admin — Thème TOUPAC pour django-unfold** (~1 j, premier à prompter).
+- **Micro-ticket `voyage-stop-timestamps-preserve-first`** déjà livré. **Micro-ticket `voyage-onboard-sale-jwt-in-verdict`** déjà livré.
+- **Message au dev RN** envoyé. Prochaine interaction : attendre son retour sur implementation côté app.
+- **En attente du lead** : décision workflows dynamiques, clé API SMS, feu vert sur éventuels gros chantiers T3 (endpoints écriture CLIENT, mise en prod cloud SN).
 
 ## Conventions de code établies
 
@@ -376,42 +457,34 @@ Extraits critiques :
 
 ## Ce qui vient dans le nouveau chat
 
-**Prochain ticket : Phase A — Ticket E1+E2 fusionnés (câblage ~29 resolvers métier).** Sonnet 4.5, ~1,5-2 jours.
+**Prochain ticket : T2-RATTRAPAGE — Ticket 1 panel admin : Thème TOUPAC pour django-unfold.** Sonnet 4.5, ~1 jour.
 
 Le nouveau chat démarre par :
 
 1. **Lecture des 3 fichiers de vérité** (`CONTEXT_TRANSFERT.md`, `DECISIONS.md`, `DETTES.md`).
-2. **Lecture du module `notifications/` post-Ticket D** :
-   - `catalog.py` — les 37 events, structure `NotifEvent`.
-   - `resolvers/base.py` — squelette, `KNOWN_UNIMPLEMENTED_RESOLVERS` (~29 clés à implémenter).
-   - `resolvers/examples.py` — 2 exemples testés (pattern à reproduire).
-   - `services.py` — `emit()` refondu, comprendre comment il consomme les resolvers.
-3. **Confirmation compréhension** avant d'ouvrir le prompt E1+E2.
+2. **Lecture du module `iam/unfold.py`** et de l'admin existant (`iam/admin.py`) pour comprendre la configuration django-unfold en place.
+3. **Reconnaissance visuelle de l'inspiration** : [unfoldadmin.com](https://unfoldadmin.com) + regarder la console Fleetbase comme référence d'UX.
+4. **Confirmation compréhension** avant d'ouvrir le prompt Ticket 1.
 
-**Ce que E1+E2 fusionnés doit livrer** :
+**Ce que le Ticket 1 doit livrer** :
 
-- Implémenter les ~29 resolvers déclarés dans `KNOWN_UNIMPLEMENTED_RESOLVERS`.
-- Chaque resolver reçoit `(context, tenant)` et retourne `list[ResolvedRecipient]`.
-- Résolution des destinataires selon la sémantique de chaque event (client de la réservation, chauffeur de la mission, dispatchers du tenant, etc.).
-- Retirer chaque clé de `KNOWN_UNIMPLEMENTED_RESOLVERS` au fur et à mesure — validation croisée bidirectionnelle du catalog garantit qu'aucune n'est oubliée.
-- Tests : au moins 1 test par resolver (~29 tests min), + tests d'invariants (tous les events ont un resolver enregistré).
+- Charte visuelle TOUPAC (couleurs, logo, favicon) appliquée via les settings `UNFOLD`.
+- Libellés français cohérents partout (`verbose_name` sur les modèles, `verbose_name_plural`).
+- Sidebar groupée par domaine métier dans `UNFOLD["SIDEBAR"]["navigation"]` : Voyages / Colis / Facturation / Utilisateurs / Notifications / Opérations / Configuration.
+- Préservation stricte de l'existant — aucun admin cassé, les 902 tests restent verts.
 
-**Après E1+E2** : Ticket F (seed 37 templates + 2 quick wins conformité + retrait legacy).
-
-**Après F** : Phase B — self-service user management + endpoints écriture CLIENT + SMS réel dès clé du lead.
-
-**Puis Phase C** : Backoffice frontend en repo séparé — nécessite validation du stack avec le lead avant BACKOFFICE-BOOTSTRAP.
+**Après Ticket 1** : Ticket 2 (Dashboard admin TOUPAC) — écran d'accueil `/admin/` avec stats clés.
 
 **Rappels utiles pour le nouveau chat** :
-- **Architecture marketplace B2B2C posée** (voir section dédiée).
-- **Deux types d'intégrations API** : ApiCredential (tenant) et PlatformCredential (plateforme + acting user).
-- **637 tests verts, 0 régression**. Chantier notifications à 3 tickets près d'être bouclé.
-- **Endpoint `/ack/` CLIENT laissé en veille** — pas d'events supplémentaires à `requires_ack=True` avant validation design app mobile CLIENT.
-- **SMS/WhatsApp réels différés** — attente clé API du lead.
-- **Stack frontend à valider avec le lead** avant démarrage Chantier BACKOFFICE-BOOTSTRAP.
-- **Charte notifications cross-checkée** — 2 quick wins pour Ticket F, 5 écarts tracés Phase E.
-- **Auditer DECISIONS.md et DETTES.md** en fin de refonte notifs (bon moment) — ce ne sont pas des archives.
+- **902 tests verts, 0 régression**. Chantier notifications + voyage bouclés.
+- **Message au dev RN mobile envoyé** le 1er oct, couvre les 6 sujets techniques. Attendre son retour d'implémentation.
+- **Attente lead** : workflows dynamiques (point 4), clé API SMS, feu vert chantiers T3.
+- **Démo lead à prévoir** avant que seul le panel admin soit visible (30 min app contrôleur).
+- **Fiches références du seed** : Fatou Mbaye (`fatou.mbaye@example.sn`, 22 réservations + 2 commandes + 2 paiements), Ousmane Traoré (`ousmane.traore@example.sn`, 13 réservations + 2 commandes dont 1 destinataire), Khadija Diallo (`khadija.diallo@example.sn`, nouveau client sans historique), `+221770000103` (client identifié par téléphone). Tous les 4 : `Toupac2026!`.
+- **Serveur recette** : `http://18.214.15.206`. Base à jour depuis reset du 1er oct.
+- **Clé plateforme recette** : `tpc_platform_6e238ca9.5LDJUN-yNrpNvZqBSVGxoqawmYqtmiCYUbchDB0nP_Q`.
+- **Auditer DECISIONS.md et DETTES.md** en fin de T2-RATTRAPAGE (bon moment).
 
 **Phrase de raccrochage à coller après CONTEXT_TRANSFERT.md dans le nouveau chat** :
 
-> On sort d'un chat où on a bouclé la refonte notifs (Tickets B / C / D) et fait le cross-check charte. Prochaine étape : Ticket E1+E2 fusionnés (câblage ~29 resolvers métier). Lis DECISIONS.md et DETTES.md, puis dis-moi ce que tu as compris comme prochaine action, et on démarre.
+> On sort d'un chat où on a clôturé le chantier notifications (E1E2 + F) et le chantier voyage (hardening + swagger + onboard-sale-partial + horodatages d'escale + JWT verdict). 902 tests, 0 régression. On bascule maintenant vers le **panel admin django-unfold** pour rattraper le T2 en retard. Lis CONTEXT_TRANSFERT.md en entier, puis DECISIONS.md et DETTES.md, puis dis-moi ce que tu as compris comme prochaine action, et on démarre le Ticket 1 : Thème TOUPAC pour django-unfold.

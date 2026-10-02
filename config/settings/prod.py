@@ -75,3 +75,9 @@ LOGGING = {
         },
     },
 }
+
+# Lu depuis l'environnement : « staging » sur la recette (badge bleu
+# « Recette »), absent/None en vraie production (pas de badge). Jamais
+# hardcodé « production » en settings — ce n'est pas une info settings,
+# c'est une info déploiement.
+TOUPAC_ENVIRONMENT = os.environ.get("TOUPAC_ENVIRONMENT") or None

@@ -5,6 +5,8 @@ import os
 from datetime import timedelta
 from pathlib import Path
 
+from django.templatetags.static import static
+
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 
 SECRET_KEY = os.environ.get("DJANGO_SECRET_KEY", "dev-insecure-key-change-in-prod")
@@ -325,23 +327,64 @@ MEDIA_ROOT = BASE_DIR / "media"
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
+# Dossier des assets statiques du projet (logo TOUPAC, etc.). STATIC_ROOT
+# reste la cible de collectstatic en prod ; STATICFILES_DIRS déclare les
+# sources que le finder parcourt en amont.
+STATICFILES_DIRS = [BASE_DIR / "static"]
+
+# Pilotage du badge d'environnement affiché en tête d'admin. Nul en base,
+# surchargé par dev.py / prod.py — la prod ne doit porter aucun badge visible.
+TOUPAC_ENVIRONMENT = None
+
 # ─── Unfold Admin ───
 UNFOLD = {
     "SITE_TITLE": "TOUPAC",
     "SITE_HEADER": "TOUPAC Admin",
+    "SITE_URL": "/admin/",
+    # SITE_SYMBOL reste comme fallback Material Symbol si le logo ne charge pas.
     "SITE_SYMBOL": "directions_bus",
+    "SITE_ICON": {
+        "light": lambda request: static("toupac/img/logo.png"),
+        "dark": lambda request: static("toupac/img/logo-dark.png"),
+    },
+    "SITE_LOGO": {
+        "light": lambda request: static("toupac/img/logo.png"),
+        "dark": lambda request: static("toupac/img/logo-dark.png"),
+    },
+    "SITE_FAVICONS": [
+        {
+            "rel": "icon",
+            "sizes": "64x64",
+            "type": "image/png",
+            "href": lambda request: static("toupac/img/favicon.png"),
+        },
+    ],
+    "SHOW_HISTORY": True,
+    # Pas de site public : le lien « Voir sur le site » n'a nulle part où aller.
+    "SHOW_VIEW_ON_SITE": False,
+    "BORDER_RADIUS": "6px",
+    # None : le toggle light/dark reste à la main de chaque utilisateur, Unfold
+    # mémorise sa préférence côté localStorage.
+    "THEME": None,
+    # Badge d'environnement en tête d'admin. Callback retournant [texte, color]
+    # ou None quand il n'y a rien à afficher (prod). color ∈ {primary, secondary,
+    # success, info, warning, danger}.
+    "ENVIRONMENT": "iam.unfold.environment_badge",
     "COLORS": {
+        # Bleu TOUPAC, centré sur le bleu du logo (#1E40AF = blue-800).
+        # Format Unfold : « R G B » en entiers 0-255, séparés par espaces.
         "primary": {
-            "50": "232 245 233",
-            "100": "200 230 201",
-            "200": "165 214 167",
-            "300": "129 199 132",
-            "400": "102 187 106",
-            "500": "15 110 86",
-            "600": "67 160 71",
-            "700": "56 142 60",
-            "800": "46 125 50",
-            "900": "27 94 32",
+            "50":  "239 246 255",
+            "100": "219 234 254",
+            "200": "191 219 254",
+            "300": "147 197 253",
+            "400": "96 165 250",
+            "500": "59 130 246",
+            "600": "37 99 235",
+            "700": "29 78 216",
+            "800": "30 64 175",
+            "900": "30 58 138",
+            "950": "23 37 84",
         },
     },
     "SIDEBAR": {
