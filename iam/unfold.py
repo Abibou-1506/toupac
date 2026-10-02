@@ -42,3 +42,72 @@ def environment_badge(request):
     if env == "staging":
         return ["Recette", "info"]
     return None
+
+
+def dashboard_callback(request, context):
+    """
+    Peuple l'index admin avec les 4 stat cards TOUPAC.
+
+    Admin de compagnie → stats de son tenant.
+    Superadmin → stats globales (toutes compagnies agrégées).
+    Staff sans tenant et non superadmin → stats vides. Situation anormale
+    (TenantAdminMixin.get_queryset applique le même repli : « on ne
+    montre rien plutôt que de tout montrer »).
+
+    Format de retour : context modifié en place avec une clé `cards`,
+    liste de dicts consommée par templates/admin/index.html.
+    """
+    from iam.dashboard import compute_stats
+
+    user = request.user
+    if TenantAdminMixin._is_superadmin(user):
+        stats = compute_stats(tenant=None)
+    elif getattr(user, "tenant", None) is not None:
+        stats = compute_stats(tenant=user.tenant)
+    else:
+        # Staff orphelin : fail-safe cohérent avec TenantAdminMixin.
+        stats = {
+            "trips_today": 0,
+            "orders_in_progress": 0,
+            "incidents_open": 0,
+            "revenue_month_xof": 0,
+        }
+
+    # Format XOF avec séparateurs milliers français (espace insécable U+00A0).
+    # Pas d'intword pour XOF, format manuel : la locale fr_FR n'est pas
+    # installée dans l'image Docker, un simple remplacement suffit. Le
+    # NBSP est écrit sous forme d'échappement \\u00a0 plutôt que littéral
+    # pour que la source reste lisible (ruff RUF001 bannit les caractères
+    # ambigus en source — ici, le NBSP est voulu, pas un typo).
+    nbsp = " "  # noqa: RUF001
+    revenue_formatted = (
+        f"{stats['revenue_month_xof']:,}".replace(",", nbsp) + " XOF"
+    )
+
+    context["cards"] = [
+        {
+            "title": "Voyages aujourd'hui",
+            "value": stats["trips_today"],
+            "icon": "directions_bus",
+            "color": "primary",
+        },
+        {
+            "title": "Commandes en cours",
+            "value": stats["orders_in_progress"],
+            "icon": "inventory_2",
+            "color": "warning",
+        },
+        {
+            "title": "Incidents ouverts",
+            "value": stats["incidents_open"],
+            "icon": "report_problem",
+            "color": "danger",
+        },
+        {
+            "title": "CA du mois",
+            "value": revenue_formatted,
+            "icon": "payments",
+            "color": "success",
+        },
+    ]
+    return context

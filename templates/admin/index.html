@@ -1,0 +1,29 @@
+{# TOUPAC — override de l'index admin Unfold pour afficher 4 stat cards #}
+{# au-dessus de la liste des apps. {{ block.super }} ramène le contenu  #}
+{# natif (grille deux colonnes app_list + history) sans l'écraser.      #}
+{% extends "admin/index.html" %}
+{% load i18n %}
+
+{% block content %}
+    {% if cards %}
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+            {% for card in cards %}
+                <div class="bg-white dark:bg-base-800 border border-base-200 dark:border-base-700 rounded-md p-6">
+                    <div class="flex items-center justify-between mb-2">
+                        <span class="text-sm font-medium text-base-600 dark:text-base-400">
+                            {{ card.title }}
+                        </span>
+                        <span class="material-symbols-outlined text-{{ card.color }}-600 dark:text-{{ card.color }}-400">
+                            {{ card.icon }}
+                        </span>
+                    </div>
+                    <div class="text-3xl font-semibold text-base-900 dark:text-base-100">
+                        {{ card.value }}
+                    </div>
+                </div>
+            {% endfor %}
+        </div>
+    {% endif %}
+
+    {{ block.super }}
+{% endblock %}

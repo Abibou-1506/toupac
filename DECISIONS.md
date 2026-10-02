@@ -12,6 +12,103 @@ Ordre : les patterns les plus récents en haut, groupés par domaine.
 
 ---
 
+### Unfold ne génère qu'un sous-ensemble de Tailwind — les palettes sémantiques passent par `STYLES`
+_Découvert — Fix post-Ticket 2 panel admin (2 oct 2026)_
+
+`UNFOLD["COLORS"]` ne supporte que trois clés : `primary`, `base`, `font`.
+Toute autre clé est **silencieusement ignorée** — pas d'erreur au boot, pas
+de warning au `python manage.py check`, les shades ne sont tout simplement
+jamais générées dans le CSS compilé.
+
+Même constat côté Tailwind standard : le build d'Unfold n'inclut qu'un
+sous-ensemble délibrément restreint. Probe DOM réalisé sur `/admin/` :
+
+| Classe testée | Générée dans le CSS ? |
+|---|---|
+| `text-primary-*` | ✅ (via `UNFOLD["COLORS"]["primary"]`) |
+| `text-red-*` | ✅ (utilisé par les messages d'erreur Unfold) |
+| `text-amber-*`, `text-green-*`, `text-emerald-*`, `text-orange-*`, `text-rose-*` | ❌ |
+| `text-warning-*`, `text-danger-*`, `text-success-*` | ❌ |
+
+Le piège est **silencieux et retardé** : le template HTML sort les bonnes
+classes, le navigateur retombe sur la couleur de texte par défaut, et
+rien dans la chaîne d'outils (lint, type-check, tests smoke sur
+`/admin/`) ne pointe le problème. Il faut un œil humain sur un rendu
+ou une inspection DOM pour s'en apercevoir.
+
+**Pattern retenu** : toute palette sémantique au-delà de `primary` passe
+par `UNFOLD["STYLES"]`, qui injecte un `.css` supplémentaire dans le
+`<head>` après les styles d'Unfold. Cf. `static/toupac/css/toupac-colors.css`
+(ajouté au fix post-Ticket 2) qui déclare `warning` / `danger` / `success`
+sur les shades 400/600 (textes et icônes) et 50/900-20 (fonds de badges
+à venir aux Tickets 3-4).
+
+**Corollaire** : avant de nommer une classe CSS dans un template admin,
+tester son existence effective dans la réponse rendue — une sortie HTML
+correcte n'est pas une preuve d'application. L'outillage utile :
+```javascript
+const probe = document.createElement('span');
+probe.className = 'text-warning-600';
+probe.style.cssText = 'position:absolute;visibility:hidden;left:-9999px';
+document.body.appendChild(probe);
+console.log(window.getComputedStyle(probe).color);
+probe.remove();
+```
+Si la couleur revient au gris de texte par défaut (`oklch(0.872 0.01
+258.338)` dans la build actuelle), la classe n'existe pas dans le CSS.
+
+**Coût vécu** : impression visuelle dégradée sur l'écran d'accueil admin
+au Ticket 2 (icônes `warning` / `danger` / `success` toutes grises alors
+que `primary` passait), diagnosticé par probe DOM via Claude in Chrome,
+fixé par un fichier CSS d'appoint de 12 règles. Cause racine : hypothèse
+non vérifiée au prompt du Ticket 2 (« Unfold reconnaîtra bien
+`warning`/`danger`/`success` »). Leçon générale : ne pas supposer qu'une
+convention sémantique CSS est portée par un framework sans vérification
+de terrain.
+
+---
+
+### Les libellés français traversent `escape` avant d'arriver dans la réponse HTML
+_Découvert — Ticket 2 dashboard admin (2 oct 2026)_
+
+« Voyages aujourd'hui » dans un card titre devient `Voyages aujourd&#x27;hui`
+dans la réponse rendue par le template Django. Un
+`assert "Voyages aujourd'hui" in content` échoue silencieusement — le libellé
+*est* dans le code source, *n'est pas* dans la sortie, et rien ne pointe le
+vrai coupable à la lecture.
+
+L'escape est **invisible dans le source**, **invisible dans le DOM rendu dans
+le navigateur** (le navigateur dé-escape à l'affichage), **visible uniquement
+dans le byte-stream HTML** — exactement le niveau où opère un `assert` sur
+`response.content.decode()`. Un dev qui vérifie à l'œil nu voit le libellé
+correct ; son test échoue ; aucun des deux n'a tort.
+
+Trois chemins praticables, aucun universel :
+
+- Asserter sur un **substring sans caractère spécial**
+  (`"Voyages aujourd" in content`). Robuste, mais perd en lisibilité et
+  manque la fin de la chaîne.
+- Asserter sur la **version escapée** (`"Voyages aujourd&#x27;hui" in content`).
+  Fidèle mais fragile — toute évolution de la stratégie d'escape de Django
+  réécrirait tous ces tests.
+- Utiliser **`assertContains(response, text, html=False)`** de `SimpleTestCase`
+  qui autogère l'escape dans un sens. Mais ne s'invoque pas sans `self`, et
+  pytest + `Client()` renvoie une `HttpResponse` brute — à encapsuler.
+
+**Pattern retenu** : option 1 (substring sans caractère à échapper) avec
+**commentaire explicatif obligatoire** sur la ligne. Sans ce commentaire, un
+lecteur futur « compléterait » la chaîne tronquée en pensant corriger un
+oubli, et casserait le test. Cf. `iam/tests/test_dashboard.py` ligne 224.
+
+**Coût vécu** : 45 minutes de diagnostic au Ticket 2 pour trouver pourquoi
+`"Voyages aujourd'hui" in content` échouait alors que la card s'affichait
+correctement à l'écran. Entrée corollaire à la règle déjà présente
+« assertions HTML sur URL/attributs, pas sur labels affichés » (plus bas) :
+la règle générale n'avait pas déclenché ici parce que « Voyages aujourd'hui »
+ressemblait à un libellé inoffensif. L'inoffensif, c'était l'apparence.
+
+---
+
 ### `spectacular --validate` fait partie de la routine pre-merge
 _Découvert — Ticket notifications-refonte-D (7 sept 2026)_
 

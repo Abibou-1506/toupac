@@ -370,6 +370,7 @@ UNFOLD = {
     # ou None quand il n'y a rien à afficher (prod). color ∈ {primary, secondary,
     # success, info, warning, danger}.
     "ENVIRONMENT": "iam.unfold.environment_badge",
+    "DASHBOARD_CALLBACK": "iam.unfold.dashboard_callback",
     "COLORS": {
         # Bleu TOUPAC, centré sur le bleu du logo (#1E40AF = blue-800).
         # Format Unfold : « R G B » en entiers 0-255, séparés par espaces.
@@ -387,6 +388,13 @@ UNFOLD = {
             "950": "23 37 84",
         },
     },
+    "STYLES": [
+        # Palettes sémantiques warning/danger/success manquantes dans le
+        # build Tailwind d'Unfold (qui ne génère que primary/base/font).
+        # Utilisées par iam/dashboard.py (cards du dashboard) et à venir
+        # par les badges de statut des ModelAdmin aux Tickets 3-4.
+        lambda request: static("toupac/css/toupac-colors.css"),
+    ],
     "SIDEBAR": {
         "navigation": [
             {

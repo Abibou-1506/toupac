@@ -87,3 +87,26 @@ def test_environment_badge_none_when_unset():
 def test_environment_badge_none_in_production():
     """« production » explicite retourne aussi None — la prod ne porte aucun badge."""
     assert environment_badge(request=None) is None
+
+
+# ─── Palettes sémantiques via STYLES (fix post-Ticket 2) ───
+
+@pytest.mark.django_db
+def test_admin_index_loads_toupac_colors_css(superadmin):
+    """Vérifie que le CSS d'appoint warning/danger/success est bien
+    référencé dans la réponse HTML de l'admin.
+
+    Fix de régression : au Ticket 2, les classes text-warning-*,
+    text-danger-*, text-success-* étaient dans le HTML mais pas dans le
+    CSS compilé d'Unfold (qui ne génère que primary/base/font). Ce
+    fichier CSS les ajoute via UNFOLD["STYLES"]. Si quelqu'un retire
+    accidentellement STYLES du UNFOLD dict un jour, ce test échoue.
+    """
+    client = Client()
+    client.force_login(superadmin)
+    response = client.get(reverse("admin:index"))
+    assert response.status_code == 200
+    content = response.content.decode()
+    # Le finder statique de Django hashe/non-hashe selon le storage, mais
+    # le segment de chemin reste identifiable.
+    assert "toupac/css/toupac-colors.css" in content
