@@ -12,6 +12,123 @@ Ordre : les patterns les plus récents en haut, groupés par domaine.
 
 ---
 
+### Doc officielle d'une dépendance ≠ comportement de la version installée
+_Découvert — Fix post-Ticket 3B sidebar nested (2 oct 2026)_
+
+La doc officielle de `django-unfold` (section Nested Navigation sur
+`mintlify.wiki/unfoldadmin/django-unfold/advanced/sidebar-navigation`)
+décrit un pattern sidebar à 4 niveaux (section → item parent avec icon
+→ items nested) qui ne fonctionne **pas** sur la version 0.104.1
+installée dans ce projet (`requirements.txt` : `django-unfold>=0.30`).
+Le code source du package installé révèle pourquoi :
+
+```python
+# unfold/sites.py::_get_navigation_items (0.104.1)
+for item in items:
+    link = item.get("link")
+    if not link:
+        continue   # <= items sans link sont droppés silencieusement
+    ...
+```
+
+Un item parent nested n'a par définition pas de `link` propre (il porte
+un bloc `items` d'enfants). Il est donc filtré avant d'arriver au
+template. Et le template `app_list.html` n'a pas de récursion : même si
+l'item passait, ses enfants ne seraient pas rendus. La doc décrit un
+pattern qui vient dans une version postérieure, ou qui nécessite un
+`UnfoldAdminSite` custom non documenté — pas 0.104.1 en l'état.
+
+**Le piège est triple** :
+1. **Silencieux** : aucune erreur, aucun warning, `manage.py check` passe,
+   `pytest` passe. L'item parent disparaît sans trace.
+2. **Cosmétique de surface** : le `title` du groupe parent survit tant
+   qu'il contient *au moins* un item avec `link`. Sous une sidebar qui
+   n'a que des items nested, le groupe entier est considéré vide et le
+   filtre `{% if group.items %}` du template le drop. Résultat :
+   groupes entiers absents du DOM.
+3. **Doc trompeuse** : l'exemple « Nested Navigation » de la doc est
+   syntaxiquement valide et ressemble à un pattern supporté. Rien ne
+   signale qu'il est aspirationnel ou qu'il nécessite une version
+   ultérieure.
+
+**Règle retenue** : quand une dépendance se comporte autrement que sa
+doc, **lire le code source installé avant de persister sur le pattern
+documenté**. Dans ce projet, les packages sont disponibles dans le
+container Docker à `/usr/local/lib/python3.12/site-packages/<pkg>/` —
+le `view` depuis le dev local via volume mount, ou un
+`docker compose exec web less /usr/local/lib/python3.12/site-packages/
+<pkg>/<module>.py` suffit. Deux minutes de lecture, versus deux heures
+de debug sur l'hypothèse que la config est fausse alors qu'elle est
+conforme à une doc déconnectée.
+
+**Garde-fou test** : quand on utilise un pattern documenté d'une
+dépendance pour la première fois dans ce projet, écrire un test
+**sur le DOM réellement rendu** (`"<nom clé> in response.content.decode()"`),
+pas sur l'existence de la config Python. La config valide ne garantit
+pas le rendu — le probe DOM, oui. Cf. le test paramétré
+`test_sidebar_groups_all_rendered` dans `iam/tests/test_admin_sidebar.py`.
+
+**Coût vécu** : Ticket 3B a livré une sidebar cassée (3 sections sur 4
+absentes du DOM) sans détection auto, parce que les tests du ticket
+assertaient sur URLs/attributs d'items individuels, pas sur la présence
+des groupes top-level. Fix post-Ticket 3B initial a tenté un repositionnement
+de `collapsible` d'après la doc — n'a rien débloqué. Diagnostic définitif
+n'est venu qu'après lecture de `unfold/sites.py`. Révert au pattern
+groupe-section plat du Ticket 1 (connu-fonctionnel) a clôturé. Le
+pattern nested + trait vertical reste traçé en dette pour un upgrade
+`django-unfold` futur.
+
+---
+
+### Les filtres `list_filter` d'Unfold ne s'utilisent pas sous la forme `("field", DropdownFilter)`
+_Découvert — Ticket 3 revue ModelAdmin métier (2 oct 2026)_
+
+`DropdownFilter` et ses variantes dans `unfold.contrib.filters.admin` ne
+descendent **pas** de `django.contrib.admin.FieldListFilter`, mais de
+`SimpleListFilter`. Les passer sous la forme `("<champ>", DropdownFilter)`
+dans `list_filter` déclenche `admin.E115` au `python manage.py check` et
+empêche le démarrage du serveur.
+
+Le mapping correct, par type de champ cible :
+
+| Type de champ Django | Filtre Unfold à utiliser |
+|---|---|
+| `CharField` + `choices` (ex. `status`, `priority`, `type`) | `ChoicesDropdownFilter` |
+| `ForeignKey` (ex. `trip`, `tenant`, `driver`) | `RelatedDropdownFilter` |
+| `DateField` / `DateTimeField` | `RangeDateFilter` |
+| `IntegerField` / `DecimalField` numérique | `RangeNumericFilter` |
+| `CharField` free-text (ex. `nationality`, `event_code`) | string nu (`"nationality"`), filtre Django basique |
+
+Usage :
+
+```python
+from unfold.contrib.filters.admin import (
+    ChoicesDropdownFilter, RelatedDropdownFilter, RangeDateFilter,
+)
+
+class OrderAdmin(TenantAdminMixin, ModelAdmin):
+    list_filter = [
+        ("status", ChoicesDropdownFilter),       # CharField avec choices
+        ("trip", RelatedDropdownFilter),          # ForeignKey
+        ("created_at", RangeDateFilter),          # DateTimeField
+        "priority",                                 # fallback Django si pas besoin d'overlay
+    ]
+```
+
+`DropdownFilter` nu reste utilisable comme **classe mère d'un filtre custom**
+dont on définit `lookups()` et `queryset()` à la main — c'est le pattern
+`SimpleListFilter` de Django, pas celui de `FieldListFilter`.
+
+**Coût vécu** : signalé au débrief du Ticket 3, corrigé en runtime par le
+dev grâce au `manage.py check` qui a bien crashé. Mon prompt disait
+`DropdownFilter` partout sans distinguer les types de champs — j'avais lu
+la démo Unfold et extrapolé sans vérifier le code. Leçon générale (pour les
+auteurs de prompt comme pour les implémenteurs) : la règle *lire ce qui
+existe avant d'écrire un contrôle qui le duplique* s'applique aussi à l'API
+d'une dépendance tierce qu'on n'a pas encore manipulée dans ce projet.
+
+---
+
 ### Unfold ne génère qu'un sous-ensemble de Tailwind — les palettes sémantiques passent par `STYLES`
 _Découvert — Fix post-Ticket 2 panel admin (2 oct 2026)_
 

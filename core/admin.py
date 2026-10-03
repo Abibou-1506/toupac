@@ -1,6 +1,93 @@
 """TOUPAC Core — Mixins et helpers pour Django Admin."""
 from django.core.exceptions import FieldDoesNotExist
 from django.db.models import Q
+from django.utils.html import format_html
+from django.utils.safestring import SafeString, mark_safe
+
+# Mapping sémantique statut → famille de couleur CSS.
+#
+# Familles référencées :
+# - primary : généré par Unfold (palette bleu TOUPAC définie dans
+#   UNFOLD["COLORS"], Ticket 1).
+# - base : généré par Unfold (gris neutre).
+# - success / warning / danger : injectés par
+#   static/toupac/css/toupac-colors.css (fix post-Ticket 2).
+#
+# Fallback « base » (gris) pour tout statut non mappé — un dashboard doit
+# toujours s'afficher même si un statut nouveau arrive avant que ce dict
+# soit mis à jour. Les clés sont les valeurs brutes (TextChoices.value)
+# comparées en minuscules.
+STATUS_COLOR_MAP: dict[str, str] = {
+    # ─── success (vert) — terminaux positifs ───
+    "delivered": "success", "completed": "success", "paid": "success",
+    "success": "success", "resolved": "success", "active": "success",
+    "boarded": "success", "arrived": "success",
+    # ─── warning (orange) — intermédiaires actifs ou attente ───
+    "in_progress": "warning", "in_transit": "warning",
+    "dispatched": "warning", "picked_up": "warning", "boarding": "warning",
+    "at_stop": "warning", "arriving": "warning", "preparing": "warning",
+    "processing": "warning", "processed": "warning", "notified": "warning",
+    "pending": "warning", "initiated": "warning", "at_hub": "warning",
+    "out_for_delivery": "warning", "en_route": "warning",
+    "assigned": "warning", "accepted": "warning", "checked_in": "warning",
+    "sent": "warning",
+    # ─── danger (rouge) — échec, blocage, annulation ───
+    "failed": "danger", "cancelled": "danger", "refunded": "danger",
+    "reported": "danger", "suspended": "danger", "rejected": "danger",
+    "no_show": "danger", "refused": "danger", "overdue": "danger",
+    "returned": "danger", "to_treat": "danger",
+    # ─── primary (bleu) — initial, brouillon, confirmé non engagé ───
+    "draft": "primary", "scheduled": "primary", "confirmed": "primary",
+    "created": "primary",
+    # ─── base (gris) — neutre, pas d'action attendue ───
+    "ignored": "base", "inactive": "base",
+}
+
+
+def render_status_badge(
+    status_value: str | None,
+    status_label: str,
+    *,
+    color_map: dict[str, str] | None = None,
+) -> SafeString:
+    """Rend un span HTML stylisé Tailwind/Unfold pour un statut.
+
+    Args:
+        status_value: la valeur brute du statut (ex. « delivered »).
+        status_label: le label traduit à afficher (ex. « Livré »,
+            typiquement `obj.get_status_display()`).
+        color_map: override local du mapping statut → famille de
+            couleur. None utilise `STATUS_COLOR_MAP` par défaut.
+
+    Returns:
+        Un SafeString `<span class="…">Label</span>` prêt à être rendu
+        dans un list_display.
+
+    Fallback : si `status_value` n'est pas dans le mapping, retourne un
+    badge gris (famille « base ») plutôt que de crasher — un dashboard
+    doit toujours s'afficher même si un statut nouveau arrive avant que
+    le map soit mis à jour. `status_value=None` retourne « — ».
+
+    Classes utilisées (toutes dans toupac-colors.css ou générées par
+    Unfold pour primary/base) :
+    - bg-<famille>-50 (fond clair en light mode) + bg-<famille>-900/20 (dark)
+    - text-<famille>-600 (texte foncé en light) + dark:text-<famille>-400
+    """
+    if status_value is None:
+        return mark_safe("—")
+
+    mapping = color_map or STATUS_COLOR_MAP
+    color = mapping.get(status_value.lower(), "base")
+
+    return format_html(
+        '<span class="inline-flex items-center px-2.5 py-0.5 '
+        'rounded-md text-xs font-medium '
+        'bg-{color}-50 text-{color}-600 '
+        'dark:bg-{color}-900/20 dark:text-{color}-400">'
+        '{label}</span>',
+        color=color,
+        label=status_label,
+    )
 
 
 class TenantAdminMixin:

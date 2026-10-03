@@ -242,14 +242,20 @@ def test_admin_index_shows_cards_for_superadmin(superadmin):
 
 
 @pytest.mark.django_db
-def test_admin_index_still_shows_app_list(user_admin_a):
-    """Le dashboard ajoute, ne remplace pas : la liste des apps reste visible."""
+def test_admin_index_still_shows_app_list(superadmin):
+    """Le dashboard ajoute, ne remplace pas : la liste des apps reste visible.
+
+    Testé avec un superadmin plutôt qu'un admin de compagnie : depuis la
+    restructure sidebar en pattern « nested items » (Ticket 3B), Unfold
+    filtre les items parents dont tous les sous-items sont inaccessibles
+    (has_module_permission). Un user_admin_a sans permissions explicites
+    verrait donc une sidebar amputée, ce qui ne teste plus l'intention
+    (« le dashboard laisse l'app list intacte »).
+    """
     client = Client()
-    client.force_login(user_admin_a)
+    client.force_login(superadmin)
     response = client.get(reverse("admin:index"))
     content = response.content.decode()
 
-    # Au moins un lien d'app Django Admin natif présent par défaut sur
-    # /admin/. On tolère plusieurs cibles car has_module_permission peut
-    # masquer certaines apps selon les permissions du user.
+    # Au moins un lien d'app Django Admin natif présent par défaut sur /admin/.
     assert "/admin/voyage/" in content or "/admin/colis/" in content

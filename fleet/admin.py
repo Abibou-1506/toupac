@@ -2,10 +2,18 @@
 
 Widgets géométriques remplacés par de simples champs texte WKT — cf.
 geo/admin.py pour le contexte (carte OpenLayers cassée dans l'admin unfold).
+
+Enrichi au Ticket 3 : fieldsets français groupés sur Vehicle/Driver (2 des 8
+admins « lourds »), list_select_related sur FK du list_display, filtres
+Unfold overlay, readonly_fields sur les champs auto-remplis.
 """
 from django import forms
 from django.contrib import admin
 from unfold.admin import ModelAdmin, TabularInline
+from unfold.contrib.filters.admin import (
+    ChoicesDropdownFilter,
+    RelatedDropdownFilter,
+)
 
 from core.admin import TenantAdminMixin
 
@@ -40,27 +48,57 @@ class DriverAdminForm(forms.ModelForm):
             }),
         }
 
+
 @admin.register(VehicleType)
 class VehicleTypeAdmin(TenantAdminMixin, ModelAdmin):
     list_display = ["name", "default_capacity", "fuel_type", "tenant"]
-    list_filter = ["tenant"]
+    list_select_related = ["tenant"]
+    list_filter = [("tenant", RelatedDropdownFilter)]
+    search_fields = ["name"]
+    readonly_fields = ["created_at", "updated_at"]
+
 
 @admin.register(Vehicle)
 class VehicleAdmin(TenantAdminMixin, ModelAdmin):
     form = VehicleAdminForm
     list_display = ["plate_number", "make", "model_name", "capacity", "status", "vehicle_type", "tenant"]
-    list_filter = ["status", "vehicle_type", "tenant"]
+    list_select_related = ["vehicle_type", "tenant"]
+    list_filter = [
+        ("status", ChoicesDropdownFilter),
+        ("vehicle_type", RelatedDropdownFilter),
+        ("tenant", RelatedDropdownFilter),
+    ]
     search_fields = ["plate_number", "make", "vin"]
     inlines = [VehicleDocumentInline]
+    readonly_fields = ["created_at", "updated_at"]
+    fieldsets = (
+        ("Informations", {"fields": ("plate_number", "vehicle_type", "status")}),
+        ("Caractéristiques", {"fields": ("make", "model_name", "year", "vin", "capacity")}),
+        ("Localisation", {"fields": ("location",)}),
+        ("Métadonnées", {"fields": ("tenant", "created_at", "updated_at"), "classes": ("collapse",)}),
+    )
+
 
 @admin.register(Driver)
 class DriverAdmin(TenantAdminMixin, ModelAdmin):
     form = DriverAdminForm
     list_display = ["user", "license_number", "license_class", "status", "score", "tenant"]
-    list_filter = ["status", "tenant"]
+    list_select_related = ["user", "tenant"]
+    list_filter = [("status", ChoicesDropdownFilter), ("tenant", RelatedDropdownFilter)]
     search_fields = ["user__first_name", "user__last_name", "license_number"]
+    readonly_fields = ["created_at", "updated_at"]
+    fieldsets = (
+        ("Informations", {"fields": ("user", "status", "score")}),
+        ("Licence", {"fields": ("license_number", "license_class", "license_expiry")}),
+        ("Localisation", {"fields": ("last_known_location",)}),
+        ("Métadonnées", {"fields": ("tenant", "created_at", "updated_at"), "classes": ("collapse",)}),
+    )
+
 
 @admin.register(Fleet)
 class FleetAdmin(TenantAdminMixin, ModelAdmin):
     list_display = ["name", "zone", "manager", "tenant"]
-    list_filter = ["tenant"]
+    list_select_related = ["manager", "tenant"]
+    list_filter = [("tenant", RelatedDropdownFilter)]
+    search_fields = ["name"]
+    readonly_fields = ["created_at", "updated_at"]

@@ -8,6 +8,10 @@ from django import forms
 from django.contrib import admin
 from django.contrib.gis import forms as gis_forms
 from unfold.admin import ModelAdmin
+from unfold.contrib.filters.admin import (
+    ChoicesDropdownFilter,
+    RelatedDropdownFilter,
+)
 
 from core.admin import TenantAdminMixin
 
@@ -35,7 +39,13 @@ class GeofenceAdminForm(forms.ModelForm):
 @admin.register(Position)
 class PositionAdmin(TenantAdminMixin, ModelAdmin):
     list_display = ["vehicle", "speed_kmh", "source", "recorded_at"]
-    list_filter = ["source", "vehicle", "tenant"]
+    list_select_related = ["vehicle", "tenant"]
+    list_filter = [
+        ("source", ChoicesDropdownFilter),
+        ("vehicle", RelatedDropdownFilter),
+        ("tenant", RelatedDropdownFilter),
+    ]
+    date_hierarchy = "recorded_at"
     readonly_fields = [f.name for f in Position._meta.fields]
 
     def has_add_permission(self, request):
@@ -49,16 +59,23 @@ class PositionAdmin(TenantAdminMixin, ModelAdmin):
 class GeofenceAdmin(TenantAdminMixin, ModelAdmin):
     form = GeofenceAdminForm
     list_display = ["name", "type", "is_active", "tenant"]
-    list_filter = ["type", "is_active"]
+    list_select_related = ["tenant"]
+    list_filter = [("type", ChoicesDropdownFilter), "is_active"]
+    search_fields = ["name"]
+    readonly_fields = ["created_at", "updated_at"]
 
 
 @admin.register(GeofenceEvent)
 class GeofenceEventAdmin(TenantAdminMixin, ModelAdmin):
     list_display = ["geofence", "vehicle", "event_type", "event_at"]
-    list_filter = ["event_type", "tenant"]
+    list_select_related = ["geofence", "vehicle", "tenant"]
+    list_filter = [("event_type", ChoicesDropdownFilter), ("tenant", RelatedDropdownFilter)]
+    date_hierarchy = "event_at"
 
 
 @admin.register(TrackingLink)
 class TrackingLinkAdmin(TenantAdminMixin, ModelAdmin):
     list_display = ["token", "resource_type", "resource_id", "expires_at"]
-    list_filter = ["resource_type", "tenant"]
+    list_select_related = ["tenant"]
+    list_filter = [("resource_type", ChoicesDropdownFilter), ("tenant", RelatedDropdownFilter)]
+    readonly_fields = ["created_at", "updated_at"]

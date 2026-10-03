@@ -243,15 +243,40 @@ def test_superadmin_dropdown_user_shows_all_users(superadmin, user_admin_a, user
 
 
 def test_admin_a_dropdown_route_only_shows_own_tenant_routes(user_admin_a, tenant_a, tenant_b):
+    """L'autocomplete Route sur TripAdmin reste scopé par tenant (Ticket 3).
+
+    Au Ticket 3, le champ `route` sur TripAdmin est passé en
+    `autocomplete_fields` : le widget n'est plus un `<select>` dont les
+    options sont dans le DOM, mais un input qui interroge
+    `/admin/autocomplete/`. L'isolation reste assurée côté endpoint via
+    `TenantAdminMixin.formfield_for_foreignkey` → `get_search_results`.
+    On teste ici le vrai chemin (l'endpoint autocomplete), pas le markup
+    du changeform.
+    """
     route_a = make_route(tenant_a, "AAA")
     route_b = make_route(tenant_b, "BBB")
 
-    response = admin_client(user_admin_a).get(f"{TRIP_LIST}add/")
-
+    client = admin_client(user_admin_a)
+    # 1. Le formulaire de création s'ouvre sans fuite d'ID.
+    response = client.get(f"{TRIP_LIST}add/")
     assert response.status_code == 200
     body = response.content.decode()
-    assert str(route_a.id) in body
+    # Avec autocomplete, aucun id de route n'est dans le markup initial —
+    # ni A ni B. Le point important : B n'y est pas (fuite évitée).
     assert str(route_b.id) not in body
+
+    # 2. L'endpoint autocomplete, lui, ne retourne que les routes du tenant.
+    autocomplete = client.get(
+        "/admin/autocomplete/",
+        {
+            "app_label": "voyage", "model_name": "trip",
+            "field_name": "route", "term": "",
+        },
+    )
+    assert autocomplete.status_code == 200
+    autocomplete_body = autocomplete.content.decode()
+    assert str(route_a.id) in autocomplete_body
+    assert str(route_b.id) not in autocomplete_body
 
 
 # ─── Suppression ───

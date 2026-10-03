@@ -1,6 +1,6 @@
 # Dettes techniques — TOUPAC
 
-Dernier update : 2 oct 2026
+Dernier update : 3 oct 2026
 
 Ce fichier consolide les dettes techniques identifiées et **délibérément 
 non corrigées** pendant les tickets précédents. Chaque entrée porte : 
@@ -73,6 +73,30 @@ _Rien à date au-delà des points classés « connu et accepté » en fin de fic
 ---
 
 ## Ergonomie / robustesse
+
+- [ ] **Pattern sidebar nested + trait vertical (Unfold)**
+      → État : le pattern nested documenté par Unfold (4 sections top-level
+        avec items parents collapsibles et sous-items indentés sous trait
+        vertical gauche) n'est pas opérationnel sur `django-unfold 0.104.1`.
+        `_get_navigation_items` dans `unfold/sites.py` droppe silencieusement
+        tout item sans `link` (`if not link: continue`), et le template
+        `unfold/helpers/app_list.html` n'a pas de récursion sur `item.items`.
+        Vérification : code source du package installé, 3 oct 2026.
+      → Impact livré : Ticket 3B avait tenté la restructure 4 sections
+        nested → 3 sections sur 4 absentes du DOM. Revert au pattern
+        groupe-section plat (11 groupes, 1 icône par item) effectué le
+        3 oct 2026.
+      → Débloquage : upgrade `django-unfold` à une version ultérieure qui
+        supporte le pattern (à vérifier dans le changelog Unfold — le
+        template cible qui a la récursion n'est pas sorti en 0.104.1).
+        Risque de régression partout — nécessite un ticket perf dédié avec
+        worktree.
+      → Priorité : faible. L'esthétique « 4 sections nested avec trait
+        vertical » est un gain de clarté visuelle, pas un besoin métier.
+        Le pattern groupe-section plat tient tous les gains des Tickets 1,
+        2, 3 et micro-fix collapsible (badges, filtres, autocomplete,
+        search, command palette, SITE_SUBHEADER).
+      → Ref : fix post-Ticket 3B, 3 oct 2026.
 
 - [ ] **`/api/v1/voyage/qr-public-key/` crash au lieu de warning si clé absente**
       → État : quand `TOUPAC_QR_PRIVATE_KEY_PEM` est vide et que la 
