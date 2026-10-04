@@ -1,16 +1,16 @@
 <section id="acting-user" class="section">
   <h2>Agir au nom d'un client</h2>
   <p>
-    Les endpoints <code>/api/v1/customer/*</code> répondent sur une personne, pas sur
-    une compagnie : « mes réservations », « mes colis », « mes paiements ». Votre clé
-    ne désignant personne par elle-même, indiquez de qui vous parlez avec l'en-tête
-    <code>X-Acting-User-Email</code> — ou <code>X-Acting-User-Phone</code> si vous ne
-    connaissez que le numéro.
+    Les endpoints <code>/api/v1/customer/*</code> répondent sur une personne, pas
+    sur l'entité : « mes réservations », « mes colis », « mes paiements ». Votre
+    clé ne désignant personne par elle-même, indiquez de qui vous parlez avec
+    l'en-tête <code>X-Acting-User-Email</code> — ou <code>X-Acting-User-Phone</code>
+    si vous ne connaissez que le numéro.
   </p>
 
 <pre><code>curl {{ api_base_url }}/api/v1/customer/my-reservations/ \
   -H "X-API-Key: tpc_platform_a1b2c3d4.VOTRE_SECRET" \
-  -H "X-Tenant-ID: sahel-express" \
+  -H "X-Tenant-ID: toupac" \
   -H "X-Acting-User-Email: fatou.mbaye@example.sn"</code></pre>
 
   <h3>Le compte est créé si besoin</h3>
@@ -52,9 +52,8 @@
   </p>
 
   <p class="note note-warn">
-    <strong>Chaque appel est journalisé avec la personne représentée.</strong> Nous
-    savons quelle clé a lu quelles données, pour quel client et chez quelle compagnie.
-    N'utilisez cet en-tête que pour la personne dont vous traitez effectivement la
-    demande.
+    <strong>Chaque appel est journalisé avec la personne représentée.</strong>
+    Nous savons quelle clé a lu quelles données, pour quel client. N'utilisez
+    cet en-tête que pour la personne dont vous traitez effectivement la demande.
   </p>
 </section>

@@ -274,3 +274,98 @@ class SuperadminOnlyAdminMixin:
 
     def has_delete_permission(self, request, obj=None):
         return super().has_delete_permission(request, obj) and TenantAdminMixin._is_superadmin(request.user)
+
+
+class RoleRestrictedAdminMixin:
+    """
+    Restreint un ModelAdmin aux rôles tenant listés + SUPERADMIN TOUPAC.
+
+    Appliqué sur les ModelAdmin dont la visibilité doit être limitée à
+    certains rôles au sein d'un tenant (ex. écrans financiers réservés à
+    ADMIN compagnie, invisibles pour DISPATCHER / AGENT / CONTROLLER).
+    SUPERADMIN TOUPAC accède toujours — c'est l'intention du support
+    technique.
+
+    À combiner avec TenantAdminMixin pour l'isolation tenant classique :
+
+        class InvoiceAdmin(TenantAdminMixin, RoleRestrictedAdminMixin,
+                           ModelAdmin):
+            allowed_tenant_roles = ("admin",)
+
+    Important : TenantAdminMixin doit venir AVANT dans la MRO pour que
+    son has_change_permission(request, obj) vérifie le scope tenant en
+    premier. RoleRestrictedAdminMixin se greffe ensuite pour filtrer par
+    rôle.
+    """
+
+    #: Rôles tenant autorisés en plus de SUPERADMIN. Tuple de strings
+    #: correspondant aux User.Role values. SUPERADMIN est toujours
+    #: autorisé implicitement.
+    allowed_tenant_roles: tuple[str, ...] = ()
+
+    def _user_role_allowed(self, user):
+        """True si l'utilisateur peut accéder à ce ModelAdmin.
+
+        SUPERADMIN TOUPAC : toujours autorisé.
+        Autres : seulement si leur rôle est dans allowed_tenant_roles.
+        """
+        if TenantAdminMixin._is_superadmin(user):
+            return True
+        return getattr(user, "role", None) in self.allowed_tenant_roles
+
+    def has_module_permission(self, request):
+        return (
+            super().has_module_permission(request)
+            and self._user_role_allowed(request.user)
+        )
+
+    def has_view_permission(self, request, obj=None):
+        return (
+            super().has_view_permission(request, obj)
+            and self._user_role_allowed(request.user)
+        )
+
+    def has_add_permission(self, request):
+        return (
+            super().has_add_permission(request)
+            and self._user_role_allowed(request.user)
+        )
+
+    def has_change_permission(self, request, obj=None):
+        return (
+            super().has_change_permission(request, obj)
+            and self._user_role_allowed(request.user)
+        )
+
+    def has_delete_permission(self, request, obj=None):
+        return (
+            super().has_delete_permission(request, obj)
+            and self._user_role_allowed(request.user)
+        )
+
+
+def filter_actions_by_role(actions, user, action_role_map):
+    """Retire d'un dict d'actions celles non autorisées pour un user.
+
+    Args:
+        actions: dict renvoyé par ModelAdmin.get_actions()
+        user: request.user
+        action_role_map: dict {nom_action: tuple(rôles_autorisés)}
+
+    Returns:
+        actions filtré. SUPERADMIN voit tout. Pour les autres, chaque
+        action listée dans action_role_map est retirée si leur rôle
+        n'est pas dans la liste autorisée. Les actions non listées
+        restent accessibles à tous (comportement par défaut Django).
+
+    Factorisé ici pour éviter la duplication dans chaque ModelAdmin qui
+    restreint des actions. Patterns Ticket 4 Gamma : seules quelques
+    actions sont restreintes aujourd'hui, mais le futur en aura plus.
+    """
+    if TenantAdminMixin._is_superadmin(user):
+        return actions
+    user_role = getattr(user, "role", None)
+    for action_name, allowed_roles in action_role_map.items():
+        if action_name in actions and user_role not in allowed_roles:
+            del actions[action_name]
+    return actions

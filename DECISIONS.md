@@ -12,6 +12,52 @@ Ordre : les patterns les plus récents en haut, groupés par domaine.
 
 ---
 
+### L'admin Django est l'outil interne TOUPAC
+_Décidé — Ticket 4 Gamma (3 oct 2026)_
+
+Le panel `/admin/` Django-Unfold est positionné comme **outil interne au
+personnel TOUPAC** (support technique, dev, lead, opérations plateforme).
+Un panel web séparé sera construit pour les équipes compagnie (ADMIN /
+DISPATCHER / AGENT / CONTROLLER d'un tenant), consommant l'API DRF.
+
+**Pendant la période de transition** (jusqu'à livraison du panel web
+externe), les ADMIN compagnie continuent d'accéder à `/admin/` pour
+piloter leur activité quotidienne. Les 5 garde-fous suivants cadrent cet
+accès transitoire :
+
+1. **Écrans financiers restreints à ADMIN + SUPERADMIN** via
+   `RoleRestrictedAdminMixin` (`core/admin.py`) appliqué sur
+   `InvoiceAdmin`, `PaymentAdmin`, `PriceListAdmin` avec
+   `allowed_tenant_roles = ("admin",)`. Un DISPATCHER / AGENT / CONTROLLER
+   ne les voit ni en sidebar ni en changelist (403).
+2. **Items sidebar financiers masqués** aux non-ADMIN via le callback
+   `iam.unfold.is_admin_or_superadmin`. Reflète la restriction côté UI
+   pour éviter un 403 au clic.
+3. **Bulk `cancel_reservations`** restreinte à ADMIN + DISPATCHER (pas
+   AGENT) via `filter_actions_by_role` (`core/admin.py`). L'action
+   n'apparaît pas dans le menu et un POST direct est rejeté par Django.
+4. **Bulk `mark_as_resolved`** restreinte à ADMIN + DISPATCHER +
+   CONTROLLER (pas AGENT). Le contrôleur ferme l'incident qu'il a parfois
+   lui-même ouvert — scope cohérent avec son métier.
+5. **DRIVER impose `is_staff=False`** dans `User.clean()`. Son outil est
+   le mobile, pas l'admin. Règle en `clean()` plutôt qu'en contrainte DB
+   — cohérence avec les règles rôle×tenant existantes.
+
+Une bannière visuelle apparaît en tête de page admin pour les
+non-SUPERADMIN : « Panel admin interne TOUPAC. Un panel dédié vous sera
+livré prochainement. » — signalétique explicite plutôt qu'implicite,
+posée dans `templates/admin/base_site.html` via le block `messages`.
+
+La coupure propre de l'accès `/admin/` aux non-SUPERADMIN est tracée en
+dette (voir `DETTES.md` section « Fonctionnel — À venir »).
+
+**Volontairement non fait** : pas de matrice fine rôles×ressources (ni
+RBAC complet, ni permissions Guardian par objet). L'approche hybride
+transitoire reconnait que `/admin/` est destiné à disparaître pour les
+non-SUPERADMIN — un vrai RBAC vit dans le panel web externe à venir.
+
+---
+
 ### Doc officielle d'une dépendance ≠ comportement de la version installée
 _Découvert — Fix post-Ticket 3B sidebar nested (2 oct 2026)_
 

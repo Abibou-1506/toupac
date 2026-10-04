@@ -24,7 +24,7 @@ from unfold.contrib.filters.admin import (
 )
 from unfold.decorators import action
 
-from core.admin import TenantAdminMixin, render_status_badge
+from core.admin import TenantAdminMixin, filter_actions_by_role, render_status_badge
 
 from .models import (
     Anomaly,
@@ -177,6 +177,16 @@ class ReservationAdmin(TenantAdminMixin, ModelAdmin):
         ("Métadonnées", {"fields": ("tenant", "created_at", "updated_at"), "classes": ("collapse",)}),
     )
 
+    def get_actions(self, request):
+        # Ticket 4 Gamma : cancel_reservations réservée à ADMIN + DISPATCHER.
+        # AGENT et CONTROLLER ne la voient pas dans le dropdown (UX propre) et
+        # un POST direct serait rejeté par Django (action absente de get_actions).
+        actions = super().get_actions(request)
+        return filter_actions_by_role(
+            actions, request.user,
+            {"cancel_reservations": ("admin", "dispatcher")},
+        )
+
     @admin.display(description="Statut", ordering="status")
     def status_badge(self, obj):
         return render_status_badge(obj.status, obj.get_status_display())
@@ -277,6 +287,16 @@ class IncidentAdmin(TenantAdminMixin, ModelAdmin):
         ("Suivi", {"fields": ("dispatcher_notified", "dispatcher_notified_at", "resolved_at")}),
         ("Métadonnées", {"fields": ("tenant", "created_at", "updated_at"), "classes": ("collapse",)}),
     )
+
+    def get_actions(self, request):
+        # Ticket 4 Gamma : mark_as_resolved ouverte à ADMIN + DISPATCHER +
+        # CONTROLLER (plus large que cancel_reservations : le contrôleur ferme
+        # l'incident qu'il a parfois lui-même ouvert). AGENT exclu.
+        actions = super().get_actions(request)
+        return filter_actions_by_role(
+            actions, request.user,
+            {"mark_as_resolved": ("admin", "dispatcher", "controller")},
+        )
 
     @admin.display(description="Statut", ordering="status")
     def status_badge(self, obj):

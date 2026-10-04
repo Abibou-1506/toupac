@@ -3,8 +3,8 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>API TOUPAC — Portail partenaires plateforme</title>
-  <meta name="description" content="Documentation des intégrations multi-compagnies TOUPAC : clé plateforme, en-têtes X-Tenant-ID et X-Acting-User-Email, scopes, quotas.">
+  <title>API TOUPAC — Portail partenaires</title>
+  <meta name="description" content="Documentation d'intégration de l'API TOUPAC : clé plateforme, en-têtes X-Tenant-ID et X-Acting-User-Email, scopes, quotas.">
   <link rel="stylesheet" href="{% static 'developers/css/portal.css' %}">
 </head>
 <body>
@@ -51,11 +51,10 @@
 
   <main class="content" id="content">
     <p class="note">
-      <strong>Cette documentation s'adresse aux services destinés à plusieurs
-      compagnies</strong> — assistant conversationnel, informatique décisionnelle,
-      application officielle TOUPAC. Vous intégrez l'API pour <em>votre propre</em>
-      compagnie (ERP, CRM interne) ? Voyez le
-      <a href="{{ tenant_portal_url }}">portail développeurs</a>.
+      <strong>Documentation d'intégration de l'API TOUPAC.</strong>
+      Toutes les intégrations partenaires passent par le mode plateforme :
+      une clé émise par nos équipes, un en-tête <code>X-Tenant-ID: toupac</code>
+      sur chaque requête, des scopes qui bornent ce que vous lisez ou écrivez.
     </p>
 
     {% include "developers/partials/_platform_intro.html" %}
@@ -74,7 +73,7 @@
           <tr>
             <td>Clé plateforme</td>
             <td>{{ rate_platform }} requêtes / heure</td>
-            <td>Toute votre intégration, compagnies et clients confondus.</td>
+            <td>Toute votre intégration, tous clients confondus.</td>
           </tr>
           <tr>
             <td>Client représenté</td>

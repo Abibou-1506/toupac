@@ -1,11 +1,11 @@
-"""
-TOUPAC Developers — Le portail partenaires et sa séparation d'avec le portail tenant.
+"""TOUPAC Developers — Portail partenaire plateforme.
 
-Deux publics, deux pages. Un intégrateur qui branche l'ERP de sa compagnie et
-une équipe partenaire qui sert toutes les compagnies n'ont ni les mêmes clés, ni
-les mêmes en-têtes, ni les mêmes quotas — les réunir obligeait chacun à ignorer
-la moitié du texte sans savoir laquelle.
+Depuis le pivot du 4 oct 2026 (TOUPAC entité unique), un seul portail subsiste
+à `/partners/developers/`. L'ancien portail tenant (`/developers/`) et ses tests
+ont été supprimés — ce public n'existe plus.
 """
+import re
+
 import pytest
 
 from iam.platform_scopes import PLATFORM_AVAILABLE_SCOPES
@@ -14,7 +14,6 @@ from iam.scopes import AVAILABLE_SCOPES
 pytestmark = pytest.mark.django_db
 
 PARTNER_URL = "/partners/developers/"
-TENANT_URL = "/developers/"
 
 
 @pytest.fixture
@@ -24,11 +23,20 @@ def partner_html(client):
     return response.content.decode()
 
 
-@pytest.fixture
-def tenant_html(client):
-    response = client.get(TENANT_URL)
-    assert response.status_code == 200
-    return response.content.decode()
+#: Suffixe des clés d'exemple. Une clé réellement émise porte 8 hexa après son
+#: préfixe : tout identifiant de cette forme qui ne serait pas celui-ci aurait
+#: été recopié depuis la production.
+FICTITIOUS_KEY_SUFFIXES = {"a1b2c3d4"}
+
+
+def assert_no_real_credentials(html):
+    """Aucun identifiant de clé affiché n'est autre chose qu'un exemple fictif."""
+    for match in re.finditer(r"tpc_(?:platform_)?([0-9a-f]{8})\b", html):
+        assert match.group(1) in FICTITIOUS_KEY_SUFFIXES, (
+            f"clé potentiellement réelle : {match.group(0)}"
+        )
+    # Et jamais de secret : une clé complète s'écrit prefix.secret.
+    assert not re.search(r"tpc_(?:platform_)?[0-9a-f]{8}\.[A-Za-z0-9_\-]{20,}", html)
 
 
 # ─── Portail partenaires ───
@@ -39,9 +47,7 @@ def test_partner_portal_is_reachable_without_authentication(partner_html):
 
 
 def test_partner_portal_contains_no_real_credentials(partner_html):
-    """Même garde que sur le portail tenant : les exemples restent fictifs."""
-    from developers.tests.test_portal import assert_no_real_credentials
-
+    """Les exemples restent fictifs."""
     assert "tpc_platform_a1b2c3d4" in partner_html  # exemple explicitement fictif
     assert_no_real_credentials(partner_html)
 
@@ -55,9 +61,8 @@ def test_partner_portal_scope_table_lists_only_platform_scopes(partner_html):
     """
     Le tableau des scopes ne propose que ceux qui s'appliquent à ces clés.
 
-    Les scopes de compagnie apparaissent bien ailleurs sur la page — le tableau
-    comparatif les cite pour opposer les deux modes — mais jamais comme une
-    option offerte au partenaire.
+    Les scopes tenant (voyage:read…) ne doivent pas y figurer : ils sont réservés
+    au staff TOUPAC interne et ne sont pas distribués aux partenaires.
     """
     table = partner_html.split('<table class="table table-scopes">', 1)[1]
     table = table.split("</table>", 1)[0]
@@ -81,7 +86,7 @@ def test_partner_portal_documents_both_throttles(partner_html):
 
 
 def test_partner_portal_states_the_new_key_doctrine(partner_html):
-    """Durée de vie et restriction d'origine ont changé — la doc doit suivre."""
+    """Durée de vie et restriction d'origine : la doc reste à jour."""
     assert "jusqu'à sa révocation" in partner_html
     assert "platform:*" in partner_html  # cité pour dire qu'il n'existe pas
 
@@ -97,32 +102,35 @@ def test_partner_portal_no_longer_mentions_subscriptions(partner_html):
     assert "abonnement" not in partner_html.lower()
 
 
-# ─── Portail tenant ───
+# ─── Pivot TOUPAC entité unique (4 oct 2026) ───
 
-def test_tenant_portal_no_longer_exposes_platform_content(tenant_html):
-    """Le mode plateforme a sa propre page : il disparaît de celle-ci."""
-    assert "tpc_platform_" not in tenant_html
-    assert "X-Acting-User-Email" not in tenant_html
-    for scope in PLATFORM_AVAILABLE_SCOPES:
-        assert scope not in tenant_html
+def test_partner_portal_reflects_toupac_as_single_tenant(partner_html):
+    """TOUPAC est présenté comme l'entité d'intégration — pas « multi-compagnies ».
+
+    Détecte toute régression où l'ancien discours multi-tenant externe
+    (sahel-express, « plusieurs compagnies », « votre compagnie »…) reviendrait
+    par mégarde (merge conflict, revert partiel).
+    """
+    # Mentions attendues du nouveau modèle.
+    assert "toupac" in partner_html.lower()
+    # L'exemple d'en-tête utilise bien toupac.
+    assert 'X-Tenant-ID: toupac' in partner_html
+
+    # Mentions interdites de l'ancien modèle multi-tenant externe.
+    forbidden = [
+        "sahel-express",          # exemple de slug multi-tenant obsolète
+        "plusieurs compagnies",
+        "votre compagnie",
+        "toutes les compagnies",
+    ]
+    for phrase in forbidden:
+        assert phrase not in partner_html, (
+            f"Mention obsolète « {phrase} » détectée — pivot TOUPAC-seul incomplet."
+        )
 
 
-def test_tenant_portal_still_lists_its_own_scopes(tenant_html):
-    for scope in AVAILABLE_SCOPES:
-        assert scope in tenant_html
-
-
-# ─── Renvois croisés ───
-
-def test_tenant_portal_points_to_the_partner_portal(tenant_html):
-    assert PARTNER_URL in tenant_html
-
-
-def test_partner_portal_points_to_the_tenant_portal(partner_html):
-    assert f'href="{TENANT_URL}"' in partner_html
-
-
-def test_each_page_states_who_it_is_for(tenant_html, partner_html):
-    """Arriver au mauvais endroit doit se voir en une phrase."""
-    assert "intégrations d'une compagnie" in tenant_html
-    assert "plusieurs compagnies" in partner_html
+def test_tenant_portal_url_is_gone():
+    """L'ancien portail tenant /developers/ n'existe plus."""
+    from django.test import Client
+    response = Client().get("/developers/")
+    assert response.status_code == 404

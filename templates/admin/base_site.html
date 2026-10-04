@@ -1,0 +1,28 @@
+{# TOUPAC — override base_site pour afficher la bannière « admin interne »  #}
+{# aux non-SUPERADMIN. Pose dans le block messages pour être visible sur    #}
+{# toutes les pages admin (index, changelist, changeform) — ce block est    #}
+{# rendu partout dans Unfold et n'est pas écrasé par templates/admin/       #}
+{# index.html qui n'override que block content. Ticket 4 Gamma.              #}
+{% extends "admin/base_site.html" %}
+{% load i18n %}
+
+{% block messages %}
+    {% if request.user.is_authenticated %}
+        {% if not request.user.is_superuser and request.user.role != "superadmin" %}
+            <div class="px-4">
+                <div class="container mx-auto">
+                    <div class="bg-warning-50 border border-warning-200
+                                text-warning-600 dark:bg-warning-900/20
+                                dark:text-warning-400 px-4 py-3 mb-4
+                                rounded-md text-sm">
+                        <strong>Panel admin interne TOUPAC.</strong>
+                        Un panel dédié aux équipes compagnie vous sera livré
+                        prochainement. Pour toute question, contactez le
+                        support TOUPAC.
+                    </div>
+                </div>
+            </div>
+        {% endif %}
+    {% endif %}
+    {{ block.super }}
+{% endblock messages %}

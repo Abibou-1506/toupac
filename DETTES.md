@@ -220,6 +220,29 @@ _Rien à date au-delà des points classés « connu et accepté » en fin de fic
 
 ---
 
+## Fonctionnel — À venir
+
+- [ ] **Coupure admin Django aux non-SUPERADMIN après livraison du panel web externe**
+      → État : à l'ouverture du Ticket 4 Gamma, les ADMIN compagnie
+        accèdent à `/admin/` par pragmatisme — c'est leur seul outil
+        complet aujourd'hui. 5 garde-fous cadrent cet accès (voir
+        DECISIONS.md « L'admin Django est l'outil interne TOUPAC »).
+      → Portée : quand le panel web externe sera livré (chantier
+        post-T2-RATTRAPAGE à cadrer), passer `is_staff=False` sur **tous**
+        les non-SUPERADMIN (ADMIN, DISPATCHER, AGENT, CONTROLLER) et
+        verrouiller l'accès `/admin/` au seul SUPERADMIN. Supprime les 5
+        garde-fous (RoleRestrictedAdminMixin, filter_actions_by_role,
+        is_admin_or_superadmin, bannière, règle DRIVER déjà en place) qui
+        ne servent plus à distinguer les rôles compagnie.
+      → À déclencher : première semaine après mise en prod du panel web
+        externe. Avant cela, les non-SUPERADMIN perdraient leur outil
+        quotidien.
+      → Effort : ~2 h (migration data + suppression des garde-fous +
+        adaptation des tests qui supposent `user_admin_a.is_staff=True`).
+      → Ref : décision stratégique Ticket 4 Gamma, 3 oct 2026.
+
+---
+
 ## Fonctionnel (CDC neuf, à prioriser avec lead)
 
 - [ ] Import CSV commandes (CDC §4.4) — ~1 jour

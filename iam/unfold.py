@@ -23,6 +23,24 @@ def is_toupac_superadmin(request):
     return TenantAdminMixin._is_superadmin(user)
 
 
+def is_admin_or_superadmin(request):
+    """Vrai pour SUPERADMIN TOUPAC ou ADMIN compagnie.
+
+    Utilisé pour masquer les items sidebar financiers aux rôles
+    DISPATCHER / AGENT / CONTROLLER. Reflète le même filtre que
+    RoleRestrictedAdminMixin.allowed_tenant_roles = ("admin",) sur
+    InvoiceAdmin / PaymentAdmin / PriceListAdmin — Ticket 4 Gamma.
+    """
+    from iam.models import User
+
+    user = getattr(request, "user", None)
+    if user is None or not user.is_authenticated:
+        return False
+    if TenantAdminMixin._is_superadmin(user):
+        return True
+    return getattr(user, "role", None) == User.Role.ADMIN
+
+
 def environment_badge(request):
     """
     Badge affiché en tête d'admin selon l'environnement de déploiement.

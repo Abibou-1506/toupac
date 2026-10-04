@@ -266,6 +266,17 @@ class User(AbstractBaseUser, PermissionsMixin, TimestampMixin, SoftDeleteMixin):
         # SERVICE_ACCOUNT : aucune règle, les deux cas sont légitimes
         # (platform-bot global sans tenant, bot de compagnie avec).
 
+        # Ticket 4 Gamma : un DRIVER n'a pas sa place dans /admin/. Son outil
+        # est l'application mobile. Autoriser is_staff=True créerait une
+        # surface d'exposition inutile. Règle en clean() plutôt qu'en
+        # contrainte DB : cohérent avec les règles rôle x tenant existantes et
+        # un bulk_create non-cleaned reste bloqué au prochain full_clean().
+        if self.role == self.Role.DRIVER and self.is_staff:
+            errors["is_staff"] = (
+                "Un chauffeur n'accède pas à l'administration : son outil "
+                "est l'application mobile. Décoche « Staff » pour sauvegarder."
+            )
+
         if errors:
             raise ValidationError(errors)
 

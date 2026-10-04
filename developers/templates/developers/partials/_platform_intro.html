@@ -1,71 +1,40 @@
 <section id="platform" class="section">
   <h2>Mode plateforme</h2>
   <p>
-    Votre intégration sert plusieurs compagnies avec une seule clé, émise par TOUPAC.
-    Elle indique à chaque requête la compagnie visée, et le cas échéant la personne au
-    nom de laquelle elle agit.
+    Votre intégration accède à l'API TOUPAC via une clé plateforme émise par
+    nos équipes. Elle identifie votre service, trace vos accès, et détermine
+    ce que vous pouvez lire ou écrire via ses scopes.
   </p>
 
-  <table class="table">
-    <thead>
-      <tr><th>&nbsp;</th><th>Intégration d'une compagnie</th><th>Service plateforme</th></tr>
-    </thead>
-    <tbody>
-      <tr>
-        <th>Pour qui</th>
-        <td>Une compagnie qui branche son propre système</td>
-        <td>Un service TOUPAC servant toutes les compagnies</td>
-      </tr>
-      <tr>
-        <th>Qui émet la clé</th>
-        <td>L'administrateur de la compagnie</td>
-        <td>TOUPAC uniquement</td>
-      </tr>
-      <tr>
-        <th>Préfixe</th>
-        <td><code>tpc_…</code></td>
-        <td><code>tpc_platform_…</code></td>
-      </tr>
-      <tr>
-        <th>Portée</th>
-        <td>Une compagnie, fixée dans la clé</td>
-        <td>Toute compagnie active, choisie par requête</td>
-      </tr>
-      <tr>
-        <th>Scopes</th>
-        <td><code>voyage:read</code>, <code>colis:write</code>…</td>
-        <td><code>platform:voyage:read</code>, <code>platform:customer:read</code>…</td>
-      </tr>
-    </tbody>
-  </table>
-
-  <p class="note">
-    Si votre clé commence par <code>tpc_</code> <em>sans</em> <code>platform</code>,
-    vous êtes une intégration de compagnie : cette page ne vous concerne pas.
-  </p>
-
-  <h3>Deux en-têtes au lieu d'un</h3>
   <p>
-    Une clé plateforme ne porte pas de compagnie : vous indiquez à chaque appel celle que
-    vous visez, par son <em>slug</em>.
+    Toutes les intégrations partenaires passent par ce mode. Votre clé commence
+    par <code>tpc_platform_</code> et donne accès à l'API TOUPAC selon les scopes
+    qui vous ont été accordés.
   </p>
 
-<pre><code>curl https://api.toupac.com/api/v1/voyage/routes/ \
+  <h3>En-têtes à transmettre</h3>
+  <p>
+    Vous passez à chaque appel l'identifiant de la clé plus le slug de l'entité
+    TOUPAC visée.
+  </p>
+
+<pre><code>curl {{ api_base_url }}/api/v1/voyage/routes/ \
   -H "X-API-Key: tpc_platform_a1b2c3d4.VOTRE_SECRET" \
-  -H "X-Tenant-ID: sahel-express"</code></pre>
+  -H "X-Tenant-ID: toupac"</code></pre>
 
   <p>
-    Le slug est celui retourné par <code>GET /api/v1/platform/tenants/</code>. Ne le
-    devinez pas et ne le mettez pas en dur : une compagnie nouvellement créée y apparaît
-    aussitôt, sans démarche d'habilitation ni redéploiement de votre côté.
+    La valeur à transmettre est <code>toupac</code>. Vous pouvez aussi
+    l'obtenir dynamiquement via
+    <code>GET /api/v1/platform/tenants/</code>, qui reste disponible pour la
+    cohérence des intégrations génériques.
   </p>
 
   <h3>Endpoints globaux</h3>
   <p>
-    Deux endpoints répondent sans contexte de compagnie. Ils
-    <strong>refusent</strong> <code>X-Tenant-ID</code> — le transmettre renvoie un
-    <code>400</code>, parce qu'une réponse globale filtrée par compagnie serait un
-    contresens silencieux.
+    Deux endpoints répondent sans contexte d'entité. Ils
+    <strong>refusent</strong> <code>X-Tenant-ID</code> — le transmettre renvoie
+    un <code>400</code>, parce qu'une réponse globale filtrée par entité serait
+    un contresens silencieux.
   </p>
 
   <table class="table">
@@ -73,7 +42,11 @@
     <tbody>
       <tr>
         <td><code>GET /api/v1/platform/tenants/</code></td>
-        <td>Les compagnies accessibles : <code>slug</code> et <code>name</code></td>
+        <td>
+          La liste des entités accessibles. Dans l'API TOUPAC actuelle, cette
+          liste contient toujours un seul élément : TOUPAC lui-même
+          (<code>slug="toupac"</code>).
+        </td>
       </tr>
       <tr>
         <td><code>GET /api/v1/platform/health/</code></td>
@@ -84,31 +57,32 @@
 
   <p>
     Symétriquement, un endpoint métier appelé avec une clé plateforme
-    <strong>exige</strong> <code>X-Tenant-ID</code> : sans lui, la réponse serait vide
-    sans que rien ne signale l'oubli. Le <code>400</code> est donc explicite.
+    <strong>exige</strong> <code>X-Tenant-ID</code> : sans lui, la réponse serait
+    vide sans que rien ne signale l'oubli. Le <code>400</code> est donc explicite.
   </p>
 
   <h3>Restriction par adresse IP</h3>
   <p>
     Communiquez-nous vos adresses de sortie (adresse élastique, plage CIDR d'une
-    passerelle NAT) et nous restreindrons votre clé à celles-ci : un appel venu d'ailleurs
-    reçoit alors un <code>403</code> et laisse une entrée d'audit. C'est la protection la
-    plus efficace contre l'usage d'un secret dérobé — demandez-la dès que votre
-    infrastructure le permet, et prévenez-nous <em>avant</em> tout changement qui
-    déplacerait ces adresses.
+    passerelle NAT) et nous restreindrons votre clé à celles-ci : un appel venu
+    d'ailleurs reçoit alors un <code>403</code> et laisse une entrée d'audit.
+    C'est la protection la plus efficace contre l'usage d'un secret dérobé —
+    demandez-la dès que votre infrastructure le permet, et prévenez-nous
+    <em>avant</em> tout changement qui déplacerait ces adresses.
   </p>
   <p>
-    Si votre service n'a pas d'adresse stable (exécution sans serveur, multi-région),
-    la clé fonctionne sans restriction d'origine. Le cloisonnement repose alors
-    entièrement sur vos scopes et sur le journal d'audit.
+    Si votre service n'a pas d'adresse stable (exécution sans serveur,
+    multi-région), la clé fonctionne sans restriction d'origine. Le cloisonnement
+    repose alors entièrement sur vos scopes et sur le journal d'audit.
   </p>
 
   <h3>Durée de vie</h3>
   <p>
-    Votre clé reste valable jusqu'à sa révocation : nous n'imposons pas d'expiration
-    programmée, qui obligerait à retransmettre le secret à chaque échéance et
-    multiplierait les occasions de le voir fuiter. Une date d'expiration peut être posée
-    à votre demande — <code>GET /api/v1/platform/health/</code> renvoie alors
+    Votre clé reste valable jusqu'à sa révocation : nous n'imposons pas
+    d'expiration programmée, qui obligerait à retransmettre le secret à chaque
+    échéance et multiplierait les occasions de le voir fuiter. Une date
+    d'expiration peut être posée à votre demande —
+    <code>GET /api/v1/platform/health/</code> renvoie alors
     <code>days_until_expiry</code>, et <code>null</code> sinon.
   </p>
   <p>
@@ -116,9 +90,10 @@
   </p>
 
   <p class="note note-warn">
-    <strong>Une clé plateforme ouvre les données de toutes les compagnies actives.</strong>
-    Stockez-la dans un gestionnaire de secrets — jamais en variable d'environnement en
-    clair, jamais dans un dépôt. Signalez-nous immédiatement toute compromission
-    suspectée : nous révoquons dans la minute et vous en émettons une nouvelle.
+    <strong>Une clé plateforme ouvre les données opérationnelles de TOUPAC.</strong>
+    Stockez-la dans un gestionnaire de secrets — jamais en variable
+    d'environnement en clair, jamais dans un dépôt. Signalez-nous immédiatement
+    toute compromission suspectée : nous révoquons dans la minute et vous en
+    émettons une nouvelle.
   </p>
 </section>

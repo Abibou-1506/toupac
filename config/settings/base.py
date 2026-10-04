@@ -341,7 +341,7 @@ UNFOLD = {
     "SITE_TITLE": "TOUPAC",
     "SITE_HEADER": "TOUPAC Admin",
     # Contexte immédiat sous le header dans la sidebar — Ticket 3.
-    "SITE_SUBHEADER": "Transport multi-tenant",
+    "SITE_SUBHEADER": "Transport TOUPAC",
     "SITE_URL": "/admin/",
     # SITE_SYMBOL reste comme fallback Material Symbol si le logo ne charge pas.
     "SITE_SYMBOL": "directions_bus",
@@ -527,12 +527,18 @@ UNFOLD = {
                 "title": "Facturation",
                 "collapsible": True,
                 "items": [
+                    # Ticket 4 Gamma : items financiers réservés à ADMIN + SUPERADMIN.
+                    # Masqués côté sidebar pour DISPATCHER / AGENT / CONTROLLER
+                    # — reflète RoleRestrictedAdminMixin.allowed_tenant_roles=("admin",).
                     {"title": "Grilles tarifaires", "icon": "price_check",
-                     "link": "/admin/billing/pricelist/"},
+                     "link": "/admin/billing/pricelist/",
+                     "permission": "iam.unfold.is_admin_or_superadmin"},
                     {"title": "Factures", "icon": "receipt_long",
-                     "link": "/admin/billing/invoice/"},
+                     "link": "/admin/billing/invoice/",
+                     "permission": "iam.unfold.is_admin_or_superadmin"},
                     {"title": "Paiements", "icon": "payments",
-                     "link": "/admin/billing/payment/"},
+                     "link": "/admin/billing/payment/",
+                     "permission": "iam.unfold.is_admin_or_superadmin"},
                 ],
             },
             {

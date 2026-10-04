@@ -13,7 +13,7 @@ from unfold.contrib.filters.admin import (
     RelatedDropdownFilter,
 )
 
-from core.admin import TenantAdminMixin, render_status_badge
+from core.admin import RoleRestrictedAdminMixin, TenantAdminMixin, render_status_badge
 
 from .models import Invoice, InvoiceLine, Payment, PriceList, PriceRule
 
@@ -29,7 +29,11 @@ class InvoiceLineInline(TabularInline):
 
 
 @admin.register(PriceList)
-class PriceListAdmin(TenantAdminMixin, ModelAdmin):
+class PriceListAdmin(TenantAdminMixin, RoleRestrictedAdminMixin, ModelAdmin):
+    # Ticket 4 Gamma : écran financier réservé à ADMIN compagnie + SUPERADMIN
+    # TOUPAC. DISPATCHER / AGENT / CONTROLLER reçoivent 403 et l'item sidebar
+    # est masqué par iam.unfold.is_admin_or_superadmin.
+    allowed_tenant_roles = ("admin",)
     list_display = ["name", "type", "currency", "is_active", "tenant"]
     list_select_related = ["tenant"]
     list_filter = [
@@ -43,7 +47,9 @@ class PriceListAdmin(TenantAdminMixin, ModelAdmin):
 
 
 @admin.register(Invoice)
-class InvoiceAdmin(TenantAdminMixin, ModelAdmin):
+class InvoiceAdmin(TenantAdminMixin, RoleRestrictedAdminMixin, ModelAdmin):
+    # Ticket 4 Gamma : voir note PriceListAdmin.
+    allowed_tenant_roles = ("admin",)
     list_display = ["invoice_number", "customer_name", "total_xof", "status_badge", "issue_date"]
     list_select_related = ["tenant"]
     list_filter = [
@@ -69,7 +75,9 @@ class InvoiceAdmin(TenantAdminMixin, ModelAdmin):
 
 
 @admin.register(Payment)
-class PaymentAdmin(TenantAdminMixin, ModelAdmin):
+class PaymentAdmin(TenantAdminMixin, RoleRestrictedAdminMixin, ModelAdmin):
+    # Ticket 4 Gamma : voir note PriceListAdmin.
+    allowed_tenant_roles = ("admin",)
     list_display = [
         "provider", "amount_xof", "status_badge", "provider_tx_id",
         "reservation", "order", "initiated_at",
