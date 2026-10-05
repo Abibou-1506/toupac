@@ -27,7 +27,15 @@ class InvoiceLineSerializer(serializers.ModelSerializer):
 class InvoiceListSerializer(serializers.ModelSerializer):
     class Meta:
         model = Invoice
-        fields = ["id", "invoice_number", "customer_name", "total_xof", "status", "issue_date", "paid_at"]
+        fields = [
+            "id", "invoice_number", "customer_name", "total_xof",
+            "status", "issue_date", "paid_at",
+            # Ajoutés le 6 oct 2026 pour peupler le tableau Factures du
+            # backoffice web (colonnes Type client, Échéance, HT, TVA).
+            # Non-breaking pour les apps mobiles RN qui ignorent les
+            # champs inconnus.
+            "due_date", "customer_type", "subtotal_xof", "tax_xof",
+        ]
 
 
 class InvoiceDetailSerializer(InvoiceListSerializer):
@@ -42,6 +50,63 @@ class InvoiceDetailSerializer(InvoiceListSerializer):
 
 
 class PaymentSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Payment
+        fields = "__all__"
+
+
+class PaymentListSerializer(serializers.ModelSerializer):
+    """Liste des paiements — colonnes clés pour l'écran /paiements du backoffice."""
+    invoice_number = serializers.CharField(
+        source="invoice.invoice_number", read_only=True, allow_null=True,
+    )
+    reservation_internal_id = serializers.CharField(
+        source="reservation.trip.internal_id", read_only=True, allow_null=True,
+    )
+    order_internal_id = serializers.CharField(
+        source="order.internal_id", read_only=True, allow_null=True,
+    )
+    customer_name = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Payment
+        fields = [
+            "id", "provider", "provider_tx_id", "amount_xof", "currency", "status",
+            "invoice", "invoice_number",
+            "reservation", "reservation_internal_id",
+            "order", "order_internal_id",
+            "customer_name",
+            "initiated_at", "completed_at",
+        ]
+
+    def get_customer_name(self, obj):
+        """Nom du client depuis la source rattachée (invoice, order ou reservation).
+
+        Chaque Payment est rattaché à exactement une entité facturable
+        (contrainte métier, pas enforced DB). On expose un `customer_name`
+        unique pour l'affichage, calculé à partir de celle qui est renseignée.
+        """
+        if obj.invoice_id and obj.invoice:
+            return obj.invoice.customer_name
+        if obj.order_id and obj.order:
+            return obj.order.customer_name
+        if obj.reservation_id and obj.reservation and obj.reservation.passenger_id:
+            return obj.reservation.passenger.full_name
+        return ""
+
+
+class PaymentDetailSerializer(serializers.ModelSerializer):
+    """Détail d'un paiement — tout exposé pour la fiche."""
+    invoice_number = serializers.CharField(
+        source="invoice.invoice_number", read_only=True, allow_null=True,
+    )
+    reservation_internal_id = serializers.CharField(
+        source="reservation.trip.internal_id", read_only=True, allow_null=True,
+    )
+    order_internal_id = serializers.CharField(
+        source="order.internal_id", read_only=True, allow_null=True,
+    )
+
     class Meta:
         model = Payment
         fields = "__all__"

@@ -59,6 +59,9 @@ class OrderListSerializer(serializers.ModelSerializer):
             "id", "internal_id", "customer_name", "status", "priority",
             "payment_status", "total_amount_xof", "pickup_place", "dropoff_place",
             "created_at", "parcel_count",
+            # Ajoutés le 6 oct 2026 : le backoffice web a besoin du
+            # destinataire pour sa colonne dédiée. Non-breaking pour RN.
+            "recipient_name", "recipient_phone",
         ]
 
     @extend_schema_field(serializers.CharField(allow_blank=True))

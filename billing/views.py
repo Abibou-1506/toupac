@@ -13,7 +13,9 @@ from .models import Invoice, Payment, PriceList
 from .serializers import (
     InvoiceDetailSerializer,
     InvoiceListSerializer,
+    PaymentDetailSerializer,
     PaymentInitiateSerializer,
+    PaymentListSerializer,
     PriceListSerializer,
     PricingCalculateSerializer,
 )
@@ -36,6 +38,35 @@ class PriceListViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         return PriceList.objects.filter(tenant=self.request.tenant).prefetch_related("rules")
+
+
+@extend_schema_view(list=_TAG, retrieve=_TAG)
+class PaymentViewSet(ApiScopedViewSetMixin, viewsets.ReadOnlyModelViewSet):
+    """Liste et détail des paiements — lecture seule V1.
+
+    Les paiements sont créés par /payments/initiate/ (mobile money) et mis à
+    jour par /payments/webhook/ (callback provider). Ce ViewSet expose la
+    liste consolidée pour le reporting backoffice ; les actions d'écriture
+    (remboursement, annulation) sont prévues V1.2.
+    """
+    api_scope_domain = "billing"
+    throttle_classes = API_KEY_THROTTLES
+    queryset = Payment.objects.none()
+    filterset_fields = ["status", "provider", "invoice", "order", "reservation"]
+    search_fields = ["provider_tx_id"]
+    ordering_fields = ["initiated_at", "completed_at", "amount_xof"]
+    ordering = ["-initiated_at"]
+
+    def get_queryset(self):
+        return (
+            Payment.objects.filter(tenant=self.request.tenant)
+            .select_related("invoice", "order", "reservation__trip", "reservation__passenger")
+        )
+
+    def get_serializer_class(self):
+        if self.action == "list":
+            return PaymentListSerializer
+        return PaymentDetailSerializer
 
 
 @extend_schema_view(**_CRUD_TAGS)

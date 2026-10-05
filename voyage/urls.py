@@ -4,6 +4,7 @@ from rest_framework.routers import DefaultRouter
 from .views import (
     ControlEventBatchView,
     ControllerViewSet,
+    IncidentViewSet,
     PassengerViewSet,
     QrPublicKeyView,
     ReservationViewSet,
@@ -19,6 +20,7 @@ router.register("trips", TripViewSet, basename="trip")
 router.register("reservations", ReservationViewSet, basename="reservation")
 router.register("passengers", PassengerViewSet, basename="passenger")
 router.register("controllers", ControllerViewSet, basename="controller")
+router.register("incidents", IncidentViewSet, basename="incident")
 
 urlpatterns = [
     path("control-events/batch/", ControlEventBatchView.as_view(), name="control-events-batch"),

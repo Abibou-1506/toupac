@@ -2,11 +2,12 @@
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
-from colis.serializers import TripOrderSerializer
+from colis.serializers import GeoJSONField, TripOrderSerializer
 
 from .models import (
     Controller,
     ControlSession,
+    Incident,
     LuggagePolicy,
     Passenger,
     Reservation,
@@ -273,6 +274,51 @@ class ControlSessionSerializer(serializers.ModelSerializer):
     class Meta:
         model = ControlSession
         fields = "__all__"
+
+
+class IncidentListSerializer(serializers.ModelSerializer):
+    """Liste des incidents — colonnes clés pour l'écran /incidents du backoffice."""
+    trip_internal_id = serializers.CharField(source="trip.internal_id", read_only=True)
+    trip_route_name = serializers.CharField(source="trip.route.name", read_only=True)
+    reporter_name = serializers.CharField(source="reporter.full_name", read_only=True)
+
+    class Meta:
+        model = Incident
+        fields = [
+            "id", "trip", "trip_internal_id", "trip_route_name",
+            "reporter", "reporter_name",
+            "type", "severity", "title", "status",
+            "dispatcher_notified", "dispatcher_notified_at",
+            "resolved_at", "created_at",
+        ]
+
+
+class IncidentDetailSerializer(serializers.ModelSerializer):
+    """Détail d'un incident — tous les champs utiles pour la fiche.
+
+    `gps_location` est sérialisé en GeoJSON Point via `GeoJSONField` (porté
+    depuis colis/serializers.py), parce que le PointField PostGIS natif ne
+    rend pas une représentation JSON exploitable côté backoffice web.
+    """
+    trip_internal_id = serializers.CharField(source="trip.internal_id", read_only=True)
+    trip_route_name = serializers.CharField(source="trip.route.name", read_only=True)
+    reporter_name = serializers.CharField(source="reporter.full_name", read_only=True)
+    session_opened_at = serializers.DateTimeField(
+        source="session.opened_at", read_only=True, allow_null=True,
+    )
+    gps_location = GeoJSONField(read_only=True, allow_null=True)
+
+    class Meta:
+        model = Incident
+        fields = [
+            "id", "trip", "trip_internal_id", "trip_route_name",
+            "session", "session_opened_at",
+            "reporter", "reporter_name",
+            "type", "severity", "title", "description",
+            "photos_urls", "gps_location", "gps_address",
+            "status", "dispatcher_notified", "dispatcher_notified_at",
+            "resolved_at", "created_at", "updated_at",
+        ]
 
 
 class ControlOpenSerializer(serializers.Serializer):

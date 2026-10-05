@@ -22,6 +22,7 @@ from .models import (
     CashEntry,
     Controller,
     ControlSession,
+    Incident,
     Passenger,
     PassengerAccessLog,
     Reservation,
@@ -39,6 +40,8 @@ from .serializers import (
     ControlOpenSerializer,
     ControlSessionConflictSerializer,
     ControlSessionSerializer,
+    IncidentDetailSerializer,
+    IncidentListSerializer,
     ManifestSerializer,
     PassengerSerializer,
     QrPublicKeySerializer,
@@ -360,6 +363,35 @@ class TripViewSet(ApiScopedViewSetMixin, viewsets.ModelViewSet):
             trip.summary = build_trip_summary(trip)
             trip.save(update_fields=trip_update_fields)
         return Response(ControlSessionSerializer(session).data)
+
+
+@extend_schema_view(list=_TAG, retrieve=_TAG)
+class IncidentViewSet(ApiScopedViewSetMixin, viewsets.ReadOnlyModelViewSet):
+    """Liste et détail des incidents voyage — lecture seule V1.
+
+    Les incidents sont créés par les contrôleurs via l'app mobile et remontent
+    par le batch sync (/control-events/batch/). Le backoffice web les consulte
+    pour les décisions managériales (résolution, escalade). Les actions
+    d'écriture (résolution, réponse) sont prévues V1.2+.
+    """
+    api_scope_domain = "voyage"
+    throttle_classes = API_KEY_THROTTLES
+    queryset = Incident.objects.none()
+    filterset_fields = ["status", "severity", "type", "trip", "reporter", "dispatcher_notified"]
+    search_fields = ["title", "description"]
+    ordering_fields = ["created_at", "severity", "status"]
+    ordering = ["-created_at"]
+
+    def get_queryset(self):
+        return (
+            Incident.objects.filter(tenant=self.request.tenant)
+            .select_related("trip__route", "reporter", "session")
+        )
+
+    def get_serializer_class(self):
+        if self.action == "list":
+            return IncidentListSerializer
+        return IncidentDetailSerializer
 
 
 _BOARDING_ACTION_SCHEMA = extend_schema(
