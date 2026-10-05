@@ -37,6 +37,21 @@ class Vehicle(TenantModel, SoftDeleteMixin):
     vin = models.CharField("N° châssis", max_length=17, blank=True)
     status = models.CharField("Statut", max_length=20, choices=Status.choices, default=Status.AVAILABLE)
     location = models.PointField("Position", geography=True, null=True, blank=True, srid=4326)
+    # FK cross-app (fleet → voyage). SET_NULL : la suppression d'un plan
+    # n'invalide pas le véhicule — le trip peut toujours être créé avec un
+    # autre plan au moment de la création.
+    default_seat_map = models.ForeignKey(
+        "voyage.SeatMap",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="vehicles_default",
+        verbose_name="Plan de sièges par défaut",
+        help_text=(
+            "Plan utilisé par défaut lors de la création d'un voyage avec ce "
+            "véhicule. Peut être overridé au moment de la création."
+        ),
+    )
     traccar_device_id = models.CharField("ID Traccar", max_length=50, blank=True)
     metadata = models.JSONField("Métadonnées", default=dict, blank=True)
 

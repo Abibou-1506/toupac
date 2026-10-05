@@ -52,7 +52,13 @@ class VehicleListSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Vehicle
-        fields = ["id", "plate_number", "make", "model_name", "year", "capacity", "status", "vehicle_type", "location"]
+        fields = [
+            "id", "plate_number", "make", "model_name", "year", "capacity",
+            "status", "vehicle_type", "location",
+            # Ajouté le 7 oct 2026 pour le pré-remplissage du plan de sièges
+            # lors de la création d'un voyage depuis le backoffice web.
+            "default_seat_map",
+        ]
 
 
 class VehicleDetailSerializer(VehicleListSerializer):
@@ -68,7 +74,11 @@ class VehicleDetailSerializer(VehicleListSerializer):
 class VehicleCreateSerializer(serializers.ModelSerializer):
     class Meta:
         model = Vehicle
-        fields = ["vehicle_type", "plate_number", "make", "model_name", "year", "capacity", "vin", "traccar_device_id", "metadata"]
+        fields = [
+            "vehicle_type", "plate_number", "make", "model_name", "year",
+            "capacity", "vin", "traccar_device_id", "metadata",
+            "default_seat_map",
+        ]
 
 
 class DriverUserMiniSerializer(serializers.ModelSerializer):
@@ -81,10 +91,24 @@ class DriverUserMiniSerializer(serializers.ModelSerializer):
 
 class DriverListSerializer(serializers.ModelSerializer):
     user = DriverUserMiniSerializer(read_only=True)
+    # Alias plats ajoutés le 7 oct 2026 pour simplifier l'accès côté
+    # backoffice web (driver.full_name au lieu de driver.user.full_name).
+    # Le nesté `user` est préservé pour les apps mobiles RN existantes.
+    full_name = serializers.CharField(source="user.full_name", read_only=True)
+    user_phone = serializers.CharField(
+        source="user.phone", read_only=True, allow_null=True,
+    )
+    user_email = serializers.CharField(
+        source="user.email", read_only=True, allow_null=True,
+    )
 
     class Meta:
         model = Driver
-        fields = ["id", "user", "license_number", "license_class", "license_expiry", "status", "score"]
+        fields = [
+            "id", "user", "full_name", "user_phone", "user_email",
+            "license_number", "license_class", "license_expiry",
+            "status", "score",
+        ]
 
 
 class DriverDetailSerializer(DriverListSerializer):

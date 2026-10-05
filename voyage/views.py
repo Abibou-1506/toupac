@@ -367,17 +367,21 @@ class TripViewSet(ApiScopedViewSetMixin, viewsets.ModelViewSet):
         return Response(ControlSessionSerializer(session).data)
 
 
-@extend_schema_view(list=_TAG, retrieve=_TAG)
-class SeatMapViewSet(ApiScopedViewSetMixin, viewsets.ReadOnlyModelViewSet):
-    """Plans de sièges — lecture seule V1.
+@extend_schema_view(**_CRUD_TAGS)
+class SeatMapViewSet(ApiScopedViewSetMixin, viewsets.ModelViewSet):
+    """Plans de sièges — full CRUD depuis V1.1.
 
-    Les plans sont rarement modifiés (nouveau type de bus acheté,
-    aménagement cabine). La création/édition viendra V1.2 via un écran
-    paramétrage flotte dédié. Pour V1.1, cet endpoint sert au Sheet
-    'Nouveau voyage' du backoffice web pour sélectionner un plan existant.
+    Le staff flotte peut créer, modifier, supprimer des plans de sièges
+    sans intervention dev. Les contraintes de structure du `layout`
+    (grille 2D, labels de sièges uniques, cohérence `total_seats` avec
+    le count de cellules de type seat) sont validées côté serializer.
 
-    Les apps mobiles RN consomment déjà le `seat_map` complet via le
-    `ManifestSerializer` nested — ce ViewSet ne change rien pour elles.
+    DELETE refusé (409) si le plan est utilisé par un `Trip` : les
+    contrôleurs offline consomment le `layout` via le manifest, et
+    supprimer un plan en cours d'usage corromprait leur vue.
+
+    Les apps mobiles RN consomment déjà `seat_map` niché dans
+    `ManifestSerializer` — pas d'impact.
     """
     api_scope_domain = "voyage"
     throttle_classes = API_KEY_THROTTLES
@@ -385,11 +389,30 @@ class SeatMapViewSet(ApiScopedViewSetMixin, viewsets.ReadOnlyModelViewSet):
     queryset = SeatMap.objects.none()
     filterset_fields = ["vehicle_type"]
     search_fields = ["name"]
-    ordering_fields = ["name", "total_seats"]
+    ordering_fields = ["name", "total_seats", "created_at"]
     ordering = ["name"]
 
     def get_queryset(self):
         return SeatMap.objects.filter(tenant=self.request.tenant)
+
+    def perform_create(self, serializer):
+        serializer.save(tenant=self.request.tenant)
+
+    def destroy(self, request, *args, **kwargs):
+        instance = self.get_object()
+        trip_count = Trip.objects.filter(seat_map=instance).count()
+        if trip_count > 0:
+            plural = "s" if trip_count > 1 else ""
+            return Response(
+                {
+                    "detail": (
+                        f"Impossible de supprimer : ce plan est utilisé par "
+                        f"{trip_count} voyage{plural}."
+                    )
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
+        return super().destroy(request, *args, **kwargs)
 
 
 @extend_schema_view(list=_TAG, retrieve=_TAG)

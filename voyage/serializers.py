@@ -32,12 +32,16 @@ class LuggagePolicySerializer(serializers.ModelSerializer):
 
 class RouteStopSerializer(serializers.ModelSerializer):
     place_name = serializers.CharField(source="place.name", read_only=True)
+    # Ajouté le 7 oct 2026 pour la page création voyage du backoffice web :
+    # animation polyline Leaflet des escales. GeoJSONField ré-utilisé depuis
+    # colis.serializers (déjà importé). Non-breaking pour RN mobile apps.
+    place_location = GeoJSONField(source="place.location", read_only=True, allow_null=True)
 
     class Meta:
         model = RouteStop
         fields = [
-            "id", "route", "place", "place_name", "stop_order",
-            "offset_minutes", "is_boarding", "is_alighting",
+            "id", "route", "place", "place_name", "place_location",
+            "stop_order", "offset_minutes", "is_boarding", "is_alighting",
             "created_at", "updated_at",
         ]
 
@@ -58,9 +62,89 @@ class ScheduleSerializer(serializers.ModelSerializer):
 
 
 class SeatMapSerializer(serializers.ModelSerializer):
+    """Serializer SeatMap avec validation du layout.
+
+    `layout` est une grille 2D (liste de rangées) où chaque cellule est :
+    - un objet `{"label": "A1"}` pour un siège passager
+    - un objet `{"label": "DRV", "type": "driver"}` pour une cellule
+      spéciale (hors comptage des sièges)
+    - `null` pour une allée ou un espace vide
+
+    Contraintes validées à la création/modification depuis V1.1 :
+    - Grille rectangulaire (toutes les rangées ont la même largeur)
+    - Labels de sièges uniques (hors cellules spéciales)
+    - `total_seats` cohérent avec le nombre de cellules de type seat
+    """
+
     class Meta:
         model = SeatMap
         fields = "__all__"
+        # tenant est injecté par la vue (perform_create) — pas une entrée
+        # utilisateur. created_at/updated_at sont auto.
+        read_only_fields = ["tenant", "created_at", "updated_at"]
+
+    def validate_layout(self, value):
+        if not isinstance(value, list) or len(value) == 0:
+            raise serializers.ValidationError(
+                "Le layout doit être un tableau de rangées non vide."
+            )
+        widths = {len(row) for row in value if isinstance(row, list)}
+        if len(widths) != 1:
+            raise serializers.ValidationError(
+                "Toutes les rangées doivent avoir la même largeur."
+            )
+        seen_labels = set()
+        for row in value:
+            if not isinstance(row, list):
+                raise serializers.ValidationError(
+                    "Chaque rangée doit être un tableau."
+                )
+            for cell in row:
+                if cell is None:
+                    continue
+                if not isinstance(cell, dict) or "label" not in cell:
+                    raise serializers.ValidationError(
+                        "Chaque cellule doit être null ou un objet avec un "
+                        "champ 'label'."
+                    )
+                cell_type = cell.get("type", "seat")
+                if cell_type == "seat":
+                    label = cell["label"]
+                    if label in seen_labels:
+                        raise serializers.ValidationError(
+                            f"Label de siège '{label}' dupliqué."
+                        )
+                    seen_labels.add(label)
+        return value
+
+    def validate(self, attrs):
+        """Vérifie que `total_seats` correspond au count de sièges du layout.
+
+        Appliqué uniquement si les deux champs sont pertinents pour la
+        requête (création = les deux ; patch partiel = on utilise la
+        valeur persistée pour ce qui n'est pas fourni).
+        """
+        layout = attrs.get(
+            "layout", self.instance.layout if self.instance else None
+        )
+        total_seats = attrs.get(
+            "total_seats", self.instance.total_seats if self.instance else None
+        )
+        if layout and total_seats is not None:
+            seat_count = sum(
+                1
+                for row in layout
+                for cell in row
+                if cell is not None and cell.get("type", "seat") == "seat"
+            )
+            if seat_count != total_seats:
+                raise serializers.ValidationError({
+                    "total_seats": (
+                        f"Le layout contient {seat_count} sièges mais "
+                        f"total_seats est à {total_seats}."
+                    )
+                })
+        return attrs
 
 
 class RouteMiniSerializer(serializers.ModelSerializer):
