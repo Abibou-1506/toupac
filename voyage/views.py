@@ -28,6 +28,7 @@ from .models import (
     Reservation,
     Route,
     Schedule,
+    SeatMap,
     Trip,
 )
 from .schema_examples import ALL_EXAMPLES
@@ -50,6 +51,7 @@ from .serializers import (
     ReservationSerializer,
     RouteSerializer,
     ScheduleSerializer,
+    SeatMapSerializer,
     TripCreateSerializer,
     TripDetailSerializer,
     TripListSerializer,
@@ -363,6 +365,31 @@ class TripViewSet(ApiScopedViewSetMixin, viewsets.ModelViewSet):
             trip.summary = build_trip_summary(trip)
             trip.save(update_fields=trip_update_fields)
         return Response(ControlSessionSerializer(session).data)
+
+
+@extend_schema_view(list=_TAG, retrieve=_TAG)
+class SeatMapViewSet(ApiScopedViewSetMixin, viewsets.ReadOnlyModelViewSet):
+    """Plans de sièges — lecture seule V1.
+
+    Les plans sont rarement modifiés (nouveau type de bus acheté,
+    aménagement cabine). La création/édition viendra V1.2 via un écran
+    paramétrage flotte dédié. Pour V1.1, cet endpoint sert au Sheet
+    'Nouveau voyage' du backoffice web pour sélectionner un plan existant.
+
+    Les apps mobiles RN consomment déjà le `seat_map` complet via le
+    `ManifestSerializer` nested — ce ViewSet ne change rien pour elles.
+    """
+    api_scope_domain = "voyage"
+    throttle_classes = API_KEY_THROTTLES
+    serializer_class = SeatMapSerializer
+    queryset = SeatMap.objects.none()
+    filterset_fields = ["vehicle_type"]
+    search_fields = ["name"]
+    ordering_fields = ["name", "total_seats"]
+    ordering = ["name"]
+
+    def get_queryset(self):
+        return SeatMap.objects.filter(tenant=self.request.tenant)
 
 
 @extend_schema_view(list=_TAG, retrieve=_TAG)

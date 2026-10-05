@@ -10,6 +10,7 @@ from .views import (
     ReservationViewSet,
     RouteViewSet,
     ScheduleViewSet,
+    SeatMapViewSet,
     TripViewSet,
 )
 
@@ -21,6 +22,7 @@ router.register("reservations", ReservationViewSet, basename="reservation")
 router.register("passengers", PassengerViewSet, basename="passenger")
 router.register("controllers", ControllerViewSet, basename="controller")
 router.register("incidents", IncidentViewSet, basename="incident")
+router.register("seat-maps", SeatMapViewSet, basename="seat-map")
 
 urlpatterns = [
     path("control-events/batch/", ControlEventBatchView.as_view(), name="control-events-batch"),
