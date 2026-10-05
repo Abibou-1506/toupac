@@ -1,4 +1,7 @@
 """TOUPAC Voyage — Serializers DRF."""
+import re
+from datetime import date
+
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
@@ -128,7 +131,48 @@ class TripDetailSerializer(TripListSerializer):
         ]
 
 
+_TRIP_INTERNAL_ID_PATTERN = re.compile(r"^T-([A-Z]+)-\d{8}-\d+$")
+
+
+def _generate_trip_internal_id(tenant):
+    """Génère un `internal_id` Trip au format `T-{PREFIX}-{YYYYMMDD}-{NN}`.
+
+    Même logique que `_generate_order_internal_id` dans `colis.serializers` :
+    prefix extrait du dernier Trip du tenant (continuité avec le seed, ex.
+    'TPC' pour TOUPAC), fallback sur slug[:3].upper() pour un nouveau tenant.
+    Les deux helpers ne sont pas mutualisés : les patterns divergent (`T-` vs
+    `CMD-`) et peuvent évoluer indépendamment.
+    """
+    today = date.today()
+    date_str = today.strftime("%Y%m%d")
+
+    last_trip = (
+        Trip.objects.filter(tenant=tenant).order_by("-created_at").first()
+    )
+    prefix = (tenant.slug[:3] or "TNT").upper()
+    if last_trip:
+        match = _TRIP_INTERNAL_ID_PATTERN.match(last_trip.internal_id)
+        if match:
+            prefix = match.group(1)
+
+    prefix_today = f"T-{prefix}-{date_str}-"
+    count = Trip.objects.filter(
+        tenant=tenant,
+        internal_id__startswith=prefix_today,
+    ).count()
+    return f"T-{prefix}-{date_str}-{count:02d}"
+
+
 class TripCreateSerializer(serializers.ModelSerializer):
+    """Serializer de création de voyage.
+
+    `internal_id` est généré au format `T-{PREFIX}-{YYYYMMDD}-{NN}` si non
+    fourni. Les apps mobiles RN qui fournissent explicitement un `internal_id`
+    conservent leur contrat.
+
+    `summary` reste read_only — il est calculé par `build_trip_summary()`
+    à la clôture de session de contrôle, pas en création.
+    """
     class Meta:
         model = Trip
         fields = [
@@ -137,7 +181,16 @@ class TripCreateSerializer(serializers.ModelSerializer):
             "actual_departure_at", "actual_arrival_at", "status",
             "total_seats", "booked_seats", "summary", "created_by",
         ]
-        read_only_fields = ["id", "created_by"]
+        read_only_fields = ["id", "summary", "created_by"]
+        extra_kwargs = {
+            "internal_id": {"required": False, "allow_blank": True},
+        }
+
+    def create(self, validated_data):
+        if not validated_data.get("internal_id"):
+            tenant = validated_data.get("tenant") or self.context["request"].tenant
+            validated_data["internal_id"] = _generate_trip_internal_id(tenant)
+        return super().create(validated_data)
 
 
 class PassengerSerializer(serializers.ModelSerializer):

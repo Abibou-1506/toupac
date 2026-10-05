@@ -1,11 +1,50 @@
 """TOUPAC Colis — Serializers DRF."""
 import json
+import re
+from datetime import date
 
 from django.contrib.gis.geos import GEOSGeometry
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
 from .models import DeliveryTask, Order, Parcel, ProofOfDelivery
+
+
+_ORDER_INTERNAL_ID_PATTERN = re.compile(r"^CMD-([A-Z]+)-\d{8}-\d+$")
+
+
+def _generate_order_internal_id(tenant):
+    """Génère un `internal_id` Order au format `CMD-{PREFIX}-{YYYYMMDD}-{NN}`.
+
+    Le `PREFIX` est dérivé du dernier `internal_id` du tenant (continuité
+    avec le seed, ex. 'TPC' pour TOUPAC). Fallback sur les 3 premières
+    lettres du slug tenant en majuscules pour un tenant sans historique.
+    """
+    today = date.today()
+    date_str = today.strftime("%Y%m%d")
+
+    last_order = (
+        Order.objects.filter(tenant=tenant)
+        .order_by("-created_at")
+        .first()
+    )
+    prefix = (tenant.slug[:3] or "TNT").upper()
+    if last_order:
+        match = _ORDER_INTERNAL_ID_PATTERN.match(last_order.internal_id)
+        if match:
+            prefix = match.group(1)
+
+    # Index = nombre d'Orders déjà créés aujourd'hui avec ce prefix. On évite
+    # une collision frontale en re-lisant la base dans une transaction serialized
+    # côté viewset — V1 accepte le risque de doublon simultané (rare), la
+    # contrainte unique_order_internal_id_per_tenant garantit l'intégrité.
+    prefix_today = f"CMD-{prefix}-{date_str}-"
+    count = Order.objects.filter(
+        tenant=tenant,
+        internal_id__startswith=prefix_today,
+    ).count()
+
+    return f"CMD-{prefix}-{date_str}-{count:02d}"
 
 
 class GeoJSONField(serializers.Field):
@@ -85,17 +124,42 @@ class OrderDetailSerializer(OrderListSerializer):
 
 
 class OrderCreateSerializer(serializers.ModelSerializer):
+    """Serializer de création de commande.
+
+    `internal_id` est généré au format `CMD-{PREFIX}-{YYYYMMDD}-{NN}` si non
+    fourni. Les apps mobiles RN qui fournissent explicitement un `internal_id`
+    conservent leur contrat — on respecte la valeur reçue.
+
+    Ajouté le 6 oct 2026 : `recipient_name` / `recipient_phone` sont exposés
+    en create. Les deux champs existaient sur le modèle (RGPD : destinataire
+    du colis distinct du commanditaire) et étaient listés / détaillés mais
+    manquaient à la création — bug qui empêchait de les renseigner depuis
+    le backoffice.
+    """
     class Meta:
         model = Order
         fields = [
-            "customer", "customer_name", "customer_phone", "pickup_place", "dropoff_place",
-            "trip", "pickup_window_start", "pickup_window_end", "delivery_window_start",
-            "delivery_window_end", "priority", "instructions", "metadata",
+            "id",
+            "internal_id",
+            "customer", "customer_name", "customer_phone",
+            "recipient_name", "recipient_phone",
+            "pickup_place", "dropoff_place",
+            "trip", "pickup_window_start", "pickup_window_end",
+            "delivery_window_start", "delivery_window_end",
+            "priority", "instructions", "metadata",
         ]
+        read_only_fields = ["id"]
         extra_kwargs = {
             "customer": {"required": False, "allow_null": True},
             "trip": {"required": False, "allow_null": True},
+            "internal_id": {"required": False, "allow_blank": True},
         }
+
+    def create(self, validated_data):
+        if not validated_data.get("internal_id"):
+            tenant = validated_data.get("tenant") or self.context["request"].tenant
+            validated_data["internal_id"] = _generate_order_internal_id(tenant)
+        return super().create(validated_data)
 
 
 class TripOrderSerializer(serializers.ModelSerializer):

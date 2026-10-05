@@ -24,7 +24,7 @@ from .serializers import (
     ProofOfDeliveryCreateSerializer,
     ProofOfDeliverySerializer,
 )
-from .services import DispatchService, InternalIdGenerator, TrackingNumberGenerator
+from .services import DispatchService, TrackingNumberGenerator
 
 API_KEY_THROTTLES = [ApiKeyAdminRateThrottle, ApiKeyRateThrottle, PlatformKeyRateThrottle]
 
@@ -61,10 +61,14 @@ class OrderViewSet(ApiScopedViewSetMixin, viewsets.ModelViewSet):
         return OrderDetailSerializer
 
     def perform_create(self, serializer):
+        # `internal_id` est désormais généré au niveau du serializer
+        # (OrderCreateSerializer.create) : s'il n'est pas fourni dans la
+        # requête, le serializer le produit au format
+        # CMD-{PREFIX}-{YYYYMMDD}-{NN} ; sinon la valeur explicite (apps RN
+        # mobiles) est respectée.
         serializer.save(
             tenant=self.request.tenant,
             created_by=self.request.user,
-            internal_id=InternalIdGenerator.generate(self.request.tenant),
         )
 
     @action(detail=True, methods=["post"], url_path="parcels")
