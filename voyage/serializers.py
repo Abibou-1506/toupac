@@ -60,10 +60,16 @@ class SeatMapSerializer(serializers.ModelSerializer):
 
 
 class RouteMiniSerializer(serializers.ModelSerializer):
-    """Représentation compacte d'une route, nichée dans les serializers Trip."""
+    """Représentation compacte d'une route, nichée dans les serializers Trip.
+
+    `distance_km` et `duration_minutes` sont inclus depuis le 5 oct 2026 pour
+    permettre au backoffice web d'afficher la durée estimée et la distance
+    dans le détail voyage (InfosCard + KPIs Suivi). Non-breaking pour les
+    apps mobiles RN qui ignorent les champs non attendus.
+    """
     class Meta:
         model = Route
-        fields = ["id", "name", "code"]
+        fields = ["id", "name", "code", "distance_km", "duration_minutes"]
 
 
 class TripStopSerializer(serializers.ModelSerializer):
