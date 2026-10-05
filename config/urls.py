@@ -10,6 +10,10 @@ def health_check(request):
 urlpatterns = [
     path("admin/", admin.site.urls),
     path("health/", health_check, name="health"),
+    # toupac-web (cookies HTTP-only) : avant iam.urls pour que
+    # /api/v1/auth/{login,refresh,logout}/ aillent aux vues cookie,
+    # et que /api/v1/auth/{me,otp/*}/ tombent dans iam.urls ci-dessous.
+    path("api/v1/", include("iam.urls_auth")),
     path("api/v1/auth/", include("iam.urls")),
     path("api/v1/platform/", include("iam.platform_urls")),
     path("api/v1/customer/", include("iam.customer_urls")),

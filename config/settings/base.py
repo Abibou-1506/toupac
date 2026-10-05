@@ -121,9 +121,23 @@ AUTH_PASSWORD_VALIDATORS = [
     {"NAME": "django.contrib.auth.password_validation.NumericPasswordValidator"},
 ]
 
+# ─── CORS (toupac-web) ───
+# Autorise le front local (Vite 3000 / 5173) à envoyer ses cookies vers l'API.
+# Allowed_credentials est obligatoire pour que le navigateur attache les
+# cookies HTTP-only toupac_access / toupac_refresh en cross-origin dev.
+CORS_ALLOWED_ORIGINS = [
+    "http://localhost:3000",
+    "http://localhost:5173",
+]
+CORS_ALLOW_CREDENTIALS = True
+
 # ─── REST Framework ───
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": [
+        # Front cookie-based en premier : lit toupac_access depuis le cookie
+        # et synthétise un header Bearer pour que la pile existante continue
+        # (denylist access tokens, scopes, etc.) — cf. iam/authentication_cookie.py.
+        "iam.authentication_cookie.CookieJWTAuthentication",
         # Clé plateforme avant clé tenant : les deux lisent X-API-Key, et seul
         # le préfixe les sépare (`tpc_platform_` vs `tpc_`). Comme le premier
         # est aussi un préfixe valide pour le second, l'ordre garantit qu'une
