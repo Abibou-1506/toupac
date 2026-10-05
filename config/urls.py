@@ -3,6 +3,8 @@ from django.http import JsonResponse
 from django.urls import include, path
 from drf_spectacular.views import SpectacularAPIView, SpectacularRedocView, SpectacularSwaggerView
 
+from core.dashboard_views import DashboardActivitiesView, DashboardKPIsView
+
 
 def health_check(request):
     return JsonResponse({"status": "ok", "service": "toupac"})
@@ -25,6 +27,11 @@ urlpatterns = [
     path("api/v1/fleet/", include("fleet.urls")),
     path("api/v1/geo/", include("geo.urls")),
     path("api/v1/workflows/", include("workflow.urls")),
+    # Dashboard : endpoints transverses hébergés dans core/. Pas d'app
+    # dédiée tant que le périmètre reste 2 widgets ; extraction V1.2 si
+    # croissance.
+    path("api/v1/dashboard/kpis/", DashboardKPIsView.as_view(), name="dashboard-kpis"),
+    path("api/v1/dashboard/activities/", DashboardActivitiesView.as_view(), name="dashboard-activities"),
     path("partners/", include("developers.partner_urls")),
     path("api/schema/", SpectacularAPIView.as_view(), name="schema"),
     path("api/docs/", SpectacularSwaggerView.as_view(url_name="schema"), name="swagger-ui"),
