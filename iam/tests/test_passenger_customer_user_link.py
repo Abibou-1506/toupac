@@ -9,7 +9,6 @@ de qui réserve pour un proche.
 import pytest
 from django.core.management import call_command
 
-from iam.models import User
 from voyage.models import Passenger
 
 pytestmark = pytest.mark.django_db
@@ -119,12 +118,17 @@ def test_deleting_the_client_keeps_the_passenger_record(tenant_a, client_fatou):
     assert passenger.full_name == "Awa Diop"
 
 
-def test_seed_demo_links_clients_across_both_companies():
+def test_seed_demo_links_clients_to_passenger_records():
     """
-    Le jeu de démo produit bien un cas transverse.
+    Le jeu de démo rattache au moins un compte client à une fiche passager.
 
     Vérifié sur une base neuve : sur une base déjà seedée, l'idempotence
     empêche le rattrapage — les fiches passager existent déjà sans compte.
+
+    Depuis le pivot 2026-10-05 (TOUPAC entité unique), le cas « un même
+    compte client présent chez plusieurs compagnies » n'est plus
+    atteignable via seed_demo : la vérification cross-tenant historique
+    a été retirée.
     """
     for family in ("tenants", "places", "users", "fleet", "voyage"):
         call_command("seed_demo", only=family, quiet=True)
@@ -132,8 +136,3 @@ def test_seed_demo_links_clients_across_both_companies():
     linked = Passenger.objects.filter(customer_user__isnull=False)
 
     assert linked.exists(), "aucune fiche passager rattachée à un compte client"
-    clients_with_two_companies = [
-        client for client in User.objects.filter(role=User.Role.CLIENT)
-        if client.passenger_records.values("tenant").distinct().count() >= 2
-    ]
-    assert clients_with_two_companies, "aucun client présent chez deux compagnies"

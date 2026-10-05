@@ -71,10 +71,8 @@ FAMILIES = [
 # ─── Référentiel ───
 
 TENANTS = [
-    {"slug": "sahel-express", "name": "Transport Sahel Express", "prefix": "SE",
+    {"slug": "toupac", "name": "TOUPAC", "prefix": "TPC",
      "subscription_plan": Tenant.Plan.PRO},
-    {"slug": "dem-dikk", "name": "Dem Dikk Express", "prefix": "DD",
-     "subscription_plan": Tenant.Plan.STARTER},
 ]
 
 PLACES = [
@@ -89,23 +87,21 @@ PLACES = [
 ]
 
 USERS = {
-    "sahel-express": [
-        ("admin@sahel-express.sn", "Fatou", "Sarr", User.Role.ADMIN),
-        ("dispatcher@sahel-express.sn", "Ibrahima", "Diop", User.Role.DISPATCHER),
-        ("agent@sahel-express.sn", "Awa", "Ndiaye", User.Role.AGENT),
-        ("controller1@sahel-express.sn", "Modou", "Fall", User.Role.CONTROLLER),
-        ("controller2@sahel-express.sn", "Aïssatou", "Ba", User.Role.CONTROLLER),
-        ("driver1@sahel-express.sn", "Moussa", "Diallo", User.Role.DRIVER),
-        ("driver2@sahel-express.sn", "Ousmane", "Sy", User.Role.DRIVER),
-    ],
-    "dem-dikk": [
-        ("admin@dem-dikk.sn", "Mariama", "Camara", User.Role.ADMIN),
-        ("dispatcher@dem-dikk.sn", "Cheikh", "Ndiaye", User.Role.DISPATCHER),
-        ("agent@dem-dikk.sn", "Fatoumata", "Kane", User.Role.AGENT),
-        ("controller1@dem-dikk.sn", "Mamadou", "Faye", User.Role.CONTROLLER),
-        ("controller2@dem-dikk.sn", "Ndeye", "Gueye", User.Role.CONTROLLER),
-        ("driver1@dem-dikk.sn", "Alioune", "Fall", User.Role.DRIVER),
-        ("driver2@dem-dikk.sn", "Bineta", "Cissé", User.Role.DRIVER),
+    "toupac": [
+        # admin@toupac.sn peut avoir été créé à la main avant le seed —
+        # seed_users skippe par email, puis _reattach_users réaligne le
+        # tenant si nécessaire.
+        ("admin@toupac.sn", "Admin", "TOUPAC", User.Role.ADMIN),
+        ("dispatcher@toupac.sn", "Ibrahima", "Diop", User.Role.DISPATCHER),
+        ("agent@toupac.sn", "Awa", "Ndiaye", User.Role.AGENT),
+        ("controller1@toupac.sn", "Modou", "Fall", User.Role.CONTROLLER),
+        ("controller2@toupac.sn", "Aïssatou", "Ba", User.Role.CONTROLLER),
+        ("controller3@toupac.sn", "Mamadou", "Faye", User.Role.CONTROLLER),
+        ("controller4@toupac.sn", "Ndeye", "Gueye", User.Role.CONTROLLER),
+        ("driver1@toupac.sn", "Moussa", "Diallo", User.Role.DRIVER),
+        ("driver2@toupac.sn", "Ousmane", "Sy", User.Role.DRIVER),
+        ("driver3@toupac.sn", "Alioune", "Fall", User.Role.DRIVER),
+        ("driver4@toupac.sn", "Bineta", "Cissé", User.Role.DRIVER),
     ],
 }
 
@@ -132,40 +128,39 @@ VEHICLE_TYPES = [
 ]
 
 VEHICLES = {
-    "sahel-express": [
-        ("SN-2145-AZ", "Mercedes-Benz", "Tourismo 15 RHD", 2019, "Autocar 45 places", 45, "trc-se-01"),
-        ("SN-2146-AZ", "Mercedes-Benz", "Tourismo 15 RHD", 2020, "Autocar 45 places", 45, "trc-se-02"),
-        ("SN-1044-BK", "Toyota", "Coaster", 2021, "Minicar 30 places", 30, "trc-se-03"),
-    ],
-    "dem-dikk": [
-        ("DK-DD-01", "Iveco", "Crossway", 2022, "Autocar 45 places", 45, "trc-dd-01"),
-        ("DK-DD-02", "Toyota", "Coaster", 2021, "Minicar 30 places", 30, "trc-dd-02"),
-        ("DK-DD-03", "Toyota", "Coaster", 2020, "Minicar 30 places", 30, "trc-dd-03"),
-        ("DK-DD-04", "Nissan", "Urvan", 2023, "Minibus 15 places", 15, "trc-dd-04"),
+    "toupac": [
+        # Longue distance (ex-sahel-express)
+        ("SN-2145-AZ", "Mercedes-Benz", "Tourismo 15 RHD", 2019, "Autocar 45 places", 45, "trc-tpc-01"),
+        ("SN-2146-AZ", "Mercedes-Benz", "Tourismo 15 RHD", 2020, "Autocar 45 places", 45, "trc-tpc-02"),
+        ("SN-1044-BK", "Toyota", "Coaster", 2021, "Minicar 30 places", 30, "trc-tpc-03"),
+        # Interurbain/urbain (ex-dem-dikk — plaques resluguées pour cohérence)
+        ("SN-DK-10-TPC", "Iveco", "Crossway", 2022, "Autocar 45 places", 45, "trc-tpc-04"),
+        ("SN-DK-11-TPC", "Toyota", "Coaster", 2021, "Minicar 30 places", 30, "trc-tpc-05"),
+        ("SN-DK-12-TPC", "Toyota", "Coaster", 2020, "Minicar 30 places", 30, "trc-tpc-06"),
+        ("SN-DK-13-TPC", "Nissan", "Urvan", 2023, "Minibus 15 places", 15, "trc-tpc-07"),
     ],
 }
 
-# Gare de rattachement par tenant (les véhicules et chauffeurs gravitent autour).
-HOME_PLACE = {"sahel-express": "Gare Routière Pompiers", "dem-dikk": "Gare Routière Baux Maraîchers"}
+# Gare de rattachement unique — TOUPAC exploite depuis Pompiers.
+HOME_PLACE = {"toupac": "Gare Routière Pompiers"}
 
 DRIVERS = {
-    "sahel-express": [("driver1@sahel-express.sn", "D", Decimal("95.00")),
-                      ("driver2@sahel-express.sn", "D", Decimal("88.50"))],
-    "dem-dikk": [("driver1@dem-dikk.sn", "D", Decimal("92.00")),
-                 ("driver2@dem-dikk.sn", "D", Decimal("97.50"))],
+    "toupac": [
+        ("driver1@toupac.sn", "D", Decimal("95.00")),
+        ("driver2@toupac.sn", "D", Decimal("88.50")),
+        ("driver3@toupac.sn", "D", Decimal("92.00")),
+        ("driver4@toupac.sn", "D", Decimal("97.50")),
+    ],
 }
 
 FLEETS = {
-    "sahel-express": ("Flotte Longue Distance", "Sahel"),
-    "dem-dikk": ("Flotte Urbaine et Interurbaine", "Dakar"),
+    "toupac": ("Flotte TOUPAC", "National"),
 }
 
 LUGGAGE_POLICIES = {
-    "sahel-express": [
+    "toupac": [
         ("Bagage standard 20kg", 20, 40, 1500, 2),
         ("Bagage express 30kg", 30, 50, 1000, 3),
-    ],
-    "dem-dikk": [
         ("Bagage urbain 10kg", 10, 25, 500, 2),
         ("Bagage voyageur 20kg", 20, 35, 800, 2),
     ],
@@ -174,7 +169,8 @@ LUGGAGE_POLICIES = {
 # code, nom, origine, destination, km, minutes, politique bagages,
 # escales [(place, offset, boarding, alighting)]
 ROUTES = {
-    "sahel-express": [
+    "toupac": [
+        # Longue distance internationale
         ("DKR-BKO", "Dakar → Bamako", "Gare Routière Pompiers", "Gare Routière Sogoniko",
          1450, 1440, "Bagage standard 20kg", [
              ("Gare Routière Pompiers", 0, True, False),
@@ -182,12 +178,6 @@ ROUTES = {
              ("Gare Routière Tambacounda", 600, True, True),
              ("Gare Routière Kayes", 1080, True, True),
              ("Gare Routière Sogoniko", 1440, False, True),
-         ]),
-        ("DKR-ZIG", "Dakar → Ziguinchor", "Gare Routière Pompiers", "Gare Routière Ziguinchor",
-         460, 480, "Bagage standard 20kg", [
-             ("Gare Routière Pompiers", 0, True, False),
-             ("Gare Routière Kaolack", 180, True, True),
-             ("Gare Routière Ziguinchor", 480, False, True),
          ]),
         ("BKO-DKR", "Bamako → Dakar", "Gare Routière Sogoniko", "Gare Routière Pompiers",
          1450, 1440, "Bagage standard 20kg", [
@@ -197,36 +187,41 @@ ROUTES = {
              ("Gare Routière Kaolack", 1260, True, True),
              ("Gare Routière Pompiers", 1440, False, True),
          ]),
-    ],
-    "dem-dikk": [
+        ("DKR-ZIG", "Dakar → Ziguinchor", "Gare Routière Pompiers", "Gare Routière Ziguinchor",
+         460, 480, "Bagage standard 20kg", [
+             ("Gare Routière Pompiers", 0, True, False),
+             ("Gare Routière Kaolack", 180, True, True),
+             ("Gare Routière Ziguinchor", 480, False, True),
+         ]),
+        # Interurbain national (ex-dem-dikk) — rebase sur Pompiers (gare TOUPAC centrale).
         # Route directe, sans escale intermédiaire — cas volontairement couvert.
-        ("DKR-THI", "Dakar → Thiès", "Gare Routière Baux Maraîchers", "Gare Routière Thiès",
+        ("DKR-THI", "Dakar → Thiès", "Gare Routière Pompiers", "Gare Routière Thiès",
          70, 90, "Bagage urbain 10kg", [
-             ("Gare Routière Baux Maraîchers", 0, True, False),
+             ("Gare Routière Pompiers", 0, True, False),
              ("Gare Routière Thiès", 90, False, True),
          ]),
-        ("DKR-KLK", "Dakar → Kaolack", "Gare Routière Baux Maraîchers", "Gare Routière Kaolack",
+        ("DKR-KLK", "Dakar → Kaolack", "Gare Routière Pompiers", "Gare Routière Kaolack",
          190, 210, "Bagage voyageur 20kg", [
-             ("Gare Routière Baux Maraîchers", 0, True, False),
+             ("Gare Routière Pompiers", 0, True, False),
              ("Gare Routière Thiès", 90, True, True),
              ("Gare Routière Kaolack", 210, False, True),
          ]),
-        ("KLK-DKR", "Kaolack → Dakar", "Gare Routière Kaolack", "Gare Routière Baux Maraîchers",
+        ("KLK-DKR", "Kaolack → Dakar", "Gare Routière Kaolack", "Gare Routière Pompiers",
          190, 210, "Bagage voyageur 20kg", [
              ("Gare Routière Kaolack", 0, True, False),
              ("Gare Routière Thiès", 120, True, True),
-             ("Gare Routière Baux Maraîchers", 210, False, True),
+             ("Gare Routière Pompiers", 210, False, True),
          ]),
     ],
 }
 
 SCHEDULES = {
-    "sahel-express": [
+    "toupac": [
+        # Longue distance (3x/semaine)
         ("DKR-BKO", time(18, 0), [1, 3, 5], 25000),
-        ("DKR-ZIG", time(7, 0), [0, 2, 4, 6], 12000),
         ("BKO-DKR", time(15, 0), [1, 3, 5], 25000),
-    ],
-    "dem-dikk": [
+        ("DKR-ZIG", time(7, 0), [0, 2, 4, 6], 12000),
+        # Urbain/interurbain (tous les jours)
         ("DKR-THI", time(6, 0), [0, 1, 2, 3, 4, 5, 6], 1500),
         ("DKR-THI", time(18, 0), [0, 1, 2, 3, 4, 5, 6], 1500),
         ("DKR-KLK", time(8, 0), [0, 1, 2, 3, 4, 5, 6], 4500),
@@ -235,13 +230,11 @@ SCHEDULES = {
 }
 
 CONTROLLERS = {
-    "sahel-express": [
-        ("controller1@sahel-express.sn", "CTRL-SE-01", "Dakar Pompiers"),
-        ("controller2@sahel-express.sn", "CTRL-SE-02", "Dakar Pompiers"),
-    ],
-    "dem-dikk": [
-        ("controller1@dem-dikk.sn", "CTRL-DD-01", "Baux Maraîchers"),
-        ("controller2@dem-dikk.sn", "CTRL-DD-02", "Baux Maraîchers"),
+    "toupac": [
+        ("controller1@toupac.sn", "CTRL-TPC-01", "Dakar Pompiers"),
+        ("controller2@toupac.sn", "CTRL-TPC-02", "Dakar Pompiers"),
+        ("controller3@toupac.sn", "CTRL-TPC-03", "Dakar Pompiers"),
+        ("controller4@toupac.sn", "CTRL-TPC-04", "Dakar Pompiers"),
     ],
 }
 
@@ -318,7 +311,7 @@ def aware(day: date, at: time):
 
 
 class Command(BaseCommand):
-    help = "Génère un jeu de données de démonstration complet sur 2 tenants."
+    help = "Génère un jeu de données de démonstration complet sur le tenant 'toupac'."
 
     def add_arguments(self, parser):
         parser.add_argument("--reset", action="store_true",
@@ -396,8 +389,9 @@ class Command(BaseCommand):
 
     def confirm_reset(self):
         self.stdout.write(self.style.WARNING(
-            "⚠️  Cette commande va supprimer TOUTES les données de démo (tenants "
-            "'sahel-express' et 'dem-dikk', users, trips, etc.). Les données seront perdues."
+            "⚠️  Cette commande va supprimer TOUTES les données de démo du "
+            "tenant 'toupac' (users, trips, réservations, colis, factures, "
+            "etc.). Les données seront perdues."
         ))
         answer = input("Tapez 'RESET DEMO' pour confirmer : ")
         if answer.strip() != "RESET DEMO":
@@ -489,11 +483,24 @@ class Command(BaseCommand):
     def seed_users(self):
         if not self.require(Tenant.objects.filter(slug__in=USERS), "Tenants"):
             return
-        created = existing = 0
+        created = existing = reattached = 0
         for tenant in self.tenants():
             for email, first, last, role in USERS[tenant.slug]:
                 user = User.objects.filter(email=email).first()
                 if user:
+                    # L'user existe déjà (créé à la main, ou par un seed
+                    # antérieur). On n'écrase pas son mot de passe ni ses
+                    # champs d'identité, mais on vérifie son rattachement
+                    # pour éviter les comptes orphelins après un pivot
+                    # multi-tenants → tenant unique.
+                    if user.tenant_id != tenant.id:
+                        self.warn(
+                            f"{email} rattaché à un autre tenant "
+                            f"({user.tenant}) — corrigé vers {tenant.slug}."
+                        )
+                        user.tenant = tenant
+                        user.save(update_fields=["tenant", "updated_at"])
+                        reattached += 1
                     existing += 1
                     continue
                 User.objects.create_user(
@@ -513,9 +520,11 @@ class Command(BaseCommand):
             clients_created += was_created
 
         staff = self.grant_staff_permissions()
+        reattach_note = f", {reattached} réaligné(s) sur le bon tenant" if reattached else ""
         self.step(
             "Utilisateurs",
-            f"{self.counts(created, existing)}, {clients_created} client(s) global(aux) créé(s), "
+            f"{self.counts(created, existing)}{reattach_note}, "
+            f"{clients_created} client(s) global(aux) créé(s), "
             f"{staff} rattaché(s) au groupe admin",
         )
 
@@ -696,7 +705,9 @@ class Command(BaseCommand):
                           "status": Controller.Status.ACTIVE},
             )
 
-        wanted = 15 if tenant.slug == "sahel-express" else 20
+        # TOUPAC fait longue distance + urbain : volume plus large pour couvrir
+        # les deux cas de bout en bout.
+        wanted = 35
         for index in range(wanted):
             first = PASSENGER_FIRST[(index * 3 + len(tenant.slug)) % len(PASSENGER_FIRST)]
             last = PASSENGER_LAST[(index * 5 + len(tenant.slug)) % len(PASSENGER_LAST)]
@@ -724,12 +735,11 @@ class Command(BaseCommand):
 
     @staticmethod
     def _seed_client_passengers(tenant):
-        """Rattache les premiers clients de démo à une fiche passager par compagnie.
+        """Rattache les premiers clients de démo à une fiche passager du tenant.
 
-        C'est ce qui rend la vue transverse démontrable : le même compte client
-        voyage chez Sahel Express et chez Dem Dikk, et retrouve ses deux billets
-        dans `/customer/my-reservations/`. Une fiche par compagnie, un seul
-        compte — c'est exactement la distinction que porte `customer_user`.
+        Un compte client global peut voyager chez TOUPAC et retrouver ses
+        billets dans `/customer/my-reservations/` — c'est la distinction que
+        porte `customer_user` (fiche passager par tenant, compte client unique).
         """
         for email, client_phone, first, last in CLIENTS[:DEMO_CLIENT_COUNT]:
             client = User.objects.filter(
@@ -750,9 +760,17 @@ class Command(BaseCommand):
             )
 
     def _trip_plan(self, tenant, now):
-        """(route_code, scheduled_at, status, fill_ratio) des voyages à générer."""
+        """(route_code, scheduled_at, status, fill_ratio) des voyages à générer.
+
+        TOUPAC fait longue distance ET interurbain. Mix réaliste :
+        - 5 voyages passés (COMPLETED) sur routes variées
+        - 1 BOARDING ce soir sur DKR-BKO (prochain départ longue distance)
+        - 1 IN_TRANSIT en cours urbain (DKR-KLK, départ il y a 30 min)
+        - 1 IN_TRANSIT en cours longue distance (DKR-BKO, départ il y a 2h)
+        - 3 à venir sur routes variées
+        - 1 presque complet (fill 0.9) sur DKR-BKO dans 2 jours
+        """
         rng = self.rng(f"trips-{tenant.slug}")
-        long_haul = tenant.slug == "sahel-express"
         codes = [r[0] for r in ROUTES[tenant.slug]]
         plan = []
 
@@ -762,21 +780,20 @@ class Command(BaseCommand):
             departure = next(s[1] for s in SCHEDULES[tenant.slug] if s[0] == code)
             plan.append((code, aware(day, departure), Trip.Status.COMPLETED, rng.uniform(0.6, 0.8)))
 
-        plan.append((codes[0], aware(now.date(), time(18, 0)), Trip.Status.BOARDING, 0.5))
-        plan.append((
-            codes[0] if long_haul else "DKR-KLK",
-            now - timedelta(hours=2) if long_haul else now - timedelta(minutes=30),
-            Trip.Status.IN_TRANSIT, 0.6,
-        ))
+        plan.append(("DKR-BKO", aware(now.date(), time(18, 0)), Trip.Status.BOARDING, 0.5))
+
+        # 2 IN_TRANSIT : urbain court (30 min) + longue distance (2h de route).
+        plan.append(("DKR-KLK", now - timedelta(minutes=30), Trip.Status.IN_TRANSIT, 0.6))
+        plan.append(("DKR-BKO", now - timedelta(hours=2), Trip.Status.IN_TRANSIT, 0.7))
+
         for index in range(3):  # à venir
             day = (now + timedelta(days=index + 3)).date()
             code = codes[index % len(codes)]
             departure = next(s[1] for s in SCHEDULES[tenant.slug] if s[0] == code)
             plan.append((code, aware(day, departure), Trip.Status.SCHEDULED, rng.uniform(0.1, 0.3)))
 
-        code = codes[0]
-        departure = next(s[1] for s in SCHEDULES[tenant.slug] if s[0] == code)
-        plan.append((code, aware((now + timedelta(days=2)).date(), departure), Trip.Status.SCHEDULED, 0.9))
+        plan.append(("DKR-BKO", aware((now + timedelta(days=2)).date(), time(18, 0)),
+                     Trip.Status.SCHEDULED, 0.9))
         return plan
 
     def _seed_voyage_operations(self, tenant):
@@ -992,31 +1009,35 @@ class Command(BaseCommand):
             )
 
     def _seed_incident(self, tenant, controllers):
-        trip = Trip.objects.filter(tenant=tenant, status=Trip.Status.COMPLETED).order_by("internal_id").first()
-        if trip is None or not controllers:
+        """Crée 2 incidents emblématiques sur voyages terminés (longue distance + urbain)."""
+        completed_trips = list(Trip.objects.filter(
+            tenant=tenant, status=Trip.Status.COMPLETED,
+        ).order_by("internal_id")[:2])
+        if not completed_trips or not controllers:
             return
-        if tenant.slug == "sahel-express":
-            spec = (Incident.Type.BREAKDOWN, Incident.Severity.MODERATE,
-                    "Panne moteur à hauteur de Tambacounda",
-                    "Surchauffe moteur signalée par le chauffeur. Arrêt 90 min, "
-                    "réparation d'appoint puis reprise du trajet vers Kayes.")
-        else:
-            spec = (Incident.Type.BEHAVIOR, Incident.Severity.LOW,
-                    "Passager en état d'ivresse",
-                    "Passager perturbateur au départ de Baux Maraîchers. "
-                    "Débarqué à Thiès avec l'accord du dispatcher.")
-        incident_type, severity, title, description = spec
-        Incident.objects.get_or_create(
-            tenant=tenant, trip=trip, title=title,
-            defaults={
-                "session": ControlSession.objects.filter(trip=trip).first(),
-                "reporter": controllers[0].user, "type": incident_type, "severity": severity,
-                "description": description, "status": Incident.Status.RESOLVED,
-                "dispatcher_notified": True,
-                "dispatcher_notified_at": trip.actual_departure_at,
-                "resolved_at": trip.actual_arrival_at,
-            },
-        )
+
+        specs = [
+            (Incident.Type.BREAKDOWN, Incident.Severity.MODERATE,
+             "Panne moteur à hauteur de Tambacounda",
+             "Surchauffe moteur signalée par le chauffeur. Arrêt 90 min, "
+             "réparation d'appoint puis reprise du trajet vers Kayes."),
+            (Incident.Type.BEHAVIOR, Incident.Severity.LOW,
+             "Passager en état d'ivresse",
+             "Passager perturbateur au départ. Débarqué à l'escale avec "
+             "l'accord du dispatcher."),
+        ]
+        for trip, (incident_type, severity, title, description) in zip(completed_trips, specs):
+            Incident.objects.get_or_create(
+                tenant=tenant, trip=trip, title=title,
+                defaults={
+                    "session": ControlSession.objects.filter(trip=trip).first(),
+                    "reporter": controllers[0].user, "type": incident_type, "severity": severity,
+                    "description": description, "status": Incident.Status.RESOLVED,
+                    "dispatcher_notified": True,
+                    "dispatcher_notified_at": trip.actual_departure_at,
+                    "resolved_at": trip.actual_arrival_at,
+                },
+            )
 
     # ─── 6. Colis ───
 
@@ -1128,26 +1149,36 @@ class Command(BaseCommand):
                            f"{proofs} preuves (nouvelles)")
 
     def _colis_specs(self, tenant):
-        """(status, trip, pickup, dropoff, montant) des commandes à créer."""
-        if tenant.slug == "sahel-express":
-            dakar, bamako = self.place("Gare Routière Pompiers"), self.place("Gare Routière Sogoniko")
-            kaolack = self.place("Gare Routière Kaolack")
-            completed = Trip.objects.filter(tenant=tenant, status=Trip.Status.COMPLETED,
-                                            route__code="DKR-BKO").first()
-            in_transit = Trip.objects.filter(tenant=tenant, status=Trip.Status.IN_TRANSIT).first()
-            upcoming = Trip.objects.filter(tenant=tenant, status=Trip.Status.SCHEDULED).first()
-            return [
-                (Order.Status.DELIVERED, completed, dakar, bamako, 12000),
-                (Order.Status.DELIVERED, completed, dakar, bamako, 8500),
-                (Order.Status.IN_TRANSIT, in_transit, dakar, bamako, 15000),
-                (Order.Status.CONFIRMED, upcoming, dakar, bamako, 9000),
-                # Order n'a pas de statut « created » (c'est un statut de Parcel) :
-                # le colis sans bus part donc en brouillon.
-                (Order.Status.DRAFT, None, dakar, kaolack, 3500),
-            ]
-        dakar = self.place("Gare Routière Baux Maraîchers")
-        thies, kaolack = self.place("Gare Routière Thiès"), self.place("Gare Routière Kaolack")
+        """(status, trip, pickup, dropoff, montant) des commandes à créer.
+
+        Mix longue distance (vers Bamako, DKR-BKO) + urbain (vers Thiès, Kaolack).
+        """
+        dakar = self.place("Gare Routière Pompiers")
+        bamako = self.place("Gare Routière Sogoniko")
+        kaolack = self.place("Gare Routière Kaolack")
+        thies = self.place("Gare Routière Thiès")
+
+        completed = Trip.objects.filter(
+            tenant=tenant, status=Trip.Status.COMPLETED,
+            route__code="DKR-BKO",
+        ).first()
+        in_transit = Trip.objects.filter(
+            tenant=tenant, status=Trip.Status.IN_TRANSIT,
+        ).first()
+        upcoming = Trip.objects.filter(
+            tenant=tenant, status=Trip.Status.SCHEDULED,
+        ).first()
+
         return [
+            # Longue distance (via DKR-BKO)
+            (Order.Status.DELIVERED, completed, dakar, bamako, 12000),
+            (Order.Status.DELIVERED, completed, dakar, bamako, 8500),
+            (Order.Status.IN_TRANSIT, in_transit, dakar, bamako, 15000),
+            (Order.Status.CONFIRMED, upcoming, dakar, bamako, 9000),
+            # Order n'a pas de statut « created » (c'est un statut de Parcel) :
+            # le colis sans bus part donc en brouillon.
+            (Order.Status.DRAFT, None, dakar, kaolack, 3500),
+            # Urbain (sans trip rattaché — livraison dédiée)
             (Order.Status.DELIVERED, None, dakar, thies, 2500),
             (Order.Status.DELIVERED, None, dakar, kaolack, 4000),
             (Order.Status.IN_TRANSIT, None, dakar, thies, 3000),
@@ -1180,7 +1211,7 @@ class Command(BaseCommand):
 
         for tenant in self.tenants():
             voyage_list, made = PriceList.objects.get_or_create(
-                tenant=tenant, name=f"Grille Voyage {'2026' if tenant.slug == 'sahel-express' else 'Dem Dikk'}",
+                tenant=tenant, name="Grille Voyage 2026",
                 defaults={"type": PriceList.Type.VOYAGE, "currency": "XOF", "is_active": True},
             )
             lists += made
@@ -1195,25 +1226,24 @@ class Command(BaseCommand):
                 )
                 rules += made
 
-            if tenant.slug == "sahel-express":
-                colis_list, made = PriceList.objects.get_or_create(
-                    tenant=tenant, name="Grille Colis 2026",
-                    defaults={"type": PriceList.Type.COLIS, "currency": "XOF", "is_active": True},
-                )
-                lists += made
-                _, made = PriceRule.objects.get_or_create(
-                    tenant=tenant, price_list=colis_list, route=None,
-                    calculation_method=PriceRule.CalculationMethod.FIXED,
-                    defaults={"base_amount_xof": 2000},
-                )
-                rules += made
-                _, made = PriceRule.objects.get_or_create(
-                    tenant=tenant, price_list=colis_list, route=None,
-                    calculation_method=PriceRule.CalculationMethod.PER_KG,
-                    defaults={"base_amount_xof": 500, "rate_per_unit": Decimal("250.00"),
-                              "min_amount_xof": 1000, "max_amount_xof": 20000},
-                )
-                rules += made
+            colis_list, made = PriceList.objects.get_or_create(
+                tenant=tenant, name="Grille Colis 2026",
+                defaults={"type": PriceList.Type.COLIS, "currency": "XOF", "is_active": True},
+            )
+            lists += made
+            _, made = PriceRule.objects.get_or_create(
+                tenant=tenant, price_list=colis_list, route=None,
+                calculation_method=PriceRule.CalculationMethod.FIXED,
+                defaults={"base_amount_xof": 2000},
+            )
+            rules += made
+            _, made = PriceRule.objects.get_or_create(
+                tenant=tenant, price_list=colis_list, route=None,
+                calculation_method=PriceRule.CalculationMethod.PER_KG,
+                defaults={"base_amount_xof": 500, "rate_per_unit": Decimal("250.00"),
+                          "min_amount_xof": 1000, "max_amount_xof": 20000},
+            )
+            rules += made
 
             invoices += self._seed_invoices(tenant)
             payments += self._seed_payments(tenant)
@@ -1222,7 +1252,8 @@ class Command(BaseCommand):
                                  f"{payments} paiements (nouveaux)")
 
     def _seed_invoices(self, tenant):
-        wanted = 3 if tenant.slug == "sahel-express" else 2
+        """3 factures voyage + 1 facture colis pour TOUPAC."""
+        wanted = 3
         made = 0
         # On facture d'abord les réservations rattachées à un compte client,
         # puis le reste. Sans cette priorité, le reset pouvait facturer trois
@@ -1245,29 +1276,26 @@ class Command(BaseCommand):
             InvoiceGenerator.from_reservation(reservation)
             made += 1
 
-        if tenant.slug == "sahel-express":
-            order = Order.objects.filter(tenant=tenant, status=Order.Status.DELIVERED).first()
-            if order and not InvoiceLine.objects.filter(reference_type="order", reference_id=order.id).exists():
-                InvoiceGenerator.from_order(order)
-                made += 1
+        # Facture colis (TOUPAC fait aussi du colis).
+        order = Order.objects.filter(tenant=tenant, status=Order.Status.DELIVERED).first()
+        if order and not InvoiceLine.objects.filter(
+            reference_type="order", reference_id=order.id,
+        ).exists():
+            InvoiceGenerator.from_order(order)
+            made += 1
         return made
 
     def _seed_payments(self, tenant):
+        """Mix de providers : Wave, Orange Money, cash, 1 failed, 1 pending."""
         prefix = self.prefix_for(tenant)
         invoices = list(Invoice.objects.filter(tenant=tenant).order_by("invoice_number"))
-        if tenant.slug == "sahel-express":
-            specs = [
-                (Payment.Provider.WAVE, Payment.Status.SUCCESS, ""),
-                (Payment.Provider.ORANGE_MONEY, Payment.Status.SUCCESS, ""),
-                (Payment.Provider.CASH, Payment.Status.SUCCESS, ""),
-                (Payment.Provider.WAVE, Payment.Status.FAILED, "Insufficient funds"),
-            ]
-        else:
-            specs = [
-                (Payment.Provider.WAVE, Payment.Status.SUCCESS, ""),
-                (Payment.Provider.ORANGE_MONEY, Payment.Status.SUCCESS, ""),
-                (Payment.Provider.WAVE, Payment.Status.PENDING, ""),
-            ]
+        specs = [
+            (Payment.Provider.WAVE, Payment.Status.SUCCESS, ""),
+            (Payment.Provider.ORANGE_MONEY, Payment.Status.SUCCESS, ""),
+            (Payment.Provider.CASH, Payment.Status.SUCCESS, ""),
+            (Payment.Provider.WAVE, Payment.Status.FAILED, "Insufficient funds"),
+            (Payment.Provider.WAVE, Payment.Status.PENDING, ""),
+        ]
 
         made = 0
         for index, (provider, status, failure) in enumerate(specs):
@@ -1327,7 +1355,9 @@ class Command(BaseCommand):
                     )
                     positions += 1
 
-            hub_name = "Gare Routière Kaolack" if tenant.slug == "sahel-express" else "Gare Routière Thiès"
+            # Kaolack reste le hub majeur (couvre longue distance DKR-BKO/BKO-DKR
+            # et urbain DKR-KLK/KLK-DKR).
+            hub_name = "Gare Routière Kaolack"
             for name, fence_type, place_name in [
                 (f"Dépôt {home.city}", Geofence.FenceType.DEPOT, HOME_PLACE[tenant.slug]),
                 (f"Hub {self.place(hub_name).city}", Geofence.FenceType.HUB, hub_name),

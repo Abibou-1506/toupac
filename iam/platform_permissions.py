@@ -128,7 +128,7 @@ class IsPlatformTenantContextValid(BasePermission):
         if not is_global and not header_present:
             raise exceptions.ValidationError({
                 "detail": "Header X-Tenant-ID manquant : indiquez le slug du tenant visé "
-                          "(ex. « sahel-express »). La liste des tenants abonnés est "
+                          "(ex. « toupac »). La liste des tenants abonnés est "
                           "disponible sur GET /api/v1/platform/tenants/.",
             })
 
