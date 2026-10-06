@@ -3,11 +3,12 @@ import uuid
 from collections import Counter
 
 from django.db import transaction
-from django.db.models import Count, Sum
+from django.db.models import Count, Q, Sum
 from django.utils import timezone
 from drf_spectacular.utils import extend_schema, extend_schema_view
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
+from rest_framework.exceptions import PermissionDenied
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -387,24 +388,46 @@ class SeatMapViewSet(ApiScopedViewSetMixin, viewsets.ModelViewSet):
     throttle_classes = API_KEY_THROTTLES
     serializer_class = SeatMapSerializer
     queryset = SeatMap.objects.none()
-    filterset_fields = ["vehicle_type"]
+    filterset_fields = ["vehicle_type", "is_template"]
     search_fields = ["name"]
     ordering_fields = ["name", "total_seats", "created_at"]
-    ordering = ["name"]
+    # Templates système en haut (-is_template True trié avant False), puis
+    # plans tenant par création récente.
+    ordering = ["-is_template", "-created_at"]
 
     def get_queryset(self):
-        # Annotation Count('trips') pour exposer `usage_count` dans
-        # SeatMapSerializer. Évite N+1 côté list (vs SerializerMethodField).
+        # Mélange : plans du tenant courant + templates système (tenant=NULL,
+        # is_template=True) visibles par tous. `.distinct()` requis car l'union
+        # sur FK optionnelles peut produire des doublons si une ligne satisfait
+        # les deux côtés — cf. DECISIONS.md.
         return (
-            SeatMap.objects.filter(tenant=self.request.tenant)
+            SeatMap.objects.filter(
+                Q(tenant=self.request.tenant)
+                | Q(is_template=True, tenant__isnull=True)
+            )
             .annotate(usage_count=Count("trips"))
+            .distinct()
         )
 
     def perform_create(self, serializer):
+        # Un POST classique crée un plan tenanté. Les templates système ne
+        # sont créés que par la migration data — pas depuis l'API.
         serializer.save(tenant=self.request.tenant)
+
+    def _assert_not_template(self, instance, action_label):
+        if instance.is_template:
+            raise PermissionDenied(
+                f"Impossible de {action_label} un template système. "
+                f"Utilisez 'cloner' pour créer une copie modifiable."
+            )
+
+    def perform_update(self, serializer):
+        self._assert_not_template(serializer.instance, "modifier")
+        super().perform_update(serializer)
 
     def destroy(self, request, *args, **kwargs):
         instance = self.get_object()
+        self._assert_not_template(instance, "supprimer")
         trip_count = Trip.objects.filter(seat_map=instance).count()
         if trip_count > 0:
             plural = "s" if trip_count > 1 else ""
@@ -417,7 +440,45 @@ class SeatMapViewSet(ApiScopedViewSetMixin, viewsets.ModelViewSet):
                 },
                 status=status.HTTP_409_CONFLICT,
             )
+        # Vehicle.default_seat_map FK = on_delete=SET_NULL (migration fleet
+        # 0003) — pas de guard supplémentaire : les véhicules survivent avec
+        # default_seat_map=NULL.
         return super().destroy(request, *args, **kwargs)
+
+    @extend_schema(request=None, responses={201: SeatMapSerializer}, tags=["Voyage"])
+    @action(detail=True, methods=["post"], url_path="clone")
+    def clone(self, request, pk=None):
+        """POST /voyage/seat-maps/{id}/clone/ — copie un template ou un plan.
+
+        Autorisé pour les templates système (quel que soit le tenant) et pour
+        les plans du tenant courant. Interdit (403) pour les plans d'un autre
+        tenant — bien que `get_queryset()` ne les expose pas, un ID forgé
+        serait refusé ici.
+
+        Payload optionnel : `{"name": "..."}`. Sinon fallback `Copie de <nom>`.
+        """
+        source = self.get_object()
+        tenant = request.tenant
+        if not source.is_template and source.tenant_id != tenant.id:
+            raise PermissionDenied(
+                "Impossible de cloner un plan d'un autre tenant."
+            )
+        new_name = (request.data or {}).get("name") or f"Copie de {source.name}"
+        clone_instance = SeatMap.objects.create(
+            tenant=tenant,
+            name=new_name,
+            vehicle_type=source.vehicle_type,
+            layout=source.layout,
+            total_seats=source.total_seats,
+            is_template=False,
+        )
+        # Ré-annoter pour que `usage_count` soit cohérent dans la réponse.
+        clone_instance = (
+            SeatMap.objects.annotate(usage_count=Count("trips"))
+            .get(pk=clone_instance.pk)
+        )
+        serializer = self.get_serializer(clone_instance)
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
 
 
 @extend_schema_view(list=_TAG, retrieve=_TAG)

@@ -85,9 +85,9 @@ class SeatMapSerializer(serializers.ModelSerializer):
     class Meta:
         model = SeatMap
         fields = "__all__"
-        # tenant est injecté par la vue (perform_create) — pas une entrée
-        # utilisateur. created_at/updated_at sont auto.
-        read_only_fields = ["tenant", "created_at", "updated_at"]
+        # tenant est injecté par la vue (perform_create) ; is_template n'est
+        # écrit que par la migration data (jamais depuis l'API).
+        read_only_fields = ["tenant", "is_template", "created_at", "updated_at"]
 
     @extend_schema_field(serializers.IntegerField())
     def get_usage_count(self, obj):

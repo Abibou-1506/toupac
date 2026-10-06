@@ -108,13 +108,39 @@ class Schedule(TenantModel):
 
 
 class SeatMap(TenantModel):
-    """Plan de sièges réutilisable pour un type de véhicule."""
+    """Plan de sièges réutilisable pour un type de véhicule.
+
+    Depuis V1.1 (7 oct 2026) peut être un **template système** partagé par
+    tous les tenants : `tenant=NULL, is_template=True`. Les templates sont
+    insérés par migration data, pas éditables par les tenants, et sont
+    clonables via `POST /seat-maps/{id}/clone/`. Pour les plans tenant
+    classiques, `tenant` reste obligatoire côté viewset (perform_create
+    pose `tenant=request.tenant`).
+    """
+    # Override du champ `tenant` de TenantModel : nullable pour les templates
+    # système. Les plans tenant restent créés avec tenant posé explicitement
+    # par SeatMapViewSet.perform_create.
+    tenant = models.ForeignKey(
+        "iam.Tenant",
+        on_delete=models.CASCADE,
+        related_name="voyage_seatmap_set",
+        db_index=True,
+        null=True,
+        blank=True,
+    )
     vehicle_type = models.ForeignKey(
         "fleet.VehicleType", on_delete=models.SET_NULL, null=True, blank=True, related_name="seat_maps",
     )
     name = models.CharField("Nom", max_length=100)
     total_seats = models.PositiveIntegerField("Nombre de sièges")
     layout = models.JSONField("Disposition", default=dict, blank=True)
+    is_template = models.BooleanField(
+        "Template système", default=False,
+        help_text=(
+            "Plan système réutilisable par tous les tenants. Non éditable, "
+            "non supprimable par les tenants ; clonable pour créer une copie."
+        ),
+    )
 
     objects = TenantManager()
 

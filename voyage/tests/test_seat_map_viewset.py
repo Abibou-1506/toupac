@@ -65,14 +65,17 @@ class TestSeatMapRead:
         own = SeatMap.objects.create(
             tenant=tenant, name="Local 45", total_seats=0, layout=[],
         )
-        SeatMap.objects.create(
+        other = SeatMap.objects.create(
             tenant=other_tenant, name="Yutong 55", total_seats=0, layout=[],
         )
-        response = admin_client.get(self.URL)
+        # Filtre `is_template=false` : exclut les 5 templates système seedés
+        # par la migration data (V1.1, 7 oct 2026) ; sans ce filtre, la liste
+        # mélange templates et plans tenant (ordering `-is_template`).
+        response = admin_client.get(f"{self.URL}?is_template=false")
         assert response.status_code == 200
         ids = {item["id"] for item in response.data["results"]}
         assert str(own.id) in ids
-        assert len(ids) == 1
+        assert str(other.id) not in ids
 
     def test_retrieve_includes_layout(self, admin_client, seat_map):
         response = admin_client.get(f"{self.URL}{seat_map.id}/")
