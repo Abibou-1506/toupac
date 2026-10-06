@@ -5,6 +5,16 @@ DEBUG = True
 ALLOWED_HOSTS = ["*"]
 CORS_ALLOW_ALL_ORIGINS = True
 
+# ─── CSRF trusted origins (toupac-web Vite dev) ───
+# Django DRF applique CSRF sur les requêtes POST/PUT/PATCH/DELETE authentifiées
+# par cookie session (cas du cookie-JWT toupac_access depuis le 5 oct). Les
+# origines dev du front Vite doivent être trusted. 3001 est le fallback
+# automatique Vite si le port 3000 est occupé.
+CSRF_TRUSTED_ORIGINS = [
+    "http://localhost:3000",
+    "http://localhost:3001",
+]
+
 # Fallback SQLite si pas de PostGIS dispo en dev local
 import shutil
 
