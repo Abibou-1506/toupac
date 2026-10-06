@@ -121,10 +121,14 @@ CLIENTS = [
 #: comptes sans historique — un client fraîchement inscrit est un cas normal.
 DEMO_CLIENT_COUNT = 2
 
+# Les plans démo pointent sur les templates système seedés par la migration
+# 0005. Le dict `{rows, cols}` legacy du MVP pré-V1.1 n'est plus accepté par
+# le front (grille 2D attendue) — on tire la vraie disposition depuis le
+# template dont le nom match la capacité.
 VEHICLE_TYPES = [
-    ("Autocar 45 places", 45, "diesel", {"rows": 12, "cols": 4}),
-    ("Minicar 30 places", 30, "diesel", {"rows": 10, "cols": 3}),
-    ("Minibus 15 places", 15, "essence", {"rows": 5, "cols": 3}),
+    ("Autocar 45 places", 45, "diesel", "45 places classique"),
+    ("Minicar 30 places", 30, "diesel", "30 places classique"),
+    ("Minibus 15 places", 15, "essence", "Minibus 15"),
 ]
 
 VEHICLES = {
@@ -663,11 +667,19 @@ class Command(BaseCommand):
                           "excess_price_per_kg_xof": excess, "max_pieces": pieces},
             )
 
-        for type_name, capacity, _fuel, layout in VEHICLE_TYPES:
+        for type_name, capacity, _fuel, template_name in VEHICLE_TYPES:
             vehicle_type = VehicleType.objects.filter(tenant=tenant, name=type_name).first()
-            SeatMap.objects.get_or_create(
+            template = SeatMap.objects.filter(
+                is_template=True, name=template_name,
+            ).first()
+            layout = template.layout if template else []
+            SeatMap.objects.update_or_create(
                 tenant=tenant, name=f"Plan {type_name}",
-                defaults={"vehicle_type": vehicle_type, "total_seats": capacity, "layout": layout},
+                defaults={
+                    "vehicle_type": vehicle_type,
+                    "total_seats": capacity,
+                    "layout": layout,
+                },
             )
 
         for code, name, origin, destination, km, minutes, policy_name, stops in ROUTES[tenant.slug]:

@@ -6,15 +6,41 @@ du seed de démonstration, et `TripViewSet._build_seat_occupation`, qui seule
 gérait le format explicite. La vente à bord en a désormais besoin pour refuser
 un siège hors plan — un troisième exemplaire aurait garanti la divergence.
 
-Deux formats de `SeatMap.layout` coexistent en base :
+Trois formats de `SeatMap.layout` coexistent en base :
 
-- **explicite** — `{"seats": [{"label": "A1", …}, …]}`, quand le plan est saisi
-  siège par siège (rangées irrégulières, places condamnées, strapontins) ;
-- **dérivé** — `{"rows": N, "cols": M}`, qui suffit à un car régulier.
+- **grille 2D V1.1** — `[[{"label": "A1"}, …, null, …], …]`. Chaque rangée est
+  une liste de cellules (siège, conducteur, allée). C'est ce que produit
+  l'éditeur visuel et ce que seedent les 5 templates système ;
+- **explicite legacy** — `{"seats": [{"label": "A1", …}, …]}`, quand un plan
+  pré-V1.1 était saisi siège par siège (rangées irrégulières, places
+  condamnées, strapontins) ;
+- **dérivé legacy** — `{"rows": N, "cols": M}`, qui suffit à un car régulier.
 
-L'explicite prime : un plan qui énumère ses sièges le fait pour une raison, et
-recalculer une grille par-dessus lui la contredirait.
+La 2D V1.1 prime, puis l'explicite, puis le dérivé. L'explicite prime sur le
+dérivé : un plan qui énumère ses sièges le fait pour une raison, et recalculer
+une grille par-dessus lui la contredirait.
 """
+
+
+def _labels_from_grid(layout):
+    """Extrait les labels des sièges d'un layout 2D V1.1.
+
+    Parcourt rangée par rangée, cellule par cellule. Ignore les cellules None
+    (allées) et les cellules conducteur (`type == "driver"` ou label "DRV").
+    """
+    labels = []
+    for row in layout:
+        if not isinstance(row, list):
+            continue
+        for cell in row:
+            if not isinstance(cell, dict):
+                continue
+            if cell.get("type") == "driver" or cell.get("label") == "DRV":
+                continue
+            label = cell.get("label")
+            if label:
+                labels.append(label)
+    return labels
 
 
 def seat_labels(layout, total_seats=None):
@@ -29,22 +55,24 @@ def seat_labels(layout, total_seats=None):
     doit traiter comme « pas de plan déclaré » et non comme « plan vide » : un
     voyage sans `seat_map` est une configuration légitime.
     """
-    layout = layout or {}
-
-    explicit = layout.get("seats") or []
-    if explicit:
-        labels = [
-            seat["label"] for seat in explicit
-            if isinstance(seat, dict) and seat.get("label")
-        ]
+    if isinstance(layout, list):
+        labels = _labels_from_grid(layout)
     else:
-        rows = layout.get("rows") or 0
-        cols = layout.get("cols") or 0
-        labels = [
-            f"{chr(64 + col)}{row}"
-            for row in range(1, rows + 1)
-            for col in range(1, cols + 1)
-        ]
+        layout = layout or {}
+        explicit = layout.get("seats") or []
+        if explicit:
+            labels = [
+                seat["label"] for seat in explicit
+                if isinstance(seat, dict) and seat.get("label")
+            ]
+        else:
+            rows = layout.get("rows") or 0
+            cols = layout.get("cols") or 0
+            labels = [
+                f"{chr(64 + col)}{row}"
+                for row in range(1, rows + 1)
+                for col in range(1, cols + 1)
+            ]
 
     return labels[:total_seats] if total_seats else labels
 
