@@ -226,6 +226,11 @@ class TripListSerializer(serializers.ModelSerializer):
 
 class TripDetailSerializer(TripListSerializer):
     stops = TripStopSerializer(many=True, read_only=True)
+    # Depuis Prompt 8 Bug C : expose le plan de sièges niché pour que le
+    # backoffice web puisse afficher le Dialog visionneuse SeatMap sans
+    # refetch séparé. Lecture seule — la modification du plan passe par
+    # `/voyage/seat-maps/`.
+    seat_map = SeatMapSerializer(read_only=True)
 
     class Meta(TripListSerializer.Meta):
         fields = [
