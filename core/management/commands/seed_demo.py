@@ -175,15 +175,17 @@ ROUTES = {
          1450, 1440, "Bagage standard 20kg", [
              ("Gare Routière Pompiers", 0, True, False),
              ("Gare Routière Kaolack", 180, True, True),
-             ("Gare Routière Tambacounda", 600, True, True),
-             ("Gare Routière Kayes", 1080, True, True),
+             # Pauses longues chauffeur sur le trans-sahélien : 30 min
+             # ravitaillement Tambacounda, 30 min déjeuner Kayes.
+             ("Gare Routière Tambacounda", 600, True, True, 30),
+             ("Gare Routière Kayes", 1080, True, True, 30),
              ("Gare Routière Sogoniko", 1440, False, True),
          ]),
         ("BKO-DKR", "Bamako → Dakar", "Gare Routière Sogoniko", "Gare Routière Pompiers",
          1450, 1440, "Bagage standard 20kg", [
              ("Gare Routière Sogoniko", 0, True, False),
-             ("Gare Routière Kayes", 360, True, True),
-             ("Gare Routière Tambacounda", 840, True, True),
+             ("Gare Routière Kayes", 360, True, True, 30),
+             ("Gare Routière Tambacounda", 840, True, True, 30),
              ("Gare Routière Kaolack", 1260, True, True),
              ("Gare Routière Pompiers", 1440, False, True),
          ]),
@@ -679,12 +681,29 @@ class Command(BaseCommand):
                     "is_active": True,
                 },
             )
-            for order, (place_name, offset, boarding, alighting) in enumerate(stops):
+            for order, stop_data in enumerate(stops):
+                # Tuple compact : (place_name, offset, boarding, alighting) ou
+                # (place_name, offset, boarding, alighting, pause_minutes).
+                # V1.1 : si pause fournie, arrival=offset / departure=offset+pause ;
+                # sinon arrival == departure == offset (pas de pause explicite).
+                if len(stop_data) == 5:
+                    place_name, arrival, boarding, alighting, pause = stop_data
+                    departure = arrival + pause
+                else:
+                    place_name, offset, boarding, alighting = stop_data
+                    arrival = offset
+                    departure = offset
                 RouteStop.objects.get_or_create(
                     route=route, stop_order=order,
-                    defaults={"tenant": tenant, "place": self.place(place_name),
-                              "offset_minutes": offset, "is_boarding": boarding,
-                              "is_alighting": alighting},
+                    defaults={
+                        "tenant": tenant,
+                        "place": self.place(place_name),
+                        "arrival_offset_minutes": arrival,
+                        "departure_offset_minutes": departure,
+                        # offset_minutes (deprecated) synchronisé via save() override.
+                        "is_boarding": boarding,
+                        "is_alighting": alighting,
+                    },
                 )
 
         for code, departure, days, price in SCHEDULES[tenant.slug]:

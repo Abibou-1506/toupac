@@ -59,11 +59,36 @@ class Route(TenantModel):
 
 
 class RouteStop(TenantModel):
-    """Escale ordonnée sur une route."""
+    """Escale ordonnée sur une route.
+
+    Depuis V1.1 (7 oct 2026) les offsets sont scindés en arrival/departure
+    pour modéliser les pauses longues (Tambacounda 30 min sur DKR-BKO,
+    déjeuner Kayes, etc.). Le `offset_minutes` historique est conservé en
+    DB (synchronisé à `departure_offset_minutes` au save) pour ne pas
+    casser les apps RN qui le consomment via le ManifestSerializer.
+    """
     route = models.ForeignKey(Route, on_delete=models.CASCADE, related_name="stops")
     place = models.ForeignKey("geo.Place", on_delete=models.PROTECT, related_name="route_stops")
     stop_order = models.SmallIntegerField("Ordre")
-    offset_minutes = models.PositiveIntegerField("Décalage (minutes)", default=0)
+    arrival_offset_minutes = models.PositiveIntegerField(
+        "Offset arrivée (minutes)", default=0,
+        help_text="Minutes depuis le départ pour l'arrivée à cette escale.",
+    )
+    departure_offset_minutes = models.PositiveIntegerField(
+        "Offset départ (minutes)", default=0,
+        help_text=(
+            "Minutes depuis le départ pour le départ de cette escale. "
+            "Égal à `arrival_offset_minutes` si pas de pause."
+        ),
+    )
+    offset_minutes = models.PositiveIntegerField(
+        "Décalage (minutes)", default=0,
+        help_text=(
+            "DEPRECATED : utiliser arrival_offset_minutes / "
+            "departure_offset_minutes. Conservé pour compatibilité app RN "
+            "mobile. Reflète departure_offset_minutes à chaque save."
+        ),
+    )
     is_boarding = models.BooleanField("Embarquement possible", default=True)
     is_alighting = models.BooleanField("Débarquement possible", default=True)
 
@@ -75,6 +100,19 @@ class RouteStop(TenantModel):
         verbose_name_plural = "Escales"
         unique_together = [("route", "stop_order")]
         ordering = ["route", "stop_order"]
+
+    def save(self, *args, **kwargs):
+        # Synchronise `offset_minutes` (deprecated) sur
+        # `departure_offset_minutes` pour que les lecteurs RN continuent de
+        # voir une valeur cohérente. Si seul l'ancien champ est renseigné
+        # par un code appelant historique (défaut 0), on l'utilise aussi
+        # pour arrival/departure — garantit la cohérence au premier save.
+        if self.departure_offset_minutes == 0 and self.offset_minutes:
+            self.departure_offset_minutes = self.offset_minutes
+            if self.arrival_offset_minutes == 0:
+                self.arrival_offset_minutes = self.offset_minutes
+        self.offset_minutes = self.departure_offset_minutes
+        super().save(*args, **kwargs)
 
     def __str__(self):
         return f"{self.route.code} — étape {self.stop_order} ({self.place.name})"

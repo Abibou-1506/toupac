@@ -41,9 +41,16 @@ class RouteStopSerializer(serializers.ModelSerializer):
         model = RouteStop
         fields = [
             "id", "route", "place", "place_name", "place_location",
-            "stop_order", "offset_minutes", "is_boarding", "is_alighting",
+            "stop_order",
+            # V1.1 : scission arrival/departure pour modéliser les pauses
+            # longues (Tambacounda 30 min, déjeuner Kayes). `offset_minutes`
+            # reste exposé en read-only pour compat RN mobile (ManifestSerializer).
+            "arrival_offset_minutes", "departure_offset_minutes",
+            "offset_minutes",
+            "is_boarding", "is_alighting",
             "created_at", "updated_at",
         ]
+        read_only_fields = ["offset_minutes"]
 
 
 class RouteSerializer(serializers.ModelSerializer):
