@@ -62,7 +62,7 @@ class ScheduleSerializer(serializers.ModelSerializer):
 
 
 class SeatMapSerializer(serializers.ModelSerializer):
-    """Serializer SeatMap avec validation du layout.
+    """Serializer SeatMap avec validation du layout + usage_count annoté.
 
     `layout` est une grille 2D (liste de rangées) où chaque cellule est :
     - un objet `{"label": "A1"}` pour un siège passager
@@ -76,12 +76,25 @@ class SeatMapSerializer(serializers.ModelSerializer):
     - `total_seats` cohérent avec le nombre de cellules de type seat
     """
 
+    # Compté par le ViewSet via Count('trips') annoté (pas de N+1 en liste).
+    # Pour les contextes où l'instance n'est pas annotée (ex. SeatMap niché
+    # dans ManifestTripSerializer), on tombe sur un count direct — rare et
+    # borné par la cardinalité (1 instance), donc acceptable.
+    usage_count = serializers.SerializerMethodField()
+
     class Meta:
         model = SeatMap
         fields = "__all__"
         # tenant est injecté par la vue (perform_create) — pas une entrée
         # utilisateur. created_at/updated_at sont auto.
         read_only_fields = ["tenant", "created_at", "updated_at"]
+
+    @extend_schema_field(serializers.IntegerField())
+    def get_usage_count(self, obj):
+        annotated = getattr(obj, "usage_count", None)
+        if annotated is not None:
+            return annotated
+        return obj.trips.count()
 
     def validate_layout(self, value):
         if not isinstance(value, list) or len(value) == 0:

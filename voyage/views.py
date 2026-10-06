@@ -3,7 +3,7 @@ import uuid
 from collections import Counter
 
 from django.db import transaction
-from django.db.models import Sum
+from django.db.models import Count, Sum
 from django.utils import timezone
 from drf_spectacular.utils import extend_schema, extend_schema_view
 from rest_framework import status, viewsets
@@ -393,7 +393,12 @@ class SeatMapViewSet(ApiScopedViewSetMixin, viewsets.ModelViewSet):
     ordering = ["name"]
 
     def get_queryset(self):
-        return SeatMap.objects.filter(tenant=self.request.tenant)
+        # Annotation Count('trips') pour exposer `usage_count` dans
+        # SeatMapSerializer. Évite N+1 côté list (vs SerializerMethodField).
+        return (
+            SeatMap.objects.filter(tenant=self.request.tenant)
+            .annotate(usage_count=Count("trips"))
+        )
 
     def perform_create(self, serializer):
         serializer.save(tenant=self.request.tenant)
