@@ -21,7 +21,7 @@ from rest_framework.test import APIClient
 from geo.models import Place
 from iam.models import Tenant, User
 from iam.serializers import ToupacTokenObtainSerializer
-from voyage.models import Route, RouteStop, Trip, TripStop
+from voyage.models import Route, RouteStop, Trip
 
 pytestmark = pytest.mark.django_db
 
@@ -72,13 +72,9 @@ def trip_with_stops(tenant):
         total_seats=45, status=Trip.Status.SCHEDULED,
     )
     # `TripStop` est l'instance temporelle d'un `RouteStop` pour ce voyage.
-    # Ils ne sont pas créés automatiquement — le manifest les expose via
-    # `trip.stops`, donc sans eux la liste est vide.
-    for route_stop in route_stops:
-        TripStop.objects.create(
-            tenant=tenant, trip=trip, route_stop=route_stop,
-            place=route_stop.place, stop_order=route_stop.stop_order,
-        )
+    # Depuis Prompt 8 Bug B, le signal `materialize_tripstops_on_trip_creation`
+    # les créé automatiquement à `Trip.objects.create()`, un par RouteStop.
+    assert trip.stops.count() == len(route_stops)
     return trip
 
 

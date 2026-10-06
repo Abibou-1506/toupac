@@ -884,7 +884,10 @@ class Command(BaseCommand):
                 stop_status = TripStop.Status.DEPARTED if position == 0 else TripStop.Status.PENDING
             else:
                 stop_status = TripStop.Status.PENDING
-            TripStop.objects.get_or_create(
+            # `update_or_create` : le signal `materialize_tripstops_on_trip_creation`
+            # a déjà créé le TripStop en status=PENDING à `Trip.save()`. On écrase
+            # ici avec le vrai état démo (COMPLETED → ARRIVED/DEPARTED + ata/atd).
+            TripStop.objects.update_or_create(
                 trip=trip, stop_order=route_stop.stop_order,
                 defaults={
                     "tenant": trip.tenant, "route_stop": route_stop, "place": route_stop.place,

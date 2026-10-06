@@ -88,14 +88,11 @@ def trip_with_stops(tenant):
         departure_date=timezone.now().date(), scheduled_at=timezone.now(),
         total_seats=6, seat_map=seat_map, status=Trip.Status.BOARDING,
     )
-    trip_stops = [
-        TripStop.objects.create(
-            tenant=tenant, trip=trip, route_stop=route_stops[i], place=places[i],
-            stop_order=i,
-        )
-        for i in range(3)
-    ]
-    trip.trip_stops_list = trip_stops  # exposé pour les tests
+    # Les TripStop sont matérialisés automatiquement par le signal
+    # `materialize_tripstops_on_trip_creation` (Prompt 8 Bug B).
+    _ = route_stops  # référence conservée pour la lisibilité du setup
+    trip.trip_stops_list = list(trip.stops.order_by("stop_order"))
+    assert len(trip.trip_stops_list) == 3
     return trip
 
 
