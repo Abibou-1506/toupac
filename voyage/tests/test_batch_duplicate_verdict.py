@@ -18,22 +18,25 @@ Cas couverts :
 - Verdict non-duplicate (accepted / rejected nominal) : clé `original_status`
   **absente** du dict (préservation du contrat).
 """
-import uuid
+# ruff: noqa: F811
+#
+# Les fixtures (tenant, controller, trip, stops, session, processor, PASSENGER,
+# sale_event, sell, existing_reservation) sont importées depuis
+# test_batch_hardening pour éviter la duplication. Chaque usage comme paramètre
+# de fonction déclenche F811 (faux positif pytest classique : ruff ne sait pas
+# que pytest résout les fixtures par nom de paramètre). On supprime la famille
+# entière au niveau fichier plutôt qu'annotation par ligne — un refactor
+# conftest partagé est tracé en dette post-démo.
 from unittest.mock import patch
 
 import pytest
-from django.db import IntegrityError
-from django.utils import timezone
 
 from voyage.models import ControlEvent, Reservation
-from voyage.services.event_processor import BatchEventProcessor
 from voyage.services.exceptions import RejectionCode
-
-# Réutilise les fixtures de test_batch_hardening (tenant, controller, trip,
-# stops, session, processor, PASSENGER, sale_event, sell, existing_reservation).
 from voyage.tests.test_batch_hardening import (  # noqa: F401
     PASSENGER,
     controller,
+    existing_reservation,
     processor,
     sale_event,
     sell,
@@ -41,7 +44,6 @@ from voyage.tests.test_batch_hardening import (  # noqa: F401
     stops,
     tenant,
     trip,
-    existing_reservation,
 )
 
 pytestmark = pytest.mark.django_db

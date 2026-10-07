@@ -21,8 +21,8 @@ from iam.throttles import ApiKeyAdminRateThrottle, ApiKeyRateThrottle
 
 from .models import (
     CashEntry,
-    Controller,
     ControlEvent,
+    Controller,
     ControlSession,
     Incident,
     Passenger,

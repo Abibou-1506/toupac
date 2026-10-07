@@ -8,8 +8,8 @@ from rest_framework import serializers
 from colis.serializers import GeoJSONField, TripOrderSerializer
 
 from .models import (
-    Controller,
     ControlEvent,
+    Controller,
     ControlSession,
     Incident,
     LuggagePolicy,
