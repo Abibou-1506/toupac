@@ -5,6 +5,23 @@ from .models import Invoice, InvoiceLine, Payment, PriceList, PriceRule
 
 
 class PriceRuleSerializer(serializers.ModelSerializer):
+    # Noms et codes résolus depuis les FK pour éviter les UUIDs tronqués
+    # côté front (page détail /tarifs/{id}). Non-breaking pour RN : les
+    # champs sont additifs, les clients qui ignorent les clés inconnues
+    # ne sont pas affectés.
+    route_name = serializers.CharField(
+        source="route.name", read_only=True, allow_null=True,
+    )
+    route_code = serializers.CharField(
+        source="route.code", read_only=True, allow_null=True,
+    )
+    origin_zone_name = serializers.CharField(
+        source="origin_zone.name", read_only=True, allow_null=True,
+    )
+    destination_zone_name = serializers.CharField(
+        source="destination_zone.name", read_only=True, allow_null=True,
+    )
+
     class Meta:
         model = PriceRule
         fields = "__all__"

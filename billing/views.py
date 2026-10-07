@@ -37,7 +37,12 @@ class PriceListViewSet(viewsets.ModelViewSet):
     filterset_fields = ["type", "is_active"]
 
     def get_queryset(self):
-        return PriceList.objects.filter(tenant=self.request.tenant).prefetch_related("rules")
+        return PriceList.objects.filter(tenant=self.request.tenant).prefetch_related(
+            "rules",
+            "rules__route",
+            "rules__origin_zone",
+            "rules__destination_zone",
+        )
 
 
 @extend_schema_view(list=_TAG, retrieve=_TAG)
