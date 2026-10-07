@@ -5,8 +5,8 @@ from collections import Counter
 from django.db import transaction
 from django.db.models import Count, Q, Sum
 from django.utils import timezone
-from drf_spectacular.utils import extend_schema, extend_schema_view
-from rest_framework import status, viewsets
+from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_view, inline_serializer
+from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.permissions import IsAuthenticated
@@ -22,6 +22,7 @@ from iam.throttles import ApiKeyAdminRateThrottle, ApiKeyRateThrottle
 from .models import (
     CashEntry,
     Controller,
+    ControlEvent,
     ControlSession,
     Incident,
     Passenger,
@@ -38,6 +39,7 @@ from .serializers import (
     BatchResponseSerializer,
     BoardingActionSerializer,
     ControlCloseSerializer,
+    ControlEventLookupSerializer,
     ControllerSerializer,
     ControlOpenSerializer,
     ControlSessionConflictSerializer,
@@ -755,3 +757,75 @@ class QrPublicKeyView(APIView):
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,
             )
         return Response({"public_key_pem": public_key})
+
+
+_CONTROL_EVENT_LOOKUP_ERROR = inline_serializer(
+    name="ControlEventLookupError",
+    fields={"detail": serializers.CharField()},
+)
+
+
+@extend_schema(
+    tags=["Voyage"],
+    request=None,
+    responses={
+        200: ControlEventLookupSerializer,
+        400: OpenApiResponse(response=_CONTROL_EVENT_LOOKUP_ERROR),
+        403: OpenApiResponse(response=_CONTROL_EVENT_LOOKUP_ERROR),
+        404: OpenApiResponse(response=_CONTROL_EVENT_LOOKUP_ERROR),
+    },
+)
+class ControlEventLookupView(APIView):
+    """
+    GET /api/v1/voyage/control-events/{client_uuid}/
+
+    Lookup direct par `client_uuid` pour la réconciliation mobile après
+    crash/timeout : le mobile sait si son event a atteint le serveur, et
+    peut rejouer en confiance quand la réponse est 404 (jamais vu).
+
+    Scope strict contrôleur : un `client_uuid` d'un autre contrôleur du même
+    tenant renvoie 404 — jamais 403. Doctrine DECISIONS.md « une ressource
+    nominative qui ne vous appartient pas répond 404, pas 403 ».
+    """
+    permission_classes = [IsAuthenticated]
+    throttle_classes = API_KEY_THROTTLES
+
+    def get(self, request, client_uuid):
+        # Garde-fou défensif : le path converter `<uuid:...>` filtre déjà en
+        # amont, mais un appel programmatique de la vue avec un str passerait
+        # au-delà. On garde ce try/except pour cette raison.
+        try:
+            parsed_uuid = uuid.UUID(str(client_uuid))
+        except (TypeError, ValueError):
+            return Response(
+                {"detail": "client_uuid invalide (UUID attendu)."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            controller = request.user.controller_profile
+        except Controller.DoesNotExist:
+            return Response(
+                {"detail": "Utilisateur non contrôleur."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        # `select_related("session")` : le serializer lit `session.id` via
+        # `source="session.id"`. Sans ce JOIN, chaque réponse déclencherait
+        # une 2e query. Un seul event concerné, zéro N+1 à craindre.
+        event = (
+            ControlEvent.objects
+            .filter(
+                tenant=request.tenant,
+                client_uuid=parsed_uuid,
+                session__controller=controller,
+            )
+            .select_related("session")
+            .first()
+        )
+        if event is None:
+            return Response(
+                {"detail": "Événement introuvable."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        return Response(ControlEventLookupSerializer(event).data)

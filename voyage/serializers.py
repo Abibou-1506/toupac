@@ -9,6 +9,7 @@ from colis.serializers import GeoJSONField, TripOrderSerializer
 
 from .models import (
     Controller,
+    ControlEvent,
     ControlSession,
     Incident,
     LuggagePolicy,
@@ -588,6 +589,41 @@ class BatchResponseSerializer(serializers.Serializer):
     session_id = serializers.UUIDField()
     processed = serializers.IntegerField()
     results = EventResultSerializer(many=True)
+
+
+class ControlEventLookupSerializer(serializers.ModelSerializer):
+    """
+    Lookup direct d'un ControlEvent par son `client_uuid` pour la réconciliation
+    mobile après crash/timeout.
+
+    Liste blanche explicite — PAS `fields = "__all__"` : on expose uniquement
+    ce dont le mobile a besoin pour réconcilier son SQLite. En particulier :
+    - `payload` est exclu (données métier potentiellement sensibles — passager,
+      montants, GPS fin — qu'un contrôleur n'a pas à retrouver post-mortem)
+    - `gps_location`, `gps_accuracy_m` exclus (RGPD)
+    - `target_type`, `target_id` exclus (bruit, redondant avec `event_type`)
+    - `tenant` exclu (évident et non pertinent côté client)
+
+    `session_id` est dérivé via `source="session.id"` pour éviter d'exposer
+    tout le SessionSerializer et pour que le mobile ait l'UUID direct sans
+    JOIN supplémentaire.
+    """
+
+    session_id = serializers.UUIDField(source="session.id", read_only=True)
+
+    class Meta:
+        model = ControlEvent
+        fields = [
+            "client_uuid",
+            "event_type",
+            "status",
+            "rejection_code",
+            "rejection_reason",
+            "processed_at",
+            "created_at_local",
+            "session_id",
+        ]
+        read_only_fields = fields
 
 
 class QrPublicKeySerializer(serializers.Serializer):
