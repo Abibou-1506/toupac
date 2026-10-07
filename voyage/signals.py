@@ -15,13 +15,16 @@ override aurait raté la création via admin et via management commands.
 
 Idempotent : si des `TripStop` existent déjà pour ce voyage, on ne recrée
 rien (seed_demo et admin peuvent écrire par-dessus sans double effet).
-"""
-from datetime import timedelta
 
+La logique de matérialisation vit dans `voyage/services/trip_stops.py` —
+partagée avec la commande management `materialize_missing_tripstops` qui
+rattrape les Trips historiques créés avant ce signal.
+"""
 from django.db.models.signals import post_save
 from django.dispatch import receiver
 
-from voyage.models import Trip, TripStop
+from voyage.models import Trip
+from voyage.services.trip_stops import materialize_trip_stops
 
 
 @receiver(
@@ -32,18 +35,4 @@ from voyage.models import Trip, TripStop
 def materialize_tripstops_on_trip_creation(sender, instance, created, **kwargs):
     if not created:
         return
-    if instance.stops.exists():
-        return
-    route_stops = instance.route.stops.order_by("stop_order")
-    TripStop.objects.bulk_create([
-        TripStop(
-            tenant=instance.tenant,
-            trip=instance,
-            route_stop=rs,
-            place=rs.place,
-            stop_order=rs.stop_order,
-            eta=instance.scheduled_at + timedelta(minutes=rs.arrival_offset_minutes),
-            status=TripStop.Status.PENDING,
-        )
-        for rs in route_stops
-    ])
+    materialize_trip_stops(instance)
