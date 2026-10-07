@@ -544,6 +544,17 @@ class EventResultSerializer(serializers.Serializer):
 
     client_uuid = serializers.UUIDField()
     status = serializers.ChoiceField(choices=["accepted", "rejected", "duplicate"])
+    original_status = serializers.ChoiceField(
+        choices=["accepted", "rejected", "pending"],
+        required=False,
+        help_text=(
+            "Verdict du premier traitement, présent uniquement quand "
+            "`status === 'duplicate'`. 'accepted' si l'event d'origine est "
+            "passé, 'rejected' s'il a été refusé pour raison métier (voir "
+            "`rejection_code`), 'pending' si archivé mais pas encore traité "
+            "(cas edge, très rare)."
+        ),
+    )
     rejection_code = serializers.ChoiceField(
         choices=[(code.value, code.value) for code in RejectionCode],
         required=False,

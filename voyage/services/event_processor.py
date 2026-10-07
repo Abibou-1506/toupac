@@ -121,9 +121,18 @@ class BatchEventProcessor:
                 rejection_code=RejectionCode.INVALID_CLIENT_UUID,
             )
 
-        # 1. Idempotence
-        if ControlEvent.objects.filter(tenant=self.tenant, client_uuid=client_uuid).exists():
-            return self._verdict(client_uuid, "duplicate")
+        # 1. Idempotence : si l'event est déjà en base, on relit son état pour
+        #    transmettre au mobile le verdict du premier traitement — c'est la
+        #    seule info qui lui permet de réconcilier son SQLite après un
+        #    timeout, sans refetch de la ressource métier.
+        existing = (
+            ControlEvent.objects
+            .filter(tenant=self.tenant, client_uuid=client_uuid)
+            .only("status", "rejection_code", "rejection_reason")
+            .first()
+        )
+        if existing is not None:
+            return self._duplicate_verdict(client_uuid, existing)
 
         event_type = event_data.get("event_type")
         if not event_type:
@@ -204,7 +213,21 @@ class BatchEventProcessor:
                     "processed_at", "updated_at",
                 ])
         except IntegrityError:
-            # Course entre deux batches concurrents sur le même client_uuid.
+            # Course entre deux batches concurrents sur le même client_uuid :
+            # le premier a gagné et persisté sa ControlEvent, on relit son
+            # état pour renvoyer le verdict enrichi (même format que la
+            # branche idempotence au-dessus).
+            racing = (
+                ControlEvent.objects
+                .filter(tenant=self.tenant, client_uuid=client_uuid)
+                .only("status", "rejection_code", "rejection_reason")
+                .first()
+            )
+            if racing is not None:
+                return self._duplicate_verdict(client_uuid, racing)
+            # Fallback défensif : si la race est insolubles (ex. autre
+            # tenant), on retombe sur un verdict duplicate minimal plutôt
+            # que de crasher.
             return self._verdict(client_uuid, "duplicate")
         # Catch large volontaire : archivage impossible, l'event est perdu.
         except Exception as exc:
@@ -238,7 +261,7 @@ class BatchEventProcessor:
     @staticmethod
     def _verdict(
         client_uuid, status, rejection_reason=None, anomaly=None,
-        rejection_code=None, details=None,
+        rejection_code=None, details=None, original_status=None,
     ):
         """
         Verdict d'un event. Les champs de rejet n'apparaissent que sur un rejet.
@@ -246,12 +269,18 @@ class BatchEventProcessor:
         Un verdict `accepted` ou `duplicate` sans `rejection_code` ni
         `rejection_reason` laisse l'app distinguer les deux cas par la seule
         présence des clés, sans avoir à tester des chaînes vides.
+
+        `original_status` est présent uniquement sur un verdict `duplicate`
+        (produit via `_duplicate_verdict`) et transmet au mobile le résultat
+        du premier traitement : "accepted", "rejected" ou "pending".
         """
         verdict = {
             "client_uuid": str(client_uuid) if client_uuid else None,
             "status": status,
             "anomaly": anomaly,
         }
+        if original_status:
+            verdict["original_status"] = original_status
         if rejection_reason:
             verdict["rejection_reason"] = rejection_reason
         if rejection_code:
@@ -259,6 +288,37 @@ class BatchEventProcessor:
         if details:
             verdict["details"] = details
         return verdict
+
+    @classmethod
+    def _duplicate_verdict(cls, client_uuid, existing):
+        """
+        Verdict `duplicate` enrichi avec le résultat du premier traitement.
+
+        Mapping `ControlEvent.Status` → `original_status` du verdict :
+        - PROCESSED → "accepted"     (event passé)
+        - REJECTED  → "rejected"     (event refusé, rejection_code/reason copiés)
+        - PENDING   → "pending"      (edge case : archivé mais pas encore traité ;
+                                      ne devrait pas arriver vu la transaction
+                                      atomique, mais handler défensif)
+
+        Les `details` du premier traitement NE SONT PAS persistés sur
+        `ControlEvent` ni retransmis ici : ils restent reconstructibles par
+        refetch de la ressource métier côté mobile. Seul le verdict macro
+        (status + éventuellement rejection_code/reason) est transmis.
+        """
+        if existing.status == ControlEvent.Status.PROCESSED:
+            return cls._verdict(
+                client_uuid, "duplicate", original_status="accepted",
+            )
+        if existing.status == ControlEvent.Status.REJECTED:
+            return cls._verdict(
+                client_uuid, "duplicate", original_status="rejected",
+                rejection_reason=existing.rejection_reason or None,
+                rejection_code=existing.rejection_code or None,
+            )
+        return cls._verdict(
+            client_uuid, "duplicate", original_status="pending",
+        )
 
     @staticmethod
     def _details_for(event_type, result):
