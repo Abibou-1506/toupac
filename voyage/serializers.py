@@ -53,6 +53,39 @@ class RouteStopSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ["offset_minutes"]
 
+    def validate(self, attrs):
+        # Récupère les valeurs effectives (patch partiel : fallback sur instance).
+        arrival = attrs.get(
+            "arrival_offset_minutes",
+            self.instance.arrival_offset_minutes if self.instance else None,
+        )
+        departure = attrs.get(
+            "departure_offset_minutes",
+            self.instance.departure_offset_minutes if self.instance else None,
+        )
+        is_boarding = attrs.get(
+            "is_boarding",
+            self.instance.is_boarding if self.instance else True,
+        )
+        is_alighting = attrs.get(
+            "is_alighting",
+            self.instance.is_alighting if self.instance else True,
+        )
+        if arrival is not None and departure is not None:
+            if departure < arrival:
+                raise serializers.ValidationError({
+                    "departure_offset_minutes": (
+                        "departure_offset_minutes doit être >= "
+                        "arrival_offset_minutes (temps non-négatif à l'escale)."
+                    ),
+                })
+        if not (is_boarding or is_alighting):
+            raise serializers.ValidationError(
+                "Une escale doit permettre au moins l'embarquement ou "
+                "le débarquement (is_boarding ou is_alighting)."
+            )
+        return attrs
+
 
 class RouteSerializer(serializers.ModelSerializer):
     # Pas de source="stops" : DRF interdit un source identique au nom du champ.

@@ -9,6 +9,7 @@ from .views import (
     PassengerViewSet,
     QrPublicKeyView,
     ReservationViewSet,
+    RouteStopViewSet,
     RouteViewSet,
     ScheduleViewSet,
     SeatMapViewSet,
@@ -17,6 +18,7 @@ from .views import (
 
 router = DefaultRouter()
 router.register("routes", RouteViewSet, basename="route")
+router.register("route-stops", RouteStopViewSet, basename="route-stop")
 router.register("schedules", ScheduleViewSet, basename="schedule")
 router.register("trips", TripViewSet, basename="trip")
 router.register("reservations", ReservationViewSet, basename="reservation")

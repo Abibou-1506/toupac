@@ -3,7 +3,7 @@ import uuid
 from collections import Counter
 
 from django.db import transaction
-from django.db.models import Count, Q, Sum
+from django.db.models import Count, ProtectedError, Q, Sum
 from django.utils import timezone
 from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_view, inline_serializer
 from rest_framework import serializers, status, viewsets
@@ -29,6 +29,7 @@ from .models import (
     PassengerAccessLog,
     Reservation,
     Route,
+    RouteStop,
     Schedule,
     SeatMap,
     Trip,
@@ -53,6 +54,7 @@ from .serializers import (
     ReservationCreateSerializer,
     ReservationSerializer,
     RouteSerializer,
+    RouteStopSerializer,
     ScheduleSerializer,
     SeatMapSerializer,
     TripCreateSerializer,
@@ -517,6 +519,121 @@ _BOARDING_ACTION_SCHEMA = extend_schema(
     responses={200: ReservationSerializer},
     tags=["Voyage"],
 )
+
+
+@extend_schema_view(**_CRUD_TAGS)
+class RouteStopViewSet(ApiScopedViewSetMixin, viewsets.ModelViewSet):
+    """CRUD escales de route + reorder atomique + 409 si TripStop existants.
+
+    `on_delete=PROTECT` sur TripStop.route_stop : les voyages passés gardent
+    la trace de leurs escales. Un DELETE sur un RouteStop utilisé renvoie 409
+    avec la liste des trips concernés — l'opérateur doit annuler ces voyages
+    ou créer une nouvelle route.
+    """
+    api_scope_domain = "voyage"
+    throttle_classes = API_KEY_THROTTLES
+    serializer_class = RouteStopSerializer
+    queryset = RouteStop.objects.none()
+    filterset_fields = ["route", "is_boarding", "is_alighting"]
+    ordering_fields = ["stop_order", "created_at"]
+    ordering = ["route", "stop_order"]
+
+    def get_queryset(self):
+        return (
+            RouteStop.objects.filter(tenant=self.request.tenant)
+            .select_related("route", "place")
+        )
+
+    def perform_create(self, serializer):
+        serializer.save(tenant=self.request.tenant)
+
+    def destroy(self, request, *args, **kwargs):
+        instance = self.get_object()
+        try:
+            with transaction.atomic():
+                instance.delete()
+        except ProtectedError:
+            trips_qs = Trip.objects.filter(
+                tenant=request.tenant,
+                stops__route_stop=instance,
+            ).distinct()
+            trip_count = trips_qs.count()
+            trip_ids = list(trips_qs.values_list("internal_id", flat=True)[:50])
+            plural = "s" if trip_count > 1 else ""
+            return Response(
+                {
+                    "detail": (
+                        f"Cette escale est utilisée par {trip_count} voyage"
+                        f"{plural} existant{plural}. "
+                        "Vous devez d'abord annuler ces voyages ou créer "
+                        "une nouvelle route."
+                    ),
+                    "trip_count": trip_count,
+                    "trip_ids": trip_ids,
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @extend_schema(
+        request=inline_serializer(
+            name="RouteStopReorderRequest",
+            fields={"new_order": serializers.IntegerField(min_value=0)},
+        ),
+        responses={
+            200: RouteStopSerializer,
+            400: OpenApiResponse(description="new_order invalide ou hors bornes."),
+        },
+        tags=["Voyage"],
+    )
+    @action(detail=True, methods=["post"], url_path="reorder")
+    def reorder(self, request, pk=None):
+        """POST /voyage/route-stops/{id}/reorder/ — repositionne un stop.
+
+        Payload : {"new_order": int}. Renumérote atomiquement tous les stops
+        de la route pour maintenir une séquence 0..N-1 contiguë et
+        strictement croissante.
+        """
+        instance = self.get_object()
+        try:
+            new_order = int(request.data.get("new_order"))
+        except (TypeError, ValueError):
+            return Response(
+                {"detail": "new_order requis (entier)."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        route_stops = list(
+            RouteStop.objects.filter(tenant=request.tenant, route=instance.route)
+            .order_by("stop_order")
+        )
+        max_order = len(route_stops) - 1
+        if new_order < 0 or new_order > max_order:
+            return Response(
+                {
+                    "detail": (
+                        f"new_order doit être entre 0 et {max_order} inclus."
+                    ),
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        current_order = instance.stop_order
+        if new_order == current_order:
+            return Response(RouteStopSerializer(instance).data)
+        # Reorder atomique : sortir instance, shift les voisins, réinsérer.
+        # On passe par des stop_order temporaires négatifs pour éviter la
+        # violation du unique_together (route, stop_order) pendant la
+        # renumérotation.
+        with transaction.atomic():
+            others = [s for s in route_stops if s.pk != instance.pk]
+            others.insert(new_order, instance)
+            # Phase 1 : déplacer tout en négatif pour libérer la plage 0..N-1.
+            for idx, stop in enumerate(route_stops):
+                RouteStop.objects.filter(pk=stop.pk).update(stop_order=-(idx + 1))
+            # Phase 2 : poser les positions finales 0..N-1.
+            for position, stop in enumerate(others):
+                RouteStop.objects.filter(pk=stop.pk).update(stop_order=position)
+        instance.refresh_from_db()
+        return Response(RouteStopSerializer(instance).data)
 
 
 @extend_schema_view(**_CRUD_TAGS)
