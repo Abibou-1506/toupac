@@ -642,6 +642,20 @@ class ReservationViewSet(ApiScopedViewSetMixin, viewsets.ModelViewSet):
     throttle_classes = API_KEY_THROTTLES
     queryset = Reservation.objects.none()
     filterset_fields = ["trip", "status", "passenger", "payment_method"]
+    # Full-text search cablée pour la barre de recherche /reservations
+    # du backoffice web (siège, passager, voyage). Les relations
+    # `passenger__*` sont lues via le `select_related("trip", "passenger")`
+    # existant de `get_queryset` — pas de N+1 introduit.
+    search_fields = [
+        "seat_label",
+        "passenger__first_name",
+        "passenger__last_name",
+        "passenger__phone",
+        "passenger__email",
+        "trip__internal_id",
+    ]
+    ordering_fields = ["created_at", "status", "seat_label"]
+    ordering = ["-created_at"]
 
     def get_queryset(self):
         return Reservation.objects.filter(tenant=self.request.tenant).select_related("trip", "passenger")
