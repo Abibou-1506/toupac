@@ -24,8 +24,15 @@ from .serializers import ToupacTokenObtainSerializer
 
 
 def _set_jwt_cookies(response, access, refresh):
-    """Dépose les tokens dans des cookies HTTP-only sur la réponse."""
-    secure = not settings.DEBUG
+    """Dépose les tokens dans des cookies HTTP-only sur la réponse.
+
+    Le flag `secure` suit `SESSION_COOKIE_SECURE` (pattern Django canonique)
+    au lieu de dériver de `DEBUG`. Permet le staging HTTP (secure=False via
+    `settings.staging.py`) sans toucher au code. Prod HTTPS garde
+    `secure=True` via `SESSION_COOKIE_SECURE=True` dans `settings.prod.py`.
+    Dev inchangé (DEBUG=True + SESSION_COOKIE_SECURE non défini → False).
+    """
+    secure = settings.SESSION_COOKIE_SECURE
     access_lifetime = settings.SIMPLE_JWT["ACCESS_TOKEN_LIFETIME"]
     refresh_lifetime = settings.SIMPLE_JWT["REFRESH_TOKEN_LIFETIME"]
 
