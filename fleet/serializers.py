@@ -1,8 +1,11 @@
 """TOUPAC Fleet — Serializers DRF."""
 from django.contrib.gis.geos import Point
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
 from iam.models import User
+from voyage.models import LuggagePolicy
 
 from .models import Driver, Fleet, FleetVehicle, Vehicle, VehicleDocument, VehicleType
 
@@ -22,16 +25,39 @@ class PointFieldSerializer(serializers.Field):
             raise serializers.ValidationError('Attendu : {"lat": float, "lng": float}') from exc
 
 
+class LuggagePolicyMiniSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = LuggagePolicy
+        fields = ["id", "name"]
+
+
 class VehicleTypeSerializer(serializers.ModelSerializer):
+    # Alias plat pour les mockups DS qui attendent `seats` au lieu de
+    # `default_capacity`. Les deux restent exposés en lecture.
+    seats = serializers.IntegerField(source="default_capacity", required=False)
+    default_luggage_policy = LuggagePolicyMiniSerializer(read_only=True)
+    default_luggage_policy_id = serializers.PrimaryKeyRelatedField(
+        source="default_luggage_policy",
+        queryset=LuggagePolicy.objects.all(),
+        required=False,
+        allow_null=True,
+        write_only=True,
+    )
+
     class Meta:
         model = VehicleType
-        fields = "__all__"
+        fields = [
+            "id", "name", "short", "category", "description",
+            "default_capacity", "seats", "fuel_type", "permit_required",
+            "length_m", "width_m", "height_m", "ptac_kg", "hold_m3",
+            "default_luggage_policy", "default_luggage_policy_id",
+        ]
 
 
 class VehicleTypeMiniSerializer(serializers.ModelSerializer):
     class Meta:
         model = VehicleType
-        fields = ["id", "name"]
+        fields = ["id", "name", "short"]
 
 
 class VehicleDocumentSerializer(serializers.ModelSerializer):
@@ -46,19 +72,54 @@ class VehicleDocumentCreateSerializer(serializers.ModelSerializer):
         fields = ["type", "document_number", "issue_date", "expiry_date", "file_url"]
 
 
+def _absolute_photo_url(obj_photo, request):
+    """Rend l'URL absolue d'un ImageField, ou None si vide."""
+    if not obj_photo:
+        return None
+    try:
+        url = obj_photo.url
+    except (ValueError, AttributeError):
+        return None
+    if request is None:
+        return url
+    return request.build_absolute_uri(url)
+
+
+_VEHICLE_STATUS_LABEL = {
+    Vehicle.Status.AVAILABLE: "active",
+    Vehicle.Status.IN_USE: "active",
+    Vehicle.Status.MAINTENANCE: "maintenance",
+    Vehicle.Status.DECOMMISSIONED: "decommissioned",
+}
+
+
 class VehicleListSerializer(serializers.ModelSerializer):
     vehicle_type = VehicleTypeMiniSerializer(read_only=True)
     location = PointFieldSerializer(read_only=True)
+    photo = serializers.SerializerMethodField()
+    status_label = serializers.SerializerMethodField()
 
     class Meta:
         model = Vehicle
         fields = [
-            "id", "plate_number", "make", "model_name", "year", "capacity",
-            "status", "vehicle_type", "location",
+            "id", "plate_number", "code", "make", "model_name", "year", "capacity",
+            "status", "status_label", "vehicle_type", "location",
+            "fuel_type", "transmission",
+            "odometer_km", "last_service_km", "service_interval_km",
+            "next_maintenance_date", "photo",
             # Ajouté le 7 oct 2026 pour le pré-remplissage du plan de sièges
             # lors de la création d'un voyage depuis le backoffice web.
             "default_seat_map",
         ]
+
+    @extend_schema_field(OpenApiTypes.STR)
+    def get_status_label(self, obj) -> str:
+        return _VEHICLE_STATUS_LABEL.get(obj.status, obj.status)
+
+    @extend_schema_field(OpenApiTypes.URI)
+    def get_photo(self, obj):
+        request = self.context.get("request")
+        return _absolute_photo_url(obj.photo, request)
 
 
 class VehicleDetailSerializer(VehicleListSerializer):
@@ -67,7 +128,8 @@ class VehicleDetailSerializer(VehicleListSerializer):
     class Meta(VehicleListSerializer.Meta):
         fields = [
             *VehicleListSerializer.Meta.fields,
-            "vin", "traccar_device_id", "metadata", "created_at", "updated_at", "documents",
+            "vin", "engine_no", "traccar_device_id", "metadata",
+            "created_at", "updated_at", "documents",
         ]
 
 
@@ -75,8 +137,11 @@ class VehicleCreateSerializer(serializers.ModelSerializer):
     class Meta:
         model = Vehicle
         fields = [
-            "vehicle_type", "plate_number", "make", "model_name", "year",
-            "capacity", "vin", "traccar_device_id", "metadata",
+            "vehicle_type", "plate_number", "code", "make", "model_name", "year",
+            "capacity", "vin", "engine_no", "fuel_type", "transmission",
+            "odometer_km", "last_service_km", "service_interval_km",
+            "next_maintenance_date", "photo",
+            "traccar_device_id", "metadata",
             "default_seat_map",
         ]
 
@@ -87,6 +152,13 @@ class DriverUserMiniSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
         fields = ["id", "full_name", "email", "phone"]
+
+
+_DRIVER_STATUS_LABEL = {
+    Driver.Status.AVAILABLE: "active",
+    Driver.Status.ON_TRIP: "active",
+    Driver.Status.OFF_DUTY: "leave",
+}
 
 
 class DriverListSerializer(serializers.ModelSerializer):
@@ -101,27 +173,59 @@ class DriverListSerializer(serializers.ModelSerializer):
     user_email = serializers.CharField(
         source="user.email", read_only=True, allow_null=True,
     )
+    photo = serializers.SerializerMethodField()
+    status_label = serializers.SerializerMethodField()
+    is_on_trip = serializers.SerializerMethodField()
 
     class Meta:
         model = Driver
         fields = [
             "id", "user", "full_name", "user_phone", "user_email",
-            "license_number", "license_class", "license_expiry",
-            "status", "score",
+            "matricule",
+            "license_number", "license_class", "license_classes",
+            "license_issued", "license_expiry", "medical_check_expiry",
+            "hire_date",
+            "status", "status_label", "is_on_trip", "score",
+            "photo",
         ]
+
+    @extend_schema_field(OpenApiTypes.STR)
+    def get_status_label(self, obj) -> str:
+        return _DRIVER_STATUS_LABEL.get(obj.status, obj.status)
+
+    @extend_schema_field(OpenApiTypes.BOOL)
+    def get_is_on_trip(self, obj) -> bool:
+        return obj.is_on_trip
+
+    @extend_schema_field(OpenApiTypes.URI)
+    def get_photo(self, obj):
+        request = self.context.get("request")
+        return _absolute_photo_url(obj.photo, request)
 
 
 class DriverDetailSerializer(DriverListSerializer):
     last_known_location = PointFieldSerializer(read_only=True)
 
     class Meta(DriverListSerializer.Meta):
-        fields = [*DriverListSerializer.Meta.fields, "last_known_location", "created_at", "updated_at", "tenant"]
+        fields = [
+            *DriverListSerializer.Meta.fields,
+            "birth_date", "birth_place", "address",
+            "emergency_contact_name", "emergency_contact_phone",
+            "last_known_location", "created_at", "updated_at", "tenant",
+        ]
 
 
 class DriverCreateSerializer(serializers.ModelSerializer):
     class Meta:
         model = Driver
-        fields = ["user", "license_number", "license_class", "license_expiry"]
+        fields = [
+            "user", "matricule",
+            "license_number", "license_class", "license_classes",
+            "license_issued", "license_expiry", "medical_check_expiry",
+            "hire_date", "birth_date", "birth_place", "address",
+            "emergency_contact_name", "emergency_contact_phone",
+            "photo",
+        ]
 
     def validate_user(self, user):
         request = self.context["request"]

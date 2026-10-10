@@ -17,6 +17,7 @@ cryptography>=42.0
 gunicorn>=22.0
 uvicorn>=0.30
 daphne>=4.1
+Pillow>=10.0
 # Dev / test
 pytest>=8.0
 pytest-django>=4.8

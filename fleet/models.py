@@ -1,13 +1,48 @@
 """TOUPAC Fleet — Véhicules, chauffeurs, types, documents, flottes."""
 from django.contrib.gis.db import models
+from django.contrib.postgres.fields import ArrayField
+from django.db.models import Q, UniqueConstraint
 
 from core.models import SoftDeleteMixin, TenantManager, TenantModel, UUIDv7Field
 
 
 class VehicleType(TenantModel):
+    class Category(models.TextChoices):
+        INTERURBAIN = "interurbain", "Interurbain"
+        URBAIN = "urbain", "Urbain"
+        UTILITAIRE = "utilitaire", "Utilitaire"
+
+    class PermitRequired(models.TextChoices):
+        B = "B", "B"
+        C = "C", "C"
+        D = "D", "D"
+        D1 = "D1", "D1"
+        BE = "BE", "BE"
+
     name = models.CharField("Nom", max_length=100)
+    short = models.CharField("Nom court", max_length=16, blank=True)
+    category = models.CharField(
+        "Catégorie", max_length=20, choices=Category.choices, default=Category.INTERURBAIN,
+    )
+    description = models.TextField("Description", blank=True)
     default_capacity = models.PositiveIntegerField("Capacité par défaut")
     fuel_type = models.CharField("Carburant", max_length=20, blank=True)
+    permit_required = models.CharField(
+        "Permis requis", max_length=4, choices=PermitRequired.choices, default=PermitRequired.D,
+    )
+    length_m = models.DecimalField("Longueur (m)", max_digits=5, decimal_places=2, null=True, blank=True)
+    width_m = models.DecimalField("Largeur (m)", max_digits=5, decimal_places=2, null=True, blank=True)
+    height_m = models.DecimalField("Hauteur (m)", max_digits=5, decimal_places=2, null=True, blank=True)
+    ptac_kg = models.PositiveIntegerField("PTAC (kg)", null=True, blank=True)
+    hold_m3 = models.DecimalField("Soute (m³)", max_digits=5, decimal_places=2, null=True, blank=True)
+    default_luggage_policy = models.ForeignKey(
+        "voyage.LuggagePolicy",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+        verbose_name="Politique bagages par défaut",
+    )
 
     objects = TenantManager()
 
@@ -28,13 +63,36 @@ class Vehicle(TenantModel, SoftDeleteMixin):
         MAINTENANCE = "maintenance", "Maintenance"
         DECOMMISSIONED = "decommissioned", "Déclassé"
 
+    class FuelType(models.TextChoices):
+        DIESEL = "diesel", "Diesel"
+        ESSENCE = "essence", "Essence"
+        GASOIL = "gasoil", "Gasoil"
+        HYBRIDE = "hybride", "Hybride"
+
+    class Transmission(models.TextChoices):
+        MANUELLE = "manuelle", "Manuelle"
+        AUTOMATIQUE = "automatique", "Automatique"
+
     vehicle_type = models.ForeignKey(VehicleType, on_delete=models.SET_NULL, null=True, related_name="vehicles")
     plate_number = models.CharField("Immatriculation", max_length=20)
+    code = models.CharField("Code interne", max_length=16, blank=True)
     make = models.CharField("Marque", max_length=50, blank=True)
     model_name = models.CharField("Modèle", max_length=50, blank=True)
     year = models.PositiveSmallIntegerField("Année", null=True, blank=True)
     capacity = models.PositiveIntegerField("Capacité")
     vin = models.CharField("N° châssis", max_length=17, blank=True)
+    engine_no = models.CharField("N° moteur", max_length=50, blank=True)
+    fuel_type = models.CharField(
+        "Carburant", max_length=20, choices=FuelType.choices, default=FuelType.DIESEL,
+    )
+    transmission = models.CharField(
+        "Boîte", max_length=20, choices=Transmission.choices, default=Transmission.MANUELLE,
+    )
+    odometer_km = models.PositiveIntegerField("Odomètre (km)", default=0)
+    last_service_km = models.PositiveIntegerField("Dernière révision (km)", default=0)
+    service_interval_km = models.PositiveIntegerField("Intervalle révision (km)", default=20000)
+    next_maintenance_date = models.DateField("Prochaine révision", null=True, blank=True)
+    photo = models.ImageField("Photo", upload_to="vehicles/photos/", null=True, blank=True)
     status = models.CharField("Statut", max_length=20, choices=Status.choices, default=Status.AVAILABLE)
     location = models.PointField("Position", geography=True, null=True, blank=True, srid=4326)
     # FK cross-app (fleet → voyage). SET_NULL : la suppression d'un plan
@@ -76,9 +134,25 @@ class Driver(TenantModel, SoftDeleteMixin):
         OFF_DUTY = "off_duty", "Hors service"
 
     user = models.OneToOneField("iam.User", on_delete=models.CASCADE, related_name="driver_profile")
+    matricule = models.CharField("Matricule", max_length=16, blank=True)
     license_number = models.CharField("N° permis", max_length=50, blank=True)
     license_class = models.CharField("Catégorie permis", max_length=10, blank=True)
+    license_classes = ArrayField(
+        models.CharField(max_length=4),
+        verbose_name="Catégories permis",
+        default=list,
+        blank=True,
+    )
+    license_issued = models.DateField("Date d'obtention du permis", null=True, blank=True)
     license_expiry = models.DateField("Expiration permis", null=True, blank=True)
+    medical_check_expiry = models.DateField("Visite médicale (expiration)", null=True, blank=True)
+    hire_date = models.DateField("Date d'embauche", null=True, blank=True)
+    birth_date = models.DateField("Date de naissance", null=True, blank=True)
+    birth_place = models.CharField("Lieu de naissance", max_length=100, blank=True)
+    address = models.TextField("Adresse", blank=True)
+    emergency_contact_name = models.CharField("Contact urgence (nom)", max_length=100, blank=True)
+    emergency_contact_phone = models.CharField("Contact urgence (tél.)", max_length=20, blank=True)
+    photo = models.ImageField("Photo", upload_to="drivers/photos/", null=True, blank=True)
     status = models.CharField("Statut", max_length=20, choices=Status.choices, default=Status.AVAILABLE)
     score = models.DecimalField("Score", max_digits=5, decimal_places=2, default=100.00)
     last_known_location = models.PointField("Dernière position", geography=True, null=True, blank=True, srid=4326)
@@ -89,9 +163,32 @@ class Driver(TenantModel, SoftDeleteMixin):
         db_table = "fleet_drivers"
         verbose_name = "Chauffeur"
         verbose_name_plural = "Chauffeurs"
+        constraints = [
+            UniqueConstraint(
+                fields=["tenant", "matricule"],
+                condition=~Q(matricule=""),
+                name="unique_driver_matricule_per_tenant",
+            ),
+        ]
 
     def __str__(self):
         return f"{self.user.full_name} ({self.license_number})"
+
+    @property
+    def is_on_trip(self) -> bool:
+        """True si le chauffeur est actuellement sur un voyage actif."""
+        # Import local pour éviter l'import circulaire fleet ↔ voyage.
+        from voyage.models import Trip
+
+        return Trip.objects.filter(
+            driver=self,
+            status__in=[
+                Trip.Status.BOARDING,
+                Trip.Status.IN_TRANSIT,
+                Trip.Status.AT_STOP,
+                Trip.Status.ARRIVING,
+            ],
+        ).exists()
 
 
 class VehicleDocument(TenantModel):
@@ -100,6 +197,8 @@ class VehicleDocument(TenantModel):
         REGISTRATION = "registration", "Carte grise"
         INSPECTION = "inspection", "Visite technique"
         TRANSPORT_PERMIT = "transport_permit", "Autorisation de transport"
+        CEDEAO_GREEN_CARD = "cedeao_green_card", "Carte verte CEDEAO"
+        PATENTE = "patente", "Patente"
 
     vehicle = models.ForeignKey(Vehicle, on_delete=models.CASCADE, related_name="documents")
     type = models.CharField("Type", max_length=30, choices=DocType.choices)
