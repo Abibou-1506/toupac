@@ -7,7 +7,15 @@ from rest_framework import serializers
 from iam.models import User
 from voyage.models import LuggagePolicy
 
-from .models import Driver, Fleet, FleetVehicle, Vehicle, VehicleDocument, VehicleType
+from .models import (
+    Driver,
+    Fleet,
+    FleetVehicle,
+    Vehicle,
+    VehicleDocument,
+    VehicleMaintenance,
+    VehicleType,
+)
 
 
 class PointFieldSerializer(serializers.Field):
@@ -93,6 +101,57 @@ _VEHICLE_STATUS_LABEL = {
 }
 
 
+class DriverMiniSerializer(serializers.ModelSerializer):
+    """Mini-sérialiseur pour exposer un chauffeur en lecture seule depuis
+    une autre ressource (ex. ``Vehicle.assigned_driver``)."""
+
+    full_name = serializers.SerializerMethodField()
+    photo_url = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Driver
+        fields = ["id", "matricule", "full_name", "photo_url"]
+
+    @extend_schema_field(OpenApiTypes.STR)
+    def get_full_name(self, obj) -> str:
+        user = getattr(obj, "user", None)
+        return getattr(user, "full_name", "") if user else ""
+
+    @extend_schema_field(OpenApiTypes.URI)
+    def get_photo_url(self, obj):
+        request = self.context.get("request")
+        return _absolute_photo_url(obj.photo, request)
+
+
+class VehicleMaintenanceSerializer(serializers.ModelSerializer):
+    created_by_name = serializers.SerializerMethodField()
+
+    class Meta:
+        model = VehicleMaintenance
+        fields = [
+            "id", "vehicle", "at", "type", "odometer_km", "shop", "cost_xof",
+            "notes", "created_by", "created_by_name",
+            "created_at", "updated_at",
+        ]
+        read_only_fields = ["created_by", "created_at", "updated_at"]
+
+    @extend_schema_field(OpenApiTypes.STR)
+    def get_created_by_name(self, obj) -> str:
+        user = obj.created_by
+        if not user:
+            return ""
+        full = getattr(user, "get_full_name", lambda: "")() or ""
+        if full:
+            return full
+        return getattr(user, "email", "") or ""
+
+
+class VehicleMaintenanceMiniSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = VehicleMaintenance
+        fields = ["id", "at", "type", "odometer_km", "shop"]
+
+
 class VehicleListSerializer(serializers.ModelSerializer):
     vehicle_type = VehicleTypeMiniSerializer(read_only=True)
     location = PointFieldSerializer(read_only=True)
@@ -124,16 +183,42 @@ class VehicleListSerializer(serializers.ModelSerializer):
 
 class VehicleDetailSerializer(VehicleListSerializer):
     documents = VehicleDocumentSerializer(many=True, read_only=True)
+    assigned_driver = DriverMiniSerializer(read_only=True)
+    assigned_driver_id = serializers.PrimaryKeyRelatedField(
+        source="assigned_driver",
+        queryset=Driver.objects.all(),
+        write_only=True,
+        required=False,
+        allow_null=True,
+    )
+    recent_maintenances = serializers.SerializerMethodField()
 
     class Meta(VehicleListSerializer.Meta):
         fields = [
             *VehicleListSerializer.Meta.fields,
             "vin", "engine_no", "traccar_device_id", "metadata",
             "created_at", "updated_at", "documents",
+            "assigned_driver", "assigned_driver_id",
+            "recent_maintenances",
         ]
+
+    @extend_schema_field(
+        {"type": "array", "items": {"type": "object"}},
+    )
+    def get_recent_maintenances(self, obj):
+        qs = obj.maintenances.all()[:5]
+        return VehicleMaintenanceMiniSerializer(qs, many=True).data
 
 
 class VehicleCreateSerializer(serializers.ModelSerializer):
+    assigned_driver_id = serializers.PrimaryKeyRelatedField(
+        source="assigned_driver",
+        queryset=Driver.objects.all(),
+        write_only=True,
+        required=False,
+        allow_null=True,
+    )
+
     class Meta:
         model = Vehicle
         fields = [
@@ -142,7 +227,7 @@ class VehicleCreateSerializer(serializers.ModelSerializer):
             "odometer_km", "last_service_km", "service_interval_km",
             "next_maintenance_date", "photo",
             "traccar_device_id", "metadata",
-            "default_seat_map",
+            "default_seat_map", "assigned_driver_id",
         ]
 
 

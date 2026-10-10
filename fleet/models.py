@@ -110,6 +110,18 @@ class Vehicle(TenantModel, SoftDeleteMixin):
             "véhicule. Peut être overridé au moment de la création."
         ),
     )
+    # Affectation RH persistante (distinct de Trip.driver runtime, qui est le
+    # chauffeur du voyage courant). Permet d'exposer un lien pérenne
+    # chauffeur ↔ véhicule dans la page détail backoffice. SET_NULL pour que
+    # la suppression d'un chauffeur ne détruise pas le véhicule.
+    assigned_driver = models.ForeignKey(
+        "fleet.Driver",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="assigned_vehicles",
+        verbose_name="Chauffeur affecté",
+    )
     traccar_device_id = models.CharField("ID Traccar", max_length=50, blank=True)
     metadata = models.JSONField("Métadonnées", default=dict, blank=True)
 
@@ -205,7 +217,10 @@ class VehicleDocument(TenantModel):
     document_number = models.CharField("N° document", max_length=100, blank=True)
     issue_date = models.DateField("Date émission", null=True, blank=True)
     expiry_date = models.DateField("Date expiration", null=True, blank=True)
-    file_url = models.URLField("Fichier", max_length=500, blank=True)
+    file_url = models.URLField("Fichier (URL)", max_length=500, blank=True)
+    file = models.FileField(
+        "Fichier", upload_to="vehicles/documents/", null=True, blank=True,
+    )
     status = models.CharField("Statut", max_length=20, default="valid")
 
     objects = TenantManager()
@@ -217,6 +232,54 @@ class VehicleDocument(TenantModel):
 
     def __str__(self):
         return f"{self.get_type_display()} — {self.vehicle.plate_number}"
+
+
+class VehicleMaintenance(TenantModel):
+    """Interventions de maintenance (vidange, pneus, visite technique…).
+
+    Une ligne par intervention. On stocke en modèle dédié plutôt qu'en JSON
+    sur Vehicle pour pouvoir filtrer, trier, et exposer un historique
+    paginé dans la page détail DS backoffice.
+    """
+
+    class Type(models.TextChoices):
+        OIL_CHANGE = "oil_change", "Vidange"
+        TIRES = "tires", "Pneus"
+        TECHNICAL_VISIT = "technical_visit", "Visite technique"
+        BREAKDOWN = "breakdown", "Panne"
+        MAJOR_SERVICE = "major_service", "Révision complète"
+        OTHER = "other", "Autre"
+
+    vehicle = models.ForeignKey(
+        Vehicle, on_delete=models.CASCADE, related_name="maintenances",
+    )
+    at = models.DateField("Date d'intervention")
+    type = models.CharField("Type", max_length=32, choices=Type.choices)
+    odometer_km = models.PositiveIntegerField("Odomètre (km)")
+    shop = models.CharField("Garage / prestataire", max_length=100, blank=True)
+    cost_xof = models.PositiveIntegerField(
+        "Coût (XOF)", null=True, blank=True,
+    )
+    notes = models.TextField("Notes", blank=True)
+    created_by = models.ForeignKey(
+        "iam.User",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+        verbose_name="Enregistré par",
+    )
+
+    objects = TenantManager()
+
+    class Meta:
+        db_table = "fleet_vehicle_maintenances"
+        verbose_name = "Maintenance véhicule"
+        verbose_name_plural = "Maintenances véhicules"
+        ordering = ["-at", "-created_at"]
+
+    def __str__(self):
+        return f"{self.get_type_display()} — {self.vehicle.plate_number} ({self.at})"
 
 
 class Fleet(TenantModel):
