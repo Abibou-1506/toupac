@@ -170,6 +170,14 @@ class SeatMap(TenantModel):
         "fleet.VehicleType", on_delete=models.SET_NULL, null=True, blank=True, related_name="seat_maps",
     )
     name = models.CharField("Nom", max_length=100)
+    code = models.CharField(
+        "Code", max_length=32, blank=True, db_index=True,
+        help_text=(
+            "Code court auto-généré au save pour affichage DS "
+            "(ex. BUS-45, MINI-15, PLAN-45). Idempotent — ne régénère pas "
+            "si déjà posé."
+        ),
+    )
     total_seats = models.PositiveIntegerField("Nombre de sièges")
     layout = models.JSONField("Disposition", default=dict, blank=True)
     is_template = models.BooleanField(
@@ -186,6 +194,21 @@ class SeatMap(TenantModel):
         db_table = "voyage_seat_maps"
         verbose_name = "Plan de sièges"
         verbose_name_plural = "Plans de sièges"
+
+    def save(self, *args, **kwargs):
+        # Auto-génère un `code` court la première fois, et uniquement la
+        # première fois : si un opérateur renomme un plan plus tard, son
+        # code reste stable (il figure déjà dans l'URL partagée, dans la
+        # colonne SeatMaps.jsx, etc.). Idempotent.
+        if not self.code:
+            if self.vehicle_type_id:
+                vt = self.vehicle_type
+                raw = (vt.name[:4]).upper().strip() if vt and vt.name else ""
+                prefix = raw or "PLAN"
+                self.code = f"{prefix}-{self.total_seats}"
+            else:
+                self.code = f"PLAN-{self.total_seats}"
+        super().save(*args, **kwargs)
 
     def __str__(self):
         return self.name

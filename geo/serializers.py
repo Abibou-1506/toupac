@@ -2,6 +2,7 @@
 import json
 
 from django.contrib.gis.geos import GEOSGeometry, Point
+from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
 from .models import Place, Zone
@@ -76,6 +77,29 @@ class ZoneCreateSerializer(serializers.ModelSerializer):
     class Meta:
         model = Zone
         fields = ["name", "type", "boundary", "is_active", "alert_on_exit", "metadata"]
+
+
+class PlaceAutocompleteSerializer(serializers.ModelSerializer):
+    """Format compact pour /geo/places/autocomplete/?q= (Phase 7).
+
+    Destiné au StopsEditor du backoffice web (Routes.jsx) : juste ce qu'il
+    faut pour afficher une ligne et pré-remplir un escale (coord Leaflet
+    + libellé). `coords` renvoie [lng, lat] — ordre Leaflet-friendly, aligné
+    sur `RouteStopSerializer.coords`.
+    """
+
+    coords = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Place
+        fields = ["id", "name", "city", "country_code", "coords"]
+
+    @extend_schema_field({"type": "array", "items": {"type": "number"}})
+    def get_coords(self, obj):
+        loc = obj.location
+        if loc is None:
+            return []
+        return [loc.x, loc.y]
 
 
 class NearbyPlaceSerializer(PlaceListSerializer):

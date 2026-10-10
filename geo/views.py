@@ -11,6 +11,7 @@ from rest_framework.response import Response
 from .models import Place, Zone
 from .serializers import (
     NearbyPlaceSerializer,
+    PlaceAutocompleteSerializer,
     PlaceCreateSerializer,
     PlaceDetailSerializer,
     PlaceListSerializer,
@@ -23,7 +24,7 @@ _TAG = extend_schema(tags=["Geo"])
 
 @extend_schema_view(
     list=_TAG, retrieve=_TAG, create=_TAG, update=_TAG, partial_update=_TAG, destroy=_TAG,
-    nearby=_TAG,
+    nearby=_TAG, autocomplete=_TAG,
 )
 class PlaceViewSet(viewsets.ModelViewSet):
     queryset = Place.objects.none()
@@ -69,6 +70,35 @@ class PlaceViewSet(viewsets.ModelViewSet):
         )
 
         serializer = NearbyPlaceSerializer(places, many=True)
+        return Response(serializer.data)
+
+    @extend_schema(
+        tags=["Geo"],
+        request=None,
+        responses={200: PlaceAutocompleteSerializer(many=True)},
+    )
+    @action(detail=False, methods=["get"], url_path="autocomplete")
+    def autocomplete(self, request):
+        """GET /geo/places/autocomplete/?q=Dakar
+
+        Autocomplete tenant-scopé pour le StopsEditor du backoffice web
+        (Routes.jsx). Match insensible à la casse sur `name`, `city` et
+        `address`. Résultats bornés à 20 (budget UX dropdown).
+
+        Dette V1.1 : pas de filtre `is_stop_place` — le champ n'existe pas
+        encore sur Place. Toutes les Places du tenant (stations, dépôts,
+        adresses client...) remontent dans l'autocomplete.
+        """
+        q = (request.query_params.get("q") or "").strip()
+        qs = self.get_queryset()
+        if q:
+            qs = qs.filter(
+                Q(name__icontains=q)
+                | Q(city__icontains=q)
+                | Q(address__icontains=q)
+            )
+        qs = qs.order_by("name")[:20]
+        serializer = PlaceAutocompleteSerializer(qs, many=True)
         return Response(serializer.data)
 
 

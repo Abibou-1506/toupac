@@ -2,11 +2,13 @@
 import re
 from datetime import date
 
+from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
 from colis.serializers import GeoJSONField, TripOrderSerializer
 
+from .formatting import days_label_fr
 from .models import (
     ControlEvent,
     Controller,
@@ -38,10 +40,18 @@ class RouteStopSerializer(serializers.ModelSerializer):
     # colis.serializers (déjà importé). Non-breaking pour RN mobile apps.
     place_location = GeoJSONField(source="place.location", read_only=True, allow_null=True)
 
+    # Phase 7 : alias à plat pour StopsEditor DS (Routes.jsx). Non-breaking —
+    # on ajoute en plus de `place_name` / `place_location`, qui restent lus
+    # par RN mobile et par l'animation Leaflet.
+    place_detail = serializers.SerializerMethodField()
+    country = serializers.SerializerMethodField()
+    coords = serializers.SerializerMethodField()
+
     class Meta:
         model = RouteStop
         fields = [
             "id", "route", "place", "place_name", "place_location",
+            "place_detail", "country", "coords",
             "stop_order",
             # V1.1 : scission arrival/departure pour modéliser les pauses
             # longues (Tambacounda 30 min, déjeuner Kayes). `offset_minutes`
@@ -52,6 +62,23 @@ class RouteStopSerializer(serializers.ModelSerializer):
             "created_at", "updated_at",
         ]
         read_only_fields = ["offset_minutes"]
+
+    @extend_schema_field(OpenApiTypes.STR)
+    def get_place_detail(self, obj):
+        return obj.place.name if obj.place_id else ""
+
+    @extend_schema_field(OpenApiTypes.STR)
+    def get_country(self, obj):
+        return getattr(obj.place, "country_code", "") or "" if obj.place_id else ""
+
+    @extend_schema_field({"type": "array", "items": {"type": "number"}})
+    def get_coords(self, obj):
+        if not obj.place_id:
+            return []
+        loc = obj.place.location
+        if loc is None:
+            return []
+        return [loc.x, loc.y]
 
     def validate(self, attrs):
         # Récupère les valeurs effectives (patch partiel : fallback sur instance).
@@ -91,15 +118,51 @@ class RouteSerializer(serializers.ModelSerializer):
     # Pas de source="stops" : DRF interdit un source identique au nom du champ.
     stops = RouteStopSerializer(many=True, read_only=True)
 
+    # Phase 7 : alias à plat `o`/`d` pour Routes.jsx (card + liste). Lit la
+    # ville du Place quand elle est renseignée, retombe sur son `name`. Les
+    # FK `origin_place`/`destination_place` restent sérialisés en UUID à côté
+    # — contrat RN mobile inchangé.
+    o = serializers.SerializerMethodField()
+    d = serializers.SerializerMethodField()
+
     class Meta:
         model = Route
         fields = "__all__"
 
+    @extend_schema_field(OpenApiTypes.STR)
+    def get_o(self, obj):
+        place = obj.origin_place
+        if place is None:
+            return ""
+        return place.city or place.name or ""
+
+    @extend_schema_field(OpenApiTypes.STR)
+    def get_d(self, obj):
+        place = obj.destination_place
+        if place is None:
+            return ""
+        return place.city or place.name or ""
+
 
 class ScheduleSerializer(serializers.ModelSerializer):
+    # Phase 7 : alias à plat pour Routes.jsx (chip horaire + libellé jours).
+    # Le champ `departure_time` reste exposé pour les apps RN qui le lisent.
+    time = serializers.SerializerMethodField()
+    days = serializers.SerializerMethodField()
+
     class Meta:
         model = Schedule
         fields = "__all__"
+
+    @extend_schema_field(OpenApiTypes.STR)
+    def get_time(self, obj):
+        if obj.departure_time is None:
+            return ""
+        return obj.departure_time.strftime("%H:%M")
+
+    @extend_schema_field(OpenApiTypes.STR)
+    def get_days(self, obj):
+        return days_label_fr(obj.days_of_week)
 
 
 class SeatMapSerializer(serializers.ModelSerializer):
@@ -123,12 +186,17 @@ class SeatMapSerializer(serializers.ModelSerializer):
     # borné par la cardinalité (1 instance), donc acceptable.
     usage_count = serializers.SerializerMethodField()
 
+    # Phase 7 : alias DS (SeatMaps.jsx) — `capacity` = `total_seats`.
+    # `code` reste exposé via `fields = "__all__"` (généré au save model).
+    capacity = serializers.SerializerMethodField()
+
     class Meta:
         model = SeatMap
         fields = "__all__"
         # tenant est injecté par la vue (perform_create) ; is_template n'est
-        # écrit que par la migration data (jamais depuis l'API).
-        read_only_fields = ["tenant", "is_template", "created_at", "updated_at"]
+        # écrit que par la migration data (jamais depuis l'API). `code` est
+        # auto-généré au save : lecture seule côté API.
+        read_only_fields = ["tenant", "is_template", "code", "created_at", "updated_at"]
 
     @extend_schema_field(serializers.IntegerField())
     def get_usage_count(self, obj):
@@ -136,6 +204,10 @@ class SeatMapSerializer(serializers.ModelSerializer):
         if annotated is not None:
             return annotated
         return obj.trips.count()
+
+    @extend_schema_field(OpenApiTypes.INT)
+    def get_capacity(self, obj):
+        return obj.total_seats
 
     def validate_layout(self, value):
         if not isinstance(value, list) or len(value) == 0:
