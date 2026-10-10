@@ -9,6 +9,8 @@ from voyage.models import LuggagePolicy
 
 from .models import (
     Driver,
+    DriverDocument,
+    DriverHRNote,
     Fleet,
     FleetVehicle,
     Vehicle,
@@ -246,6 +248,79 @@ _DRIVER_STATUS_LABEL = {
 }
 
 
+class VehicleMiniSerializer(serializers.ModelSerializer):
+    """Mini-sérialiseur pour l'exposition inverse de ``Driver.assigned_vehicles``."""
+
+    class Meta:
+        model = Vehicle
+        fields = ["id", "plate_number", "make", "model_name"]
+
+
+class DriverHRNoteSerializer(serializers.ModelSerializer):
+    by_name = serializers.SerializerMethodField()
+
+    class Meta:
+        model = DriverHRNote
+        fields = [
+            "id", "driver", "by", "by_name", "text", "kind",
+            "created_at", "updated_at",
+        ]
+        read_only_fields = ["by", "created_at", "updated_at"]
+
+    @extend_schema_field(OpenApiTypes.STR)
+    def get_by_name(self, obj) -> str:
+        user = obj.by
+        if not user:
+            return ""
+        full = getattr(user, "get_full_name", lambda: "")() or ""
+        if full:
+            return full
+        return getattr(user, "email", "") or ""
+
+
+class DriverHRNoteMiniSerializer(serializers.ModelSerializer):
+    by_name = serializers.SerializerMethodField()
+
+    class Meta:
+        model = DriverHRNote
+        fields = ["id", "created_at", "kind", "text", "by_name"]
+
+    @extend_schema_field(OpenApiTypes.STR)
+    def get_by_name(self, obj) -> str:
+        user = obj.by
+        if not user:
+            return ""
+        full = getattr(user, "get_full_name", lambda: "")() or ""
+        if full:
+            return full
+        return getattr(user, "email", "") or ""
+
+
+class DriverDocumentSerializer(serializers.ModelSerializer):
+    file_url = serializers.SerializerMethodField()
+
+    class Meta:
+        model = DriverDocument
+        fields = [
+            "id", "driver", "type", "number", "issue_date", "expiry_date",
+            "file", "file_url", "notes", "created_at", "updated_at",
+        ]
+        read_only_fields = ["created_at", "updated_at"]
+
+    @extend_schema_field(OpenApiTypes.URI)
+    def get_file_url(self, obj):
+        if not obj.file:
+            return None
+        try:
+            url = obj.file.url
+        except (ValueError, AttributeError):
+            return None
+        request = self.context.get("request")
+        if request is None:
+            return url
+        return request.build_absolute_uri(url)
+
+
 class DriverListSerializer(serializers.ModelSerializer):
     user = DriverUserMiniSerializer(read_only=True)
     # Alias plats ajoutés le 7 oct 2026 pour simplifier l'accès côté
@@ -290,6 +365,9 @@ class DriverListSerializer(serializers.ModelSerializer):
 
 class DriverDetailSerializer(DriverListSerializer):
     last_known_location = PointFieldSerializer(read_only=True)
+    recent_hr_notes = serializers.SerializerMethodField()
+    documents_count = serializers.IntegerField(read_only=True, default=0)
+    assigned_vehicles = serializers.SerializerMethodField()
 
     class Meta(DriverListSerializer.Meta):
         fields = [
@@ -297,7 +375,17 @@ class DriverDetailSerializer(DriverListSerializer):
             "birth_date", "birth_place", "address",
             "emergency_contact_name", "emergency_contact_phone",
             "last_known_location", "created_at", "updated_at", "tenant",
+            "recent_hr_notes", "documents_count", "assigned_vehicles",
         ]
+
+    @extend_schema_field({"type": "array", "items": {"type": "object"}})
+    def get_recent_hr_notes(self, obj):
+        qs = obj.hr_notes.all()[:5]
+        return DriverHRNoteMiniSerializer(qs, many=True).data
+
+    @extend_schema_field({"type": "array", "items": {"type": "object"}})
+    def get_assigned_vehicles(self, obj):
+        return VehicleMiniSerializer(obj.assigned_vehicles.all(), many=True).data
 
 
 class DriverCreateSerializer(serializers.ModelSerializer):

@@ -282,6 +282,90 @@ class VehicleMaintenance(TenantModel):
         return f"{self.get_type_display()} — {self.vehicle.plate_number} ({self.at})"
 
 
+class DriverHRNote(TenantModel):
+    """Note RH (RH / audit) sur un chauffeur.
+
+    Modèle dédié plutôt qu'un JSON array sur ``Driver`` pour conserver la
+    valeur d'audit (horodatage immuable + auteur). Les suppressions sont
+    bloquées côté viewset pour tout utilisateur non-superadmin.
+    """
+
+    class Kind(models.TextChoices):
+        NOTE = "note", "Note"
+        SUSPENSION = "suspension", "Suspension"
+        REACTIVATION = "reactivation", "Réactivation"
+        TRAINING = "training", "Formation"
+        WARNING = "warning", "Avertissement"
+        OTHER = "other", "Autre"
+
+    driver = models.ForeignKey(
+        "fleet.Driver", on_delete=models.CASCADE, related_name="hr_notes",
+    )
+    by = models.ForeignKey(
+        "iam.User",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+        verbose_name="Auteur",
+    )
+    text = models.TextField("Contenu")
+    kind = models.CharField(
+        "Nature",
+        max_length=32,
+        choices=Kind.choices,
+        default=Kind.NOTE,
+    )
+
+    objects = TenantManager()
+
+    class Meta:
+        db_table = "fleet_driver_hr_notes"
+        verbose_name = "Note RH chauffeur"
+        verbose_name_plural = "Notes RH chauffeurs"
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"[{self.get_kind_display()}] {self.driver_id}"
+
+
+class DriverDocument(TenantModel):
+    """Pièce administrative d'un chauffeur (permis scanné, visite médicale,
+    contrat de travail…). Pattern miroir de ``VehicleDocument`` — pas de
+    modèle polymorphe (décision V1)."""
+
+    class DocType(models.TextChoices):
+        LICENSE_SCAN = "license_scan", "Permis scanné"
+        MEDICAL_CHECK = "medical_check", "Visite médicale"
+        CONTRACT = "contract", "Contrat de travail"
+        TRAINING_CERT = "training_cert", "Attestation de formation"
+        CRIMINAL_RECORD = "criminal_record", "Extrait de casier judiciaire"
+        ID_CARD = "id_card", "Pièce d'identité"
+        OTHER = "other", "Autre"
+
+    driver = models.ForeignKey(
+        "fleet.Driver", on_delete=models.CASCADE, related_name="documents",
+    )
+    type = models.CharField("Type", max_length=32, choices=DocType.choices)
+    number = models.CharField("N° document", max_length=100, blank=True)
+    issue_date = models.DateField("Date émission", null=True, blank=True)
+    expiry_date = models.DateField("Date expiration", null=True, blank=True)
+    file = models.FileField(
+        "Fichier", upload_to="drivers/documents/", null=True, blank=True,
+    )
+    notes = models.CharField("Notes", max_length=255, blank=True)
+
+    objects = TenantManager()
+
+    class Meta:
+        db_table = "fleet_driver_documents"
+        verbose_name = "Document chauffeur"
+        verbose_name_plural = "Documents chauffeurs"
+
+    def __str__(self):
+        return f"{self.get_type_display()} — {self.driver_id}"
+
+
 class Fleet(TenantModel):
     name = models.CharField("Nom", max_length=100)
     zone = models.CharField("Zone", max_length=100, blank=True)

@@ -2,19 +2,34 @@
 import io
 import os
 import zipfile
+from datetime import timedelta
 
+from django.db import transaction
 from django.db.models import Count
 from django.http import HttpResponse
+from django.utils import timezone
 from drf_spectacular.utils import extend_schema, extend_schema_view
+from rest_framework import serializers as drf_serializers
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
-from rest_framework.parsers import FormParser, MultiPartParser
+from rest_framework.exceptions import PermissionDenied
+from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.response import Response
 
-from .models import Driver, Fleet, Vehicle, VehicleMaintenance, VehicleType
+from .models import (
+    Driver,
+    DriverDocument,
+    DriverHRNote,
+    Fleet,
+    Vehicle,
+    VehicleMaintenance,
+    VehicleType,
+)
 from .serializers import (
     DriverCreateSerializer,
     DriverDetailSerializer,
+    DriverDocumentSerializer,
+    DriverHRNoteSerializer,
     DriverListSerializer,
     FleetCreateSerializer,
     FleetSerializer,
@@ -179,6 +194,14 @@ class VehicleMaintenanceViewSet(viewsets.ModelViewSet):
         serializer.save(tenant=self.request.tenant, created_by=user)
 
 
+class _SuspendDriverInputSerializer(drf_serializers.Serializer):
+    reason = drf_serializers.CharField(min_length=10, required=True)
+
+
+class _ReactivateDriverInputSerializer(drf_serializers.Serializer):
+    reason = drf_serializers.CharField(required=False, allow_blank=True)
+
+
 @extend_schema_view(
     list=_TAG, retrieve=_TAG, create=_TAG, update=_TAG, partial_update=_TAG, destroy=_TAG,
     available=_TAG,
@@ -189,7 +212,11 @@ class DriverViewSet(viewsets.ModelViewSet):
     search_fields = ["user__first_name", "user__last_name", "license_number"]
 
     def get_queryset(self):
-        return Driver.objects.filter(tenant=self.request.tenant).select_related("user")
+        return (
+            Driver.objects.filter(tenant=self.request.tenant)
+            .select_related("user")
+            .annotate(documents_count=Count("documents"))
+        )
 
     def get_serializer_class(self):
         if self.action == "list":
@@ -209,6 +236,176 @@ class DriverViewSet(viewsets.ModelViewSet):
         drivers = self.get_queryset().filter(status="available")
         serializer = DriverListSerializer(drivers, many=True)
         return Response(serializer.data)
+
+    @action(
+        detail=True,
+        methods=["post"],
+        url_path="photo",
+        parser_classes=[MultiPartParser, FormParser],
+    )
+    def upload_photo(self, request, pk=None):
+        """POST /fleet/drivers/{id}/photo/ — upload multipart (5MB max,
+        jpeg/png/webp)."""
+        driver = self.get_object()
+        photo = request.FILES.get("photo")
+        if photo is None:
+            return Response(
+                {"detail": "Champ 'photo' requis (multipart)."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if photo.size > MAX_PHOTO_SIZE:
+            return Response(
+                {"detail": "Fichier trop volumineux (max 5 MB)."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if photo.content_type not in ALLOWED_PHOTO_CONTENT_TYPES:
+            return Response(
+                {"detail": "Type MIME non supporté (jpeg/png/webp uniquement)."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        driver.photo = photo
+        driver.save(update_fields=["photo", "updated_at"])
+        return Response(
+            DriverDetailSerializer(driver, context={"request": request}).data,
+        )
+
+    @action(detail=True, methods=["post"], url_path="suspend")
+    def suspend(self, request, pk=None):
+        """Suspend driver. Reason obligatoire (≥10 chars). Crée une HRNote
+        atomiquement avec ``kind='suspension'``."""
+        driver = self.get_object()
+        serializer = _SuspendDriverInputSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        reason = serializer.validated_data["reason"]
+        user = request.user if request.user.is_authenticated else None
+        with transaction.atomic():
+            driver.status = Driver.Status.OFF_DUTY
+            driver.save(update_fields=["status", "updated_at"])
+            DriverHRNote.objects.create(
+                tenant=driver.tenant,
+                driver=driver,
+                kind=DriverHRNote.Kind.SUSPENSION,
+                text=reason,
+                by=user,
+            )
+        # Rechargement avec annotation pour sérialiser proprement
+        driver = self.get_queryset().get(pk=driver.pk)
+        return Response(
+            DriverDetailSerializer(driver, context={"request": request}).data,
+        )
+
+    @action(detail=True, methods=["post"], url_path="reactivate")
+    def reactivate(self, request, pk=None):
+        """Réactive un chauffeur suspendu. Motif optionnel. Crée une HRNote
+        avec ``kind='reactivation'``."""
+        driver = self.get_object()
+        serializer = _ReactivateDriverInputSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        reason = serializer.validated_data.get("reason") or "Réactivation"
+        user = request.user if request.user.is_authenticated else None
+        with transaction.atomic():
+            driver.status = Driver.Status.AVAILABLE
+            driver.save(update_fields=["status", "updated_at"])
+            DriverHRNote.objects.create(
+                tenant=driver.tenant,
+                driver=driver,
+                kind=DriverHRNote.Kind.REACTIVATION,
+                text=reason,
+                by=user,
+            )
+        driver = self.get_queryset().get(pk=driver.pk)
+        return Response(
+            DriverDetailSerializer(driver, context={"request": request}).data,
+        )
+
+    @action(detail=True, methods=["get"], url_path="stats")
+    def stats(self, request, pk=None):
+        """GET /fleet/drivers/{id}/stats/ — statistiques page détail DS.
+
+        Retourne ``trips_this_month``, ``trips_this_year``,
+        ``trips_last_month``, ``average_rating`` et ``ponctuality_pct``.
+
+        **Dette V1.1 (dues à l'absence de champs sources)** :
+        - ``average_rating`` → null (pas de champ ``rating`` sur Reservation).
+        - ``ponctuality_pct`` → null (nécessite ``actual_departure_at`` vs
+          ``scheduled_at`` normalisés — à poser en V1.1).
+        """
+        from voyage.models import Trip
+
+        driver = self.get_object()
+        now = timezone.now()
+        trips_this_month = Trip.objects.filter(
+            driver=driver,
+            scheduled_at__year=now.year,
+            scheduled_at__month=now.month,
+        ).count()
+        trips_this_year = Trip.objects.filter(
+            driver=driver, scheduled_at__year=now.year,
+        ).count()
+        prev_month = now.replace(day=1) - timedelta(days=1)
+        trips_last_month = Trip.objects.filter(
+            driver=driver,
+            scheduled_at__year=prev_month.year,
+            scheduled_at__month=prev_month.month,
+        ).count()
+        return Response({
+            "trips_this_month": trips_this_month,
+            "trips_this_year": trips_this_year,
+            "trips_last_month": trips_last_month,
+            "average_rating": None,
+            "ponctuality_pct": None,
+        })
+
+
+@extend_schema_view(
+    list=_TAG, retrieve=_TAG, create=_TAG, update=_TAG, partial_update=_TAG, destroy=_TAG,
+)
+class DriverHRNoteViewSet(viewsets.ModelViewSet):
+    """CRUD des notes RH chauffeur. Delete bloqué pour non-superadmin
+    (audit immuable)."""
+
+    serializer_class = DriverHRNoteSerializer
+    queryset = DriverHRNote.objects.none()
+    filterset_fields = ["driver", "kind"]
+    ordering = ["-created_at"]
+
+    def get_queryset(self):
+        return (
+            DriverHRNote.objects.filter(tenant=self.request.tenant)
+            .select_related("driver", "by")
+        )
+
+    def perform_create(self, serializer):
+        user = self.request.user if self.request.user.is_authenticated else None
+        serializer.save(tenant=self.request.tenant, by=user)
+
+    def perform_destroy(self, instance):
+        if not getattr(self.request.user, "is_superuser", False):
+            raise PermissionDenied(
+                "Les notes RH sont immuables (audit) — suppression réservée au superadmin.",
+            )
+        instance.delete()
+
+
+@extend_schema_view(
+    list=_TAG, retrieve=_TAG, create=_TAG, update=_TAG, partial_update=_TAG, destroy=_TAG,
+)
+class DriverDocumentViewSet(viewsets.ModelViewSet):
+    """CRUD des documents chauffeur (permis scanné, visite médicale…)."""
+
+    serializer_class = DriverDocumentSerializer
+    queryset = DriverDocument.objects.none()
+    filterset_fields = ["driver", "type"]
+    parser_classes = [JSONParser, MultiPartParser, FormParser]
+
+    def get_queryset(self):
+        return (
+            DriverDocument.objects.filter(tenant=self.request.tenant)
+            .select_related("driver")
+        )
+
+    def perform_create(self, serializer):
+        serializer.save(tenant=self.request.tenant)
 
 
 @extend_schema_view(
