@@ -43,6 +43,30 @@ class VehicleType(TenantModel):
         related_name="+",
         verbose_name="Politique bagages par défaut",
     )
+    # Plan de sièges par défaut au niveau du type de véhicule. Permet au
+    # frontend (combobox DS backoffice) d'affecter un template à un type et
+    # d'hériter cette valeur côté Vehicle à la création. SET_NULL car la
+    # suppression d'un plan ne doit pas invalider le type.
+    default_seat_map = models.ForeignKey(
+        "voyage.SeatMap",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="vehicle_types_default",
+        verbose_name="Plan de sièges par défaut",
+        help_text=(
+            "Plan utilisé par défaut pour les véhicules créés avec ce type."
+        ),
+    )
+    # Champs blueprint SVG (préparation UI dette V1.1 Vague 3).
+    wheelbase_mm = models.PositiveIntegerField(
+        "Empattement (mm)", null=True, blank=True,
+        help_text="Distance axe avant / axe arrière, pour blueprint SVG",
+    )
+    axles_count = models.PositiveIntegerField(
+        "Nombre d'essieux", null=True, blank=True,
+        help_text="Pour blueprint SVG — 2 (bus standard) à 4 (double-pont)",
+    )
 
     objects = TenantManager()
 

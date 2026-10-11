@@ -16,6 +16,7 @@ from rest_framework.exceptions import PermissionDenied
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.response import Response
 
+from .filters import DriverFilterSet
 from .models import (
     Driver,
     DriverDocument,
@@ -208,7 +209,9 @@ class _ReactivateDriverInputSerializer(drf_serializers.Serializer):
 )
 class DriverViewSet(viewsets.ModelViewSet):
     queryset = Driver.objects.none()
-    filterset_fields = ["status"]
+    # FilterSet dédié (dette V1.1 Vague 4) — expose ``license_classes`` CSV
+    # overlap et ``is_assigned`` true/false en plus de ``status``.
+    filterset_class = DriverFilterSet
     search_fields = ["user__first_name", "user__last_name", "license_number"]
 
     def get_queryset(self):
