@@ -125,10 +125,46 @@ DEMO_CLIENT_COUNT = 2
 # 0005. Le dict `{rows, cols}` legacy du MVP pré-V1.1 n'est plus accepté par
 # le front (grille 2D attendue) — on tire la vraie disposition depuis le
 # template dont le nom match la capacité.
+# VehicleType seed enrichi avec dimensions réelles (longueur, largeur,
+# hauteur, PTAC, soute, empattement, essieux) : alimente les composants
+# Blueprint/SideDrawing/Lineup DS côté front (geom() scale la silhouette
+# selon length_m + wheelbase_mm + axles_count + category).
 VEHICLE_TYPES = [
-    ("Autocar 45 places", 45, "diesel", "45 places classique"),
-    ("Minicar 30 places", 30, "diesel", "30 places classique"),
-    ("Minibus 15 places", 15, "essence", "Minibus 15"),
+    {
+        "name": "Autocar 45 places", "capacity": 45, "fuel": "diesel",
+        "layout": "45 places classique",
+        "length_m": "12.20", "width_m": "2.55", "height_m": "3.70",
+        "ptac_kg": 18000, "hold_m3": "9.50",
+        "wheelbase_mm": 7000, "axles_count": 3,
+    },
+    {
+        "name": "Minicar 30 places", "capacity": 30, "fuel": "diesel",
+        "layout": "30 places classique",
+        "length_m": "8.40", "width_m": "2.50", "height_m": "3.00",
+        "ptac_kg": 12000, "hold_m3": "6.50",
+        "wheelbase_mm": 4500, "axles_count": 2,
+    },
+    {
+        "name": "Minibus 15 places", "capacity": 15, "fuel": "essence",
+        "layout": "Minibus 15",
+        "length_m": "5.40", "width_m": "2.00", "height_m": "2.30",
+        "ptac_kg": 5500, "hold_m3": "2.00",
+        "wheelbase_mm": 3000, "axles_count": 2,
+    },
+    {
+        "name": "Minibus 20 places", "capacity": 20, "fuel": "diesel",
+        "layout": "Minibus 20",
+        "length_m": "7.00", "width_m": "2.10", "height_m": "2.40",
+        "ptac_kg": 7500, "hold_m3": "3.50",
+        "wheelbase_mm": 4000, "axles_count": 2,
+    },
+    {
+        "name": "Pickup", "capacity": 5, "fuel": "diesel",
+        "layout": "Pickup",
+        "length_m": "5.30", "width_m": "1.90", "height_m": "1.90",
+        "ptac_kg": 3500, "hold_m3": "2.50",
+        "wheelbase_mm": 3200, "axles_count": 2,
+    },
 ]
 
 VEHICLES = {
@@ -573,10 +609,20 @@ class Command(BaseCommand):
             home = self.place(HOME_PLACE[tenant.slug])
             home_lon, home_lat = home.location.x, home.location.y
 
-            for name, capacity, fuel, _layout in VEHICLE_TYPES:
+            for vt in VEHICLE_TYPES:
                 _, was_created = VehicleType.objects.get_or_create(
-                    tenant=tenant, name=name,
-                    defaults={"default_capacity": capacity, "fuel_type": fuel},
+                    tenant=tenant, name=vt["name"],
+                    defaults={
+                        "default_capacity": vt["capacity"],
+                        "fuel_type": vt["fuel"],
+                        "length_m": vt["length_m"],
+                        "width_m": vt["width_m"],
+                        "height_m": vt["height_m"],
+                        "ptac_kg": vt["ptac_kg"],
+                        "hold_m3": vt["hold_m3"],
+                        "wheelbase_mm": vt["wheelbase_mm"],
+                        "axles_count": vt["axles_count"],
+                    },
                 )
                 types += was_created
 
@@ -667,7 +713,10 @@ class Command(BaseCommand):
                           "excess_price_per_kg_xof": excess, "max_pieces": pieces},
             )
 
-        for type_name, capacity, _fuel, template_name in VEHICLE_TYPES:
+        for vt in VEHICLE_TYPES:
+            type_name = vt["name"]
+            capacity = vt["capacity"]
+            template_name = vt["layout"]
             vehicle_type = VehicleType.objects.filter(tenant=tenant, name=type_name).first()
             template = SeatMap.objects.filter(
                 is_template=True, name=template_name,
