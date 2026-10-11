@@ -17,6 +17,7 @@ urlpatterns = [
     # et que /api/v1/auth/{me,otp/*}/ tombent dans iam.urls ci-dessous.
     path("api/v1/", include("iam.urls_auth")),
     path("api/v1/auth/", include("iam.urls")),
+    path("api/v1/iam/", include("iam.urls_iam")),
     path("api/v1/platform/", include("iam.platform_urls")),
     path("api/v1/customer/", include("iam.customer_urls")),
     path("api/v1/voyage/", include("voyage.urls")),
