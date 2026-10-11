@@ -247,6 +247,54 @@ API du Transport Management System TOUPAC.
             }
         }
     },
+    # Résout les collisions de nommage sur les enums `status`/`type` qui
+    # produisaient des `Status564Enum`, `TypeD43Enum`, … au schéma OpenAPI.
+    # Un override = un nom explicite par choices set, pointant vers le
+    # TextChoices parent via import path. Les champs non listés ici
+    # restent nommés par drf-spectacular (noms stables tant qu'il n'y a
+    # pas de collision).
+    "ENUM_NAME_OVERRIDES": {
+        # fleet
+        "VehicleStatusEnum": "fleet.models.Vehicle.Status",
+        "VehicleFuelTypeEnum": "fleet.models.Vehicle.FuelType",
+        "VehicleTransmissionEnum": "fleet.models.Vehicle.Transmission",
+        "VehicleTypeCategoryEnum": "fleet.models.VehicleType.Category",
+        "VehicleTypePermitRequiredEnum": "fleet.models.VehicleType.PermitRequired",
+        "VehicleDocTypeEnum": "fleet.models.VehicleDocument.DocType",
+        "VehicleMaintenanceTypeEnum": "fleet.models.VehicleMaintenance.Type",
+        "DriverStatusEnum": "fleet.models.Driver.Status",
+        "DriverHRNoteKindEnum": "fleet.models.DriverHRNote.Kind",
+        "DriverDocTypeEnum": "fleet.models.DriverDocument.DocType",
+        # voyage
+        "TripStatusEnum": "voyage.models.Trip.Status",
+        "TripStopStatusEnum": "voyage.models.TripStop.Status",
+        "ReservationStatusEnum": "voyage.models.Reservation.Status",
+        "ControlSessionSyncStateEnum": "voyage.models.ControlSession.SyncState",
+        "AnomalyTypeEnum": "voyage.models.Anomaly.Type",
+        "AnomalyStatusEnum": "voyage.models.Anomaly.Status",
+        "IncidentTypeEnum": "voyage.models.Incident.Type",
+        "IncidentStatusEnum": "voyage.models.Incident.Status",
+        # iam
+        "TenantStatusEnum": "iam.models.Tenant.Status",
+        "UserRoleEnum": "iam.models.User.Role",
+        # colis
+        "OrderStatusEnum": "colis.models.Order.Status",
+        "ParcelStatusEnum": "colis.models.Parcel.Status",
+        "DeliveryTaskTypeEnum": "colis.models.DeliveryTask.TaskType",
+        "DeliveryTaskStatusEnum": "colis.models.DeliveryTask.Status",
+        "ProofOfDeliveryPodTypeEnum": "colis.models.ProofOfDelivery.PodType",
+        # billing
+        "PriceListTypeEnum": "billing.models.PriceList.Type",
+        "InvoiceStatusEnum": "billing.models.Invoice.Status",
+        "PaymentStatusEnum": "billing.models.Payment.Status",
+        # geo
+        "PlaceTypeEnum": "geo.models.Place.PlaceType",
+        "ZoneTypeEnum": "geo.models.Zone.ZoneType",
+        # tracking
+        "GeofenceTypeEnum": "tracking.models.Geofence.FenceType",
+        # notifications
+        "NotificationStatusEnum": "notifications.models.NotificationLog.Status",
+    },
 }
 
 # ─── JWT (simplejwt) — pattern validé Sprint 2 §4.19 ───

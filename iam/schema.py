@@ -36,3 +36,33 @@ class ApiKeyAuthenticationScheme(OpenApiAuthenticationExtension):
                 "portés par les scopes de la clé — voir /developers/#scopes."
             ),
         }
+
+
+class CookieJWTAuthenticationScheme(SimpleJWTScheme):
+    """`CookieJWTAuthentication` étend `DenylistJWTAuthentication` pour lire
+    le JWT depuis le cookie HTTP-only `toupac_access` (fallback header
+    Authorization). Mêmes garanties que `Bearer`, exposé sous le même nom
+    au schéma pour que les intégrateurs n'aient pas à distinguer."""
+
+    target_class = "iam.authentication_cookie.CookieJWTAuthentication"
+    name = "Bearer"
+
+
+class PlatformApiKeyAuthenticationScheme(OpenApiAuthenticationExtension):
+    """Clé plateforme (prefix `tpc_platform_<hex>.<secret>`) — accompagnée
+    du header `X-Tenant-ID` qui désigne le tenant visé par la requête."""
+
+    target_class = "iam.platform_authentication.PlatformApiKeyAuthentication"
+    name = "PlatformApiKey"
+
+    def get_security_definition(self, auto_schema):
+        return {
+            "type": "apiKey",
+            "in": "header",
+            "name": "X-API-Key",
+            "description": (
+                "Clé plateforme, au format `tpc_platform_<hex>.<secret>`. "
+                "Le header `X-Tenant-ID` doit accompagner la clé pour "
+                "sélectionner le tenant visé."
+            ),
+        }
