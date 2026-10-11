@@ -36,9 +36,13 @@ class PointFieldSerializer(serializers.Field):
 
 
 class LuggagePolicyMiniSerializer(serializers.ModelSerializer):
+    """Nested read de LuggagePolicy. Expose les 2 champs chiffrés
+    (``included_kg`` + ``excess_price_per_kg_xof``) consommés par la grid
+    3 metrics du DS VehicleTypes — Inclus / Excédent / Soute."""
+
     class Meta:
         model = LuggagePolicy
-        fields = ["id", "name"]
+        fields = ["id", "name", "included_kg", "excess_price_per_kg_xof"]
 
 
 class SeatMapMiniSerializer(serializers.ModelSerializer):
@@ -47,11 +51,17 @@ class SeatMapMiniSerializer(serializers.ModelSerializer):
     Exposé partout où un plan de sièges doit être présenté en nested read
     (``VehicleType.default_seat_map``, ``Vehicle.default_seat_map``…) sans
     tirer tout le plan complet.
+
+    ``layout`` ajouté V1.1 pour permettre à l'UI (SeatMap component en
+    lecture seule) de rendre l'aperçu 2D compact dans la card "Plans de
+    sièges associés" du détail Type véhicule, sans refetch séparé. Impact
+    perf acceptable : nested = 1 plan à la fois (``default_seat_map``),
+    pas une liste.
     """
 
     class Meta:
         model = SeatMap
-        fields = ["id", "name", "total_seats", "is_template"]
+        fields = ["id", "name", "total_seats", "is_template", "layout"]
 
 
 class VehicleTypeSerializer(serializers.ModelSerializer):
