@@ -25,6 +25,7 @@ from .models import (
     Controller,
     ControlSession,
     Incident,
+    LuggagePolicy,
     Passenger,
     PassengerAccessLog,
     Reservation,
@@ -47,6 +48,7 @@ from .serializers import (
     ControlSessionSerializer,
     IncidentDetailSerializer,
     IncidentListSerializer,
+    LuggagePolicySerializer,
     ManifestSerializer,
     PassengerSerializer,
     QrPublicKeySerializer,
@@ -92,6 +94,31 @@ class RouteViewSet(ApiScopedViewSetMixin, viewsets.ModelViewSet):
             .select_related("origin_place", "destination_place", "luggage_policy")
             .prefetch_related("stops")
         )
+
+
+@extend_schema_view(**_CRUD_TAGS)
+class LuggagePolicyViewSet(ApiScopedViewSetMixin, viewsets.ModelViewSet):
+    """CRUD LuggagePolicy tenant-scopé.
+
+    Résout la dette V1.1 Vague 3 : l'endpoint est consommé par le
+    Combobox "+ Créer" du frontend VehicleTypeDetailPage pour la FK
+    `default_luggage_policy` sur VehicleType, et par Routes.jsx pour la
+    FK `luggage_policy` d'une Route.
+    """
+    api_scope_domain = "voyage"
+    throttle_classes = API_KEY_THROTTLES
+    serializer_class = LuggagePolicySerializer
+    queryset = LuggagePolicy.objects.none()
+    filterset_fields = ["name"]
+    search_fields = ["name"]
+    ordering_fields = ["name", "created_at"]
+    ordering = ["name"]
+
+    def get_queryset(self):
+        return LuggagePolicy.objects.filter(tenant=self.request.tenant)
+
+    def perform_create(self, serializer):
+        serializer.save(tenant=self.request.tenant)
 
 
 @extend_schema_view(**_CRUD_TAGS)
