@@ -5,7 +5,7 @@ from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
 from iam.models import User
-from voyage.models import LuggagePolicy
+from voyage.models import LuggagePolicy, SeatMap
 
 from .models import (
     Driver,
@@ -41,6 +41,19 @@ class LuggagePolicyMiniSerializer(serializers.ModelSerializer):
         fields = ["id", "name"]
 
 
+class SeatMapMiniSerializer(serializers.ModelSerializer):
+    """Shape compact consommé par le frontend ``SeatMapTemplateRef``.
+
+    Exposé partout où un plan de sièges doit être présenté en nested read
+    (``VehicleType.default_seat_map``, ``Vehicle.default_seat_map``…) sans
+    tirer tout le plan complet.
+    """
+
+    class Meta:
+        model = SeatMap
+        fields = ["id", "name", "total_seats", "is_template"]
+
+
 class VehicleTypeSerializer(serializers.ModelSerializer):
     # Alias plat pour les mockups DS qui attendent `seats` au lieu de
     # `default_capacity`. Les deux restent exposés en lecture.
@@ -53,6 +66,14 @@ class VehicleTypeSerializer(serializers.ModelSerializer):
         allow_null=True,
         write_only=True,
     )
+    default_seat_map = SeatMapMiniSerializer(read_only=True)
+    default_seat_map_id = serializers.PrimaryKeyRelatedField(
+        source="default_seat_map",
+        queryset=SeatMap.objects.all(),
+        required=False,
+        allow_null=True,
+        write_only=True,
+    )
 
     class Meta:
         model = VehicleType
@@ -60,7 +81,9 @@ class VehicleTypeSerializer(serializers.ModelSerializer):
             "id", "name", "short", "category", "description",
             "default_capacity", "seats", "fuel_type", "permit_required",
             "length_m", "width_m", "height_m", "ptac_kg", "hold_m3",
+            "wheelbase_mm", "axles_count",
             "default_luggage_policy", "default_luggage_policy_id",
+            "default_seat_map", "default_seat_map_id",
         ]
 
 
