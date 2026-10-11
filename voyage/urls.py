@@ -6,6 +6,7 @@ from .views import (
     ControlEventLookupView,
     ControllerViewSet,
     IncidentViewSet,
+    LuggagePolicyViewSet,
     PassengerViewSet,
     QrPublicKeyView,
     ReservationViewSet,
@@ -19,6 +20,7 @@ from .views import (
 router = DefaultRouter()
 router.register("routes", RouteViewSet, basename="route")
 router.register("route-stops", RouteStopViewSet, basename="route-stop")
+router.register("luggage-policies", LuggagePolicyViewSet, basename="luggage-policy")
 router.register("schedules", ScheduleViewSet, basename="schedule")
 router.register("trips", TripViewSet, basename="trip")
 router.register("reservations", ReservationViewSet, basename="reservation")

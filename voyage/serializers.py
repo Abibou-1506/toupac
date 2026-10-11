@@ -28,9 +28,17 @@ from .services.exceptions import RejectionCode
 
 
 class LuggagePolicySerializer(serializers.ModelSerializer):
+    """Politique bagages — exposée en CRUD via `LuggagePolicyViewSet`.
+
+    V1.1 Vague 3 : alimente le combobox "+ Créer" de `VehicleTypeDetailPage`
+    (FK `default_luggage_policy`). `tenant` est injecté par la vue en
+    perform_create ; les timestamps/id sont read-only.
+    """
+
     class Meta:
         model = LuggagePolicy
         fields = "__all__"
+        read_only_fields = ["id", "tenant", "created_at", "updated_at"]
 
 
 class RouteStopSerializer(serializers.ModelSerializer):
@@ -178,6 +186,19 @@ class SeatMapSerializer(serializers.ModelSerializer):
     - Grille rectangulaire (toutes les rangées ont la même largeur)
     - Labels de sièges uniques (hors cellules spéciales)
     - `total_seats` cohérent avec le nombre de cellules de type seat
+
+    Dette V1.1 Vague 3 — champ `code` :
+    Le `code` stocké en base (`<prefix_vehicle_type>-<total_seats>`) est
+    figé au premier save (cf. SeatMap.save) ; un rename du VehicleType
+    plus tard ne le met pas à jour. L'UI web backoffice contourne cette
+    dette en synthétisant à l'affichage un label dérivé à chaud de
+    `vehicle_type.short`/`vehicle_type.name` et `total_seats`, de sorte
+    qu'un rename se reflète automatiquement côté UI sans migration
+    donnée. Conséquence : ne PAS introduire un SerializerMethodField
+    `code` qui écraserait la valeur stockée consommée par les apps RN
+    (ManifestSerializer embarque `seat_map.code` et les contrôleurs
+    offline en dépendent) ; toute évolution de ce champ doit être
+    discutée au niveau produit avant d'être mise en œuvre.
     """
 
     # Compté par le ViewSet via Count('trips') annoté (pas de N+1 en liste).
